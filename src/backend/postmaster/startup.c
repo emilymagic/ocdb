@@ -22,6 +22,8 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include "access/skey.h"
+#include "access/tileam.h"
 #include "access/xlog.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
@@ -245,10 +247,14 @@ StartupProcessMain(void)
 	 */
 	PG_SETMASK(&UnBlockSig);
 
+	s3_init();
+
 	/*
 	 * Do what we came for.
 	 */
 	StartupXLOG();
+
+	s3_destroy();
 
 	/*
 	 * Exit normally. Exit code 0 tells postmaster that we completed recovery

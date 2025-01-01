@@ -32,6 +32,8 @@
 
 #include <ctype.h>
 
+#include "access/tileam.h"
+#include "utils/dispatchcat.h"
 #include "lib/stringinfo.h"
 #include "nodes/params.h"
 #include "nodes/parsenodes.h"
@@ -912,6 +914,64 @@ _outRowIdExpr(StringInfo str, const RowIdExpr *node)
 	WRITE_INT_FIELD(rowidexpr_id);
 }
 
+static void
+_outBlockDesc(StringInfo str, const BlockDesc *node)
+{
+	WRITE_NODE_TYPE("BLOCKDESC");
+	WRITE_UINT_FIELD(block_size);
+	WRITE_UINT_FIELD(block_tuple_num);
+	WRITE_UINT_FIELD(blockid);
+	appendBinaryStringInfo(str, node->block_name, TILE_KEY_SIZE * 2 + 1);
+	WRITE_ENUM_FIELD(block_htsv_result, HTSV_Result);
+}
+
+static void
+_outBlockListNode(StringInfo str, const BlockListNode *node)
+{
+	WRITE_NODE_TYPE("BLOCKLISTNODE");
+	WRITE_OID_FIELD(relid);
+	WRITE_OID_FIELD(relfilenode);
+	WRITE_NODE_FIELD(blockListInfo);
+}
+
+static void
+_outAuxNode(StringInfo str, const AuxNode *node)
+{
+	WRITE_NODE_TYPE("AUXNODE");
+	WRITE_NODE_FIELD(tableList);
+}
+
+static void
+_outCdbCatalogNode(StringInfo str, const CdbCatalogNode *node)
+{
+	WRITE_NODE_TYPE("CDBCATALOGNODE");
+	WRITE_UINT64_FIELD(full_xid);
+	WRITE_UINT64_FIELD(seq);
+	WRITE_OID_FIELD(namespace_1);
+	WRITE_OID_FIELD(namespace_2);
+	WRITE_NODE_FIELD(tableList);
+}
+
+static void
+_outCatalogTableNode(StringInfo str, const CatalogTableNode *node)
+{
+	WRITE_NODE_TYPE("CATALOGTABLENODE");
+	WRITE_OID_FIELD(relId);
+	WRITE_INT_FIELD(tupleDataSize);
+	appendBinaryStringInfo(str, node->tupleData, node->tupleDataSize);
+}
+
+static void
+_outCdbCatalogAuxNode(StringInfo str, const CdbCatalogAuxNode *node)
+{
+	WRITE_NODE_TYPE("CDBCATALOGAUXNODE");
+	appendBinaryStringInfo(str, (char *) node->completionTag,
+						   sizeof(node->completionTag));
+	WRITE_NODE_FIELD(catalog);
+	WRITE_NODE_FIELD(aux);
+	WRITE_NODE_FIELD(plan);
+}
+
 /*
  * _outNode -
  *	  converts a Node into binary string and append it to 'str'
@@ -1674,6 +1734,9 @@ _outNode(StringInfo str, void *obj)
 			case T_CreatePLangStmt:
 				_outCreatePLangStmt(str, obj);
 				break;
+			case T_CreateTableAsStmt:
+				_outCreateTableAsStmt(str, obj);
+				break;
 			case T_VacuumStmt:
 				_outVacuumStmt(str, obj);
 				break;
@@ -1844,7 +1907,33 @@ _outNode(StringInfo str, void *obj)
 			case T_RestrictInfo:
 				_outRestrictInfo(str, obj);
 				break;
-
+			case T_BlockDesc:
+				_outBlockDesc(str, obj);
+				break;
+			case T_BlockListNode:
+				_outBlockListNode(str, obj);
+				break;
+			case T_AuxNode:
+				_outAuxNode(str, obj);
+				break;
+			case T_CdbCatalogNode:
+				_outCdbCatalogNode(str, obj);
+				break;
+			case T_CatalogTableNode:
+				_outCatalogTableNode(str, obj);
+				break;
+			case T_CdbCatalogAuxNode:
+				_outCdbCatalogAuxNode(str, obj);
+				break;
+			case T_BlockDesc2:
+				_outBlockDesc2(str, obj);
+				break;
+			case T_CsQuery:
+				_outCsQuery(str, obj);
+				break;
+			case T_NextValNode:
+				_outNextValNode(str, obj);
+				break;
 			default:
 				elog(ERROR, "could not serialize unrecognized node type: %d",
 						 (int) nodeTag(obj));

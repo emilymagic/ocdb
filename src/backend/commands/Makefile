@@ -25,7 +25,7 @@ OBJS = amcmds.o aggregatecmds.o alter.o analyze.o async.o cluster.o comment.o \
 	tablecmds.o tablespace.o trigger.o tsearchcmds.o typecmds.o user.o \
 	vacuum.o variable.o view.o
 
-OBJS += analyzefuncs.o analyzeutils.o extprotocolcmds.o exttablecmds.o queue.o
-OBJS += resgroupcmds.o tablecmds_gp.o vacuum_ao.o
+OBJS += extprotocolcmds.o exttablecmds.o
+OBJS += resgroupcmds.o
 
 include $(top_srcdir)/src/backend/common.mk

@@ -20,9 +20,6 @@
 #include "utils/snapshot.h"
 
 #include "cdb/cdbpublic.h"
-#include "cdb/cdbtm.h"
-
-struct DtxContextInfo;         /* cdb/cdbdtxcontextinfo.h */
 
 /*
  * These are to implement PROCARRAY_FLAGS_XXX
@@ -63,8 +60,8 @@ extern Size ProcArrayShmemSize(void);
 extern void CreateSharedProcArray(void);
 extern void ProcArrayAdd(PGPROC *proc);
 extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
+
 extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
-extern void ProcArrayEndGxact(TMGXACT *gxact);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
 extern void ProcArrayInitRecovery(TransactionId initializedUptoXID);
@@ -78,11 +75,12 @@ extern void ExpireTreeKnownAssignedTransactionIds(TransactionId xid,
 												  TransactionId max_xid);
 extern void ExpireAllKnownAssignedTransactionIds(void);
 extern void ExpireOldKnownAssignedTransactionIds(TransactionId xid);
+extern void KnownAssignedTransactionIdsIdleMaintenance(void);
 
 extern int	GetMaxSnapshotXidCount(void);
 extern int	GetMaxSnapshotSubxidCount(void);
 
-extern Snapshot GetSnapshotData(Snapshot snapshot, DtxContext distributedTransactionContext);
+extern Snapshot GetSnapshotData(Snapshot snapshot);
 
 extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
 										 VirtualTransactionId *sourcevxid);
@@ -93,7 +91,6 @@ extern RunningTransactions GetRunningTransactionData(void);
 extern bool TransactionIdIsInProgress(TransactionId xid);
 extern bool TransactionIdIsActive(TransactionId xid);
 extern TransactionId GetOldestXmin(Relation rel, int flags);
-extern TransactionId GetLocalOldestXmin(Relation rel, int flags);
 extern TransactionId GetOldestActiveTransactionId(void);
 extern TransactionId GetOldestSafeDecodingTransactionId(bool catalogOnly);
 
@@ -134,17 +131,8 @@ extern PGPROC *FindProcByGpSessionId(long gp_session_id);
 extern List *GetRunningProcSessionIds(void);
 extern void UpdateCommandIdInSnapshot(CommandId curcid);
 
-extern void updateSharedLocalSnapshot(struct DtxContextInfo *dtxContextInfo,
-									  DtxContext distributedTransactionContext,
-									  Snapshot snapshot,
-									  char *debugCaller);
-
 extern void GetSlotTableDebugInfo(void **snapshotArray, int *maxSlots);
 
-extern void getDtxCheckPointInfo(char **result, int *result_size);
-
-extern List *ListAllGxid(void);
-extern int GetPidByGxid(DistributedTransactionId gxid);
 extern bool IsDtxInProgress(DistributedTransactionId gxid);
 
 extern void ProcArraySetReplicationSlotXmin(TransactionId xmin,
@@ -153,10 +141,5 @@ extern void ProcArraySetReplicationSlotXmin(TransactionId xmin,
 extern void ProcArrayGetReplicationSlotXmin(TransactionId *xmin,
 											TransactionId *catalog_xmin);
 extern DistributedTransactionId LocalXidGetDistributedXid(TransactionId xid);
-extern int GetSessionIdByPid(int pid);
-extern bool ResGroupMoveSignalTarget(int sessionId, void *slot, Oid groupId,
-								bool isExecutor);
-extern void ResGroupMoveCheckTargetReady(int sessionId, bool *clean, bool *result);
-extern void ResGroupMoveNotifyInitiator(pid_t callerPid);
 
 #endif							/* PROCARRAY_H */

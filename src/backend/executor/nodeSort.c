@@ -17,16 +17,19 @@
 
 #include "postgres.h"
 
+#include "access/nbtree.h"
 #include "access/parallel.h"
 #include "executor/execdebug.h"
 #include "executor/nodeSort.h"
 #include "lib/stringinfo.h"             /* StringInfo */
 #include "miscadmin.h"
+#include "utils/pickcat.h"
 #include "utils/tuplesort.h"
 #include "cdb/cdbvars.h" /* CDB *//* gp_sort_flags */
 #include "utils/workfile_mgr.h"
 #include "executor/instrument.h"
 #include "utils/faultinjector.h"
+#include "utils/lsyscache.h"
 
 static void ExecSortExplainEnd(PlanState *planstate, struct StringInfoData *buf);
 static void ExecEagerFreeSort(SortState *node);
@@ -333,6 +336,12 @@ ExecInitSort(Sort *node, EState *estate, int eflags)
 
 	SO1_printf("ExecInitSort: %s\n",
 			   "sort node initialized");
+
+	/*
+	 * Catalog collect
+	 */
+	for (int i = 0; i < node->numCols; ++i)
+		PickSortColumn(node->sortOperators[i]);
 
 	return sortstate;
 }

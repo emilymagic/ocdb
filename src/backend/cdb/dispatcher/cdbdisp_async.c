@@ -26,6 +26,7 @@
 #include "pgstat.h"
 #include "storage/ipc.h"		/* For proc_exit_inprogress  */
 #include "tcop/tcopprot.h"
+#include "utils/dispatchcat.h"
 #include "cdb/cdbdisp.h"
 #include "cdb/cdbdisp_async.h"
 #include "cdb/cdbdispatchresult.h"
@@ -35,8 +36,10 @@
 #include "cdb/cdbgang.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbpq.h"
+#include "cdb/cdbsrlz.h"
 #include "miscadmin.h"
 #include "commands/sequence.h"
+#include "access/tileam.h"
 #include "access/xact.h"
 #include "utils/timestamp.h"
 #define DISPATCH_WAIT_TIMEOUT_MSEC 2000
@@ -307,6 +310,9 @@ cdbdisp_dispatchToGang_async(struct CdbDispatcherState *ds,
 	int			i;
 
 	CdbDispatchCmdAsync *pParms = (CdbDispatchCmdAsync *) ds->dispatchParams;
+	AuxNode **collectorNodeArray;
+
+	collectorNodeArray = GetAuxNodeArray(gp->size);
 
 	/*
 	 * Start the dispatching
@@ -314,6 +320,12 @@ cdbdisp_dispatchToGang_async(struct CdbDispatcherState *ds,
 	for (i = 0; i < gp->size; i++)
 	{
 		CdbDispatchResult *qeResult;
+		char *cat_text = NULL;
+		int cat_text_len = 0;
+		int tmp;
+		char *dispatch_text;
+		int dispatch_text_len;
+		char *dispatch_text_cur;
 
 		SegmentDatabaseDescriptor *segdbDesc = gp->db_descriptors[i];
 
@@ -329,7 +341,36 @@ cdbdisp_dispatchToGang_async(struct CdbDispatcherState *ds,
 		}
 		pParms->dispatchResultPtrArray[pParms->dispatchCount++] = qeResult;
 
-		dispatchCommand(qeResult, pParms->query_text, pParms->query_text_len);
+		if (collectorNodeArray[i])
+			cat_text = serializeNode((Node *) collectorNodeArray[i], &cat_text_len, NULL);
+
+		dispatch_text_len = pParms->query_text_len + sizeof(cat_text_len) + cat_text_len;
+		dispatch_text = palloc(dispatch_text_len);
+		dispatch_text_cur = dispatch_text;
+
+		/* Append query text */
+		memcpy(dispatch_text_cur, pParms->query_text, pParms->query_text_len);
+		dispatch_text_cur += pParms->query_text_len;
+
+		/* Append catalog text */
+		tmp = htonl(cat_text_len);
+		memcpy(dispatch_text_cur, &tmp, sizeof(cat_text_len));
+		dispatch_text_cur += sizeof(cat_text_len);
+
+		if (cat_text_len > 0)
+		{
+			memcpy(dispatch_text_cur, cat_text, cat_text_len);
+			dispatch_text_cur += cat_text_len;
+		}
+
+		/* Update command len */
+		memcpy(&tmp, dispatch_text + 1, sizeof(tmp));
+		tmp = ntohl(tmp);
+		tmp += (sizeof(cat_text_len) + cat_text_len);
+		tmp = htonl(tmp);
+		memcpy(dispatch_text + 1, &tmp, sizeof(tmp));
+
+		dispatchCommand(qeResult, dispatch_text, dispatch_text_len);
 	}
 }
 
@@ -1028,6 +1069,8 @@ processResults(CdbDispatchResult *dispatchResult)
 {
 	SegmentDatabaseDescriptor *segdbDesc = dispatchResult->segdbDesc;
 	char	   *msg;
+	PGnotify *qnotifies;
+
 
 	/*
 	 * Receive input from QE.
@@ -1040,6 +1083,76 @@ processResults(CdbDispatchResult *dispatchResult)
 									   segdbDesc->whoami, msg ? msg : "unknown error");
 		return true;
 	}
+	forwardQENotices();
+
+	qnotifies = PQnotifies(segdbDesc->conn);
+	while(qnotifies && elog_geterrcode() == 0)
+	{
+		if (strcmp(qnotifies->relname, CDB_NOTIFY_NEXTVAL) == 0)
+		{
+			/*
+			 * If there was nextval request then respond back on this libpq
+			 * connection with the next value. Check and process nextval
+			 * message only if QD has not already hit the error. Since QD could
+			 * have hit the error while processing the previous nextval_qd()
+			 * request itself and since full error handling is not complete yet
+			 * (ex: releasing all the locks, etc.), shouldn't attempt to call
+			 * nextval_qd() again.
+			 */
+
+			CHECK_FOR_INTERRUPTS();
+
+			int64 last;
+			int64 cached;
+			int64 increment;
+			bool overflow;
+			Oid dbid;
+			Oid seq_oid;
+
+			if (sscanf(qnotifies->extra, "%u:%u", &dbid, &seq_oid) != 2)
+				elog(ERROR, "invalid nextval message");
+
+			if (dbid != MyDatabaseId)
+				elog(ERROR, "nextval message database id:%u doesn't match my database id:%u",
+					 dbid, MyDatabaseId);
+
+			PG_TRY();
+			{
+				nextval_qd(seq_oid, &last, &cached, &increment, &overflow);
+			}
+			PG_CATCH();
+			{
+				send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, true /* error */);
+				PG_RE_THROW();
+			}
+			PG_END_TRY();
+			/* respond back on this libpq connection with the next value */
+			send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, false /* error */);
+		}
+		else if (strcmp(qnotifies->relname, CDB_NOTIFY_ENDPOINT_ACK) == 0)
+		{
+			qnotifies->next = (struct pgNotify *) dispatchResult->ackPGNotifies;
+			dispatchResult->ackPGNotifies = (struct PGnotify *) qnotifies;
+
+			/* Don't free the notify here since it in queue now */
+			qnotifies = NULL;
+		}
+		else if (strcmp(qnotifies->relname, CDB_NOTIFY_TILE) == 0)
+		{
+			tile_insert_block_list_notify(qnotifies->extra);
+		}
+		else
+		{
+			/* Got an unknown PGnotify, just record it in log */
+			if (qnotifies->relname)
+				elog(LOG, "got an unknown notify message : %s", qnotifies->relname);
+		}
+
+		if (qnotifies)
+			PQfreemem(qnotifies);
+		qnotifies = PQnotifies(segdbDesc->conn);
+	}
+
 	forwardQENotices();
 
 	/*
@@ -1093,8 +1206,6 @@ processResults(CdbDispatchResult *dispatchResult)
 
 		if (segdbDesc->conn->wrote_xlog)
 		{
-			MarkTopTransactionWriteXLogOnExecutor();
-
 			/*
 			 * Reset the worte_xlog here. Since if the received pgresult not process
 			 * the xlog write message('x' message sends from QE in ReadyForQuery),
@@ -1183,71 +1294,6 @@ processResults(CdbDispatchResult *dispatchResult)
 		}
 	}
 
-	forwardQENotices();
-
-	PGnotify *qnotifies = PQnotifies(segdbDesc->conn);
-	while(qnotifies && elog_geterrcode() == 0)
-	{
-		if (strcmp(qnotifies->relname, CDB_NOTIFY_NEXTVAL) == 0)
-		{
-			/*
-			 * If there was nextval request then respond back on this libpq
-			 * connection with the next value. Check and process nextval
-			 * message only if QD has not already hit the error. Since QD could
-			 * have hit the error while processing the previous nextval_qd()
-			 * request itself and since full error handling is not complete yet
-			 * (ex: releasing all the locks, etc.), shouldn't attempt to call
-			 * nextval_qd() again.
-			 */
-
-			CHECK_FOR_INTERRUPTS();
-
-			int64 last;
-			int64 cached;
-			int64 increment;
-			bool overflow;
-			Oid dbid;
-			Oid seq_oid;
-
-			if (sscanf(qnotifies->extra, "%u:%u", &dbid, &seq_oid) != 2)
-				elog(ERROR, "invalid nextval message");
-
-			if (dbid != MyDatabaseId)
-				elog(ERROR, "nextval message database id:%u doesn't match my database id:%u",
-					 dbid, MyDatabaseId);
-
-			PG_TRY();
-			{
-				nextval_qd(seq_oid, &last, &cached, &increment, &overflow);
-			}
-			PG_CATCH();
-			{
-				send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, true /* error */);
-				PG_RE_THROW();
-			}
-			PG_END_TRY();
-			/* respond back on this libpq connection with the next value */
-			send_sequence_response(segdbDesc->conn, seq_oid, last, cached, increment, overflow, false /* error */);
-		}
-		else if (strcmp(qnotifies->relname, CDB_NOTIFY_ENDPOINT_ACK) == 0)
-		{
-			qnotifies->next = (struct pgNotify *) dispatchResult->ackPGNotifies;
-			dispatchResult->ackPGNotifies = (struct PGnotify *) qnotifies;
-
-			/* Don't free the notify here since it in queue now */
-			qnotifies = NULL;
-		}
-		else
-		{
-			/* Got an unknown PGnotify, just record it in log */
-			if (qnotifies->relname)
-				elog(LOG, "got an unknown notify message : %s", qnotifies->relname);
-		}
-
-		if (qnotifies)
-			PQfreemem(qnotifies);
-		qnotifies = PQnotifies(segdbDesc->conn);
-	}
 
 	forwardQENotices();
 

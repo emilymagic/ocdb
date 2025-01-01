@@ -22,6 +22,7 @@
 
 #include "access/htup_details.h"
 #include "catalog/pg_authid.h"
+#include "cdb/cdbvars.h"
 #include "utils/inval.h"
 #include "utils/syscache.h"
 #include "storage/proc.h"
@@ -47,6 +48,9 @@ static void RoleidCallback(Datum arg, int cacheid, uint32 hashvalue);
 bool
 superuser(void)
 {
+	if (Gp_role == GP_ROLE_EXECUTE)
+		return true;
+
 	return superuser_arg(GetUserId());
 }
 
@@ -68,6 +72,9 @@ superuser_arg(Oid roleid)
 	bool		result;
 	HeapTuple	rtup;
 
+	if (!IS_CATALOG_SERVER())
+		return true;
+	
 	/* Quick out for cache hit */
 	if (OidIsValid(last_roleid) && last_roleid == roleid)
 		return last_roleid_is_super;

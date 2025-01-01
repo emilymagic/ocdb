@@ -125,7 +125,6 @@
 #include "postmaster/postmaster.h"
 #include "postmaster/fts.h"
 #include "postmaster/syslogger.h"
-#include "postmaster/backoff.h"
 #include "postmaster/bgworker.h"
 #include "replication/logicallauncher.h"
 #include "replication/walsender.h"
@@ -139,7 +138,6 @@
 #include "utils/builtins.h"
 #include "utils/datetime.h"
 #include "utils/faultinjector.h"
-#include "utils/gdd.h"
 #include "utils/memutils.h"
 #include "utils/pidfile.h"
 #include "utils/ps_status.h"
@@ -147,8 +145,8 @@
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 
+#include "access/memoryheapam.h"
 #include "cdb/cdbgang.h"                /* cdbgang_parse_gpqeid_params */
-#include "cdb/cdbtm.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbendpoint.h"
 #include "cdb/ic_proxy_bgworker.h"
@@ -283,6 +281,7 @@ bool		restart_after_crash = true;
 static pid_t StartupPID = 0,
 			BgWriterPID = 0,
 			CheckpointerPID = 0,
+			HeartbeatPID = 0,
 			WalWriterPID = 0,
 			WalReceiverPID = 0,
 			AutoVacPID = 0,
@@ -404,27 +403,6 @@ static BackgroundWorker PMAuxProcList[MaxPMAuxProc] =
 	 0, /* restart immediately if ftsprobe exits with non-zero code */
 	 "postgres", "FtsProbeMain", 0, {0}, 0,
 	 FtsProbeStartRule},
-
-	{"global deadlock detector process", "global deadlock detector process",
-	 BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION,
-	 BgWorkerStart_RecoveryFinished,
-	 0, /* restart immediately if gdd exits with non-zero code */
-	 "postgres", "GlobalDeadLockDetectorMain", 0, {0}, 0,
-	 GlobalDeadLockDetectorStartRule},
-
-	{"dtx recovery process", "dtx recovery process",
-	 BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION,
-	 BgWorkerStart_DtxRecovering, /* no need to wait dtx recovery */
-	 0, /* restart immediately if dtx recovery process exits with non-zero code */
-	 "postgres", "DtxRecoveryMain", 0, {0}, 0,
-	 DtxRecoveryStartRule},
-
-	{"sweeper process", "sweeper process",
-	 BGWORKER_SHMEM_ACCESS,
-	 BgWorkerStart_RecoveryFinished,
-	 0, /* restart immediately if sweeper process exits with non-zero code */
-	 "postgres", "BackoffSweeperMain", 0, {0}, 0,
-	 BackoffSweeperStartRule},
 
 #ifdef ENABLE_IC_PROXY
 	{"ic proxy process", "ic proxy process",
@@ -654,10 +632,11 @@ static void ShmemBackendArrayRemove(Backend *bn);
 #endif							/* EXEC_BACKEND */
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
-#define StartArchiver()			StartChildProcess(ArchiverProcess)
-#define StartBackgroundWriter() StartChildProcess(BgWriterProcess)
-#define StartCheckpointer()		StartChildProcess(CheckpointerProcess)
-#define StartWalWriter()		StartChildProcess(WalWriterProcess)
+#define StartArchiver()			((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(ArchiverProcess) : 0)
+#define StartBackgroundWriter() ((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(BgWriterProcess) : 0)
+#define StartHeartbeat()		((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(HeartbeatProcess) : 0)
+#define StartCheckpointer()		((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(CheckpointerProcess) : 0)
+#define StartWalWriter()		((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(WalWriterProcess) : 0)
 #define StartWalReceiver()		StartChildProcess(WalReceiverProcess)
 
 /* Macros to check exit status of a child process */
@@ -1063,7 +1042,7 @@ PostmasterMain(int argc, char *argv[])
 	checkDataDir();
 
 	/* Check that pg_control exists */
-	checkControlFile();
+	// checkControlFile();
 
 	/* And switch working directory into it */
 	ChangeToDataDir();
@@ -2060,7 +2039,7 @@ ServerLoop(void)
 		 */
 		if (!IsBinaryUpgrade && AutoVacPID == 0 &&
 			(AutoVacuumingActive() || start_autovac_launcher) &&
-			pmState == PM_RUN)
+			pmState == PM_RUN && Gp_role != GP_ROLE_EXECUTE)
 		{
 			AutoVacPID = StartAutoVacLauncher();
 			if (AutoVacPID != 0)
@@ -2533,7 +2512,6 @@ retry1:
 			}
 			else if (strcmp(nameptr, GPCONN_TYPE) == 0)
 			{
-				am_mirror = IsRoleMirror();
 				if (strcmp(valptr, GPCONN_TYPE_FTS) == 0)
 				{
 					if (IS_QUERY_DISPATCHER())
@@ -2541,41 +2519,6 @@ retry1:
 								(errcode(ERRCODE_PROTOCOL_VIOLATION),
 								 errmsg("cannot handle FTS connection on master")));
 					am_ftshandler = true;
-
-#ifdef FAULT_INJECTOR
-					if (FaultInjector_InjectFaultIfSet(
-							"fts_conn_startup_packet",
-							DDLNotSpecified,
-							"" /* databaseName */,
-							"" /* tableName */) == FaultInjectorTypeSkip)
-					{
-						/*
-						 * If this fault is set to skip, report recovery is
-						 * hung. Without this fault recovery is reported as
-						 * progressing.
-						 */
-						if (FaultInjector_InjectFaultIfSet(
-							"fts_recovery_in_progress",
-							DDLNotSpecified,
-							"" /* databaseName */,
-							"" /* tableName */) == FaultInjectorTypeSkip)
-						{
-							recptr = last_xlog_replay_location();
-						}
-						else
-						{
-							time_t counter = time(NULL);
-
-							recptr = counter;
-						}
-
-						ereport(FATAL,
-								(errcode(ERRCODE_CANNOT_CONNECT_NOW),
-								 errmsg(POSTMASTER_IN_RECOVERY_MSG),
-								 errdetail(POSTMASTER_IN_RECOVERY_DETAIL_MSG " %X/%X",
-										   (uint32) (recptr >> 32), (uint32) recptr)));
-					}
-#endif
 				}
 #ifdef FAULT_INJECTOR
 				else if (strcmp(valptr, GPCONN_TYPE_FAULT) == 0)
@@ -2621,9 +2564,21 @@ retry1:
 		 * given packet length, complain.
 		 */
 		if (offset != len - 1)
-			ereport(FATAL,
-					(errcode(ERRCODE_PROTOCOL_VIOLATION),
-					 errmsg("invalid startup packet layout: expected terminator as last byte")));
+		{
+			int initCatalogSize;
+
+			offset += 1;
+			memcpy(&initCatalogSize, ((char *) buf) + offset, sizeof(int));
+			offset += 4;
+			if (len - offset != initCatalogSize)
+				ereport(PANIC,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("invalid startup packet layout: expected terminator as last byte")));
+
+			initCatalogBufSize = initCatalogSize;
+			initCatalogBuf = malloc(initCatalogBufSize);
+			memcpy(initCatalogBuf, ((char *) buf) + offset, initCatalogBufSize);
+		}
 
 		/*
 		 * If the client requested a newer protocol version or if the client
@@ -2727,13 +2682,9 @@ retry1:
 			if ((am_ftshandler || am_faulthandler) && am_mirror)
 				break;
 
-			recptr = last_xlog_replay_location();
-
 			ereport(FATAL,
 					(errcode(ERRCODE_CANNOT_CONNECT_NOW),
-					 errmsg(POSTMASTER_IN_STARTUP_MSG),
-					 errdetail(POSTMASTER_IN_RECOVERY_DETAIL_MSG " %X/%X",
-						   (uint32) (recptr >> 32), (uint32) recptr)));
+					 errmsg("the database system is starting up")));
 			break;
 		case CAC_SHUTDOWN:
 			ereport(FATAL,
@@ -2741,13 +2692,10 @@ retry1:
 					 errmsg("the database system is shutting down")));
 			break;
 		case CAC_RECOVERY:
-			recptr = last_xlog_replay_location();
-
 			ereport(FATAL,
 					(errcode(ERRCODE_CANNOT_CONNECT_NOW),
-					 errmsg(POSTMASTER_IN_RECOVERY_MSG),
-					 errdetail(POSTMASTER_IN_RECOVERY_DETAIL_MSG " %X/%X",
-						   (uint32) (recptr >> 32), (uint32) recptr)));
+					 errmsg("the database system is in recovery mode")));
+
 			break;
 		case CAC_RESET:
 			ereport(FATAL,
@@ -2759,56 +2707,12 @@ retry1:
 					(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
 					 errmsg("sorry, too many clients already")));
 			break;
-		case CAC_MIRROR_READY:
-			if (am_ftshandler || am_faulthandler)
-			{
-				/* Even if the connection state is MIRROR_READY, the role
-				 * may change to primary during promoting. Hence, we need
-				 * to decline this connection to avoid confusion. This needs
-				 * to wait until promotion is finished and pmState changed
-				 * to PM_RUN.
-				 */
-				if (!am_mirror)
-					ereport(FATAL,
-							(errmsg("mirror is being promoted.")));
-				break;
-			}
-
-			/*
-			 * Allow connections if hot_standby is on and our postmaster is
-			 * acting as a standby.
-			 */
-			if (EnableHotStandby)
-				break;
-
-			recptr = last_xlog_replay_location();
-			ereport(FATAL,
-					(errcode(ERRCODE_MIRROR_READY),
-					 errmsg(POSTMASTER_IN_RECOVERY_MSG),
-					 errdetail(POSTMASTER_IN_RECOVERY_DETAIL_MSG " %X/%X\n"
-							   POSTMASTER_MIRROR_VERSION_DETAIL_MSG " %s",
-							   (uint32) (recptr >> 32), (uint32) recptr,
-							   TextDatumGetCString(pgsql_version(NULL)))));
 		case CAC_SUPERUSER:
 			/* OK for now, will check in InitPostgres */
 			break;
 		case CAC_OK:
 			break;
 	}
-
-#ifdef FAULT_INJECTOR
-	if (!am_ftshandler && !am_faulthandler && !am_walsender &&
-		FaultInjector_InjectFaultIfSet("process_startup_packet",
-									   DDLNotSpecified,
-									   port->database_name /* databaseName */,
-									   "" /* tableName */) == FaultInjectorTypeSkip)
-	{
-		ereport(FATAL,
-				(errcode(ERRCODE_CANNOT_CONNECT_NOW),
-				 errmsg(POSTMASTER_IN_RECOVERY_MSG),
-				 errdetail(POSTMASTER_IN_RECOVERY_DETAIL_MSG " dummy location")));
-	}
-#endif
 
 	return STATUS_OK;
 }
@@ -3193,6 +3097,8 @@ SIGHUP_handler(SIGNAL_ARGS)
 			signal_child(SysLoggerPID, SIGHUP);
 		if (PgStatPID != 0)
 			signal_child(PgStatPID, SIGHUP);
+		if (HeartbeatPID != 0)
+			signal_child(HeartbeatPID, SIGHUP);
 
 		/* Reload authentication config files too */
 		if (!load_hba())
@@ -3479,6 +3385,7 @@ reaper(SIGNAL_ARGS)
 			 */
 			StartupStatus = STARTUP_NOT_RUNNING;
 			FatalError = false;
+			AbortStartTime = 0;
 			Assert(AbortStartTime == 0);
 			ReachedNormalRunning = true;
 			pmState = PM_RUN;
@@ -3500,7 +3407,7 @@ reaper(SIGNAL_ARGS)
 			 * Likewise, start other special children as needed.  In a restart
 			 * situation, some of them may be alive already.
 			 */
-			if (!IsBinaryUpgrade && AutoVacuumingActive() && AutoVacPID == 0)
+			if (!IsBinaryUpgrade && AutoVacuumingActive() && AutoVacPID == 0 && Gp_role != GP_ROLE_EXECUTE)
 				AutoVacPID = StartAutoVacLauncher();
 			if (PgArchStartupAllowed() && PgArchPID == 0)
 				PgArchPID = StartArchiver();
@@ -4085,6 +3992,18 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 		signal_child(CheckpointerPID, (SendStop ? SIGSTOP : SIGQUIT));
 	}
 
+	/* Take care of the checkpointer too */
+	if (pid == HeartbeatPID)
+		HeartbeatPID = 0;
+	else if (HeartbeatPID != 0 && take_action)
+	{
+		ereport(DEBUG2,
+				(errmsg_internal("sending %s to process %d",
+								 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+								 (int) HeartbeatPID)));
+		signal_child(HeartbeatPID, (SendStop ? SIGSTOP : SIGQUIT));
+	}
+
 	/* Take care of the walwriter too */
 	if (pid == WalWriterPID)
 		WalWriterPID = 0;
@@ -4377,6 +4296,9 @@ PostmasterStateMachine(void)
 					if (PgStatPID != 0)
 						signal_child(PgStatPID, SIGQUIT);
 				}
+
+				if (HeartbeatPID != 0)
+					signal_child(HeartbeatPID, SIGUSR2);
 			}
 		}
 	}
@@ -4617,6 +4539,8 @@ TerminateChildren(int signal)
 		signal_child(PgArchPID, signal);
 	if (PgStatPID != 0)
 		signal_child(PgStatPID, signal);
+	if (HeartbeatPID !=0)
+		signal_child(HeartbeatPID, signal);
 }
 
 /*
@@ -5335,18 +5259,10 @@ retry:
 
 	/*
 	 * Queue a waiter to signal when this child dies. The wait will be handled
-	 * automatically by an operating system thread pool.
-	 *
-	 * Note: use malloc instead of palloc, since it needs to be thread-safe.
-	 * Struct will be free():d from the callback function that runs on a
-	 * different thread.
+	 * automatically by an operating system thread pool.  The memory will be
+	 * freed by a later call to waitpid().
 	 */
-	childinfo = malloc(sizeof(win32_deadchild_waitinfo));
-	if (!childinfo)
-		ereport(FATAL,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of memory")));
-
+	childinfo = palloc(sizeof(win32_deadchild_waitinfo));
 	childinfo->procHandle = pi.hProcess;
 	childinfo->procId = pi.dwProcessId;
 
@@ -5360,7 +5276,7 @@ retry:
 				(errmsg_internal("could not register process for wait: error code %lu",
 								 GetLastError())));
 
-	/* Don't close pi.hProcess here - the wait thread needs access to it */
+	/* Don't close pi.hProcess here - waitpid() needs access to it */
 
 	CloseHandle(pi.hThread);
 
@@ -5419,7 +5335,7 @@ SubPostmasterMain(int argc, char *argv[])
 	 * If testing EXEC_BACKEND on Linux, you should run this as root before
 	 * starting the postmaster:
 	 *
-	 * echo 0 >/proc/sys/kernel/randomize_va_space
+	 * sysctl -w kernel.randomize_va_space=0
 	 *
 	 * This prevents using randomized stack and code addresses that cause the
 	 * child process's memory map to be different from the parent's, making it
@@ -5834,11 +5750,6 @@ sigusr1_handler(SIGNAL_ARGS)
 	{
 		/* Report status, dtx recovery completed successfully */
 		AddToDataDirLockFile(LOCK_FILE_LINE_PM_STATUS, PM_STATUS_DTM_RECOVERED);
-	}
-
-	if (CheckPostmasterSignal(PMSIGNAL_WAKEN_DTX_RECOVERY) && DtxRecoveryPID() != 0)
-	{
-		signal_child(DtxRecoveryPID(), SIGINT);
 	}
 
 	/*
@@ -6510,8 +6421,7 @@ bgworker_should_start_mpp(BackgroundWorker *worker)
 	 */
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
-		if (!*shmDtmStarted &&
-			(start_time == BgWorkerStart_ConsistentState ||
+		if ((start_time == BgWorkerStart_ConsistentState ||
 			 start_time == BgWorkerStart_RecoveryFinished))
 			return false;
 	}
@@ -6598,6 +6508,10 @@ maybe_start_bgworkers(void)
 	int			num_launched = 0;
 	TimestampTz now = 0;
 	slist_mutable_iter iter;
+
+	StartWorkerNeeded = false;
+	HaveCrashedWorker = false;
+	return;
 
 	/*
 	 * During crash recovery, we have no need to be called until the state
@@ -7114,36 +7028,21 @@ ShmemBackendArrayRemove(Backend *bn)
 static pid_t
 waitpid(pid_t pid, int *exitstatus, int options)
 {
+	win32_deadchild_waitinfo *childinfo;
+	DWORD		exitcode;
 	DWORD		dwd;
 	ULONG_PTR	key;
 	OVERLAPPED *ovl;
 
-	/*
-	 * Check if there are any dead children. If there are, return the pid of
-	 * the first one that died.
-	 */
-	if (GetQueuedCompletionStatus(win32ChildQueue, &dwd, &key, &ovl, 0))
+	/* Try to consume one win32_deadchild_waitinfo from the queue. */
+	if (!GetQueuedCompletionStatus(win32ChildQueue, &dwd, &key, &ovl, 0))
 	{
-		*exitstatus = (int) key;
-		return dwd;
+		errno = EAGAIN;
+		return -1;
 	}
 
-	return -1;
-}
-
-/*
- * Note! Code below executes on a thread pool! All operations must
- * be thread safe! Note that elog() and friends must *not* be used.
- */
-static void WINAPI
-pgwin32_deadchild_callback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
-{
-	win32_deadchild_waitinfo *childinfo = (win32_deadchild_waitinfo *) lpParameter;
-	DWORD		exitcode;
-
-	if (TimerOrWaitFired)
-		return;					/* timeout. Should never happen, since we use
-								 * INFINITE as timeout value. */
+	childinfo = (win32_deadchild_waitinfo *) key;
+	pid = childinfo->procId;
 
 	/*
 	 * Remove handle from wait - required even though it's set to wait only
@@ -7159,13 +7058,11 @@ pgwin32_deadchild_callback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 		write_stderr("could not read exit code for process\n");
 		exitcode = 255;
 	}
-
-	if (!PostQueuedCompletionStatus(win32ChildQueue, childinfo->procId, (ULONG_PTR) exitcode, NULL))
-		write_stderr("could not post child completion status\n");
+	*exitstatus = exitcode;
 
 	/*
-	 * Handle is per-process, so we close it here instead of in the
-	 * originating thread
+	 * Close the process handle.  Only after this point can the PID can be
+	 * recycled by the kernel.
 	 */
 	CloseHandle(childinfo->procHandle);
 
@@ -7173,9 +7070,36 @@ pgwin32_deadchild_callback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 	 * Free struct that was allocated before the call to
 	 * RegisterWaitForSingleObject()
 	 */
-	free(childinfo);
+	pfree(childinfo);
 
-	/* Queue SIGCHLD signal */
+	return pid;
+}
+
+/*
+ * Note! Code below executes on a thread pool! All operations must
+ * be thread safe! Note that elog() and friends must *not* be used.
+ */
+static void WINAPI
+pgwin32_deadchild_callback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
+{
+	/* Should never happen, since we use INFINITE as timeout value. */
+	if (TimerOrWaitFired)
+		return;
+
+	/*
+	 * Post the win32_deadchild_waitinfo object for waitpid() to deal with. If
+	 * that fails, we leak the object, but we also leak a whole process and
+	 * get into an unrecoverable state, so there's not much point in worrying
+	 * about that.  We'd like to panic, but we can't use that infrastructure
+	 * from this thread.
+	 */
+	if (!PostQueuedCompletionStatus(win32ChildQueue,
+									0,
+									(ULONG_PTR) lpParameter,
+									NULL))
+		write_stderr("could not post child completion status\n");
+
+	/* Queue SIGCHLD signal. */
 	pg_queue_signal(SIGCHLD);
 }
 #endif							/* WIN32 */

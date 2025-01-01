@@ -173,13 +173,13 @@ static WalUsage prevWalUsage;
  * all SLRUs without an explicit entry (e.g. SLRUs in extensions).
  */
 static const char *const slru_names[] = {
-	"CommitTs",
-	"MultiXactMember",
-	"MultiXactOffset",
-	"Notify",
-	"Serial",
-	"Subtrans",
-	"Xact",
+	"async",
+	"clog",
+	"commit_timestamp",
+	"multixact_offset",
+	"multixact_member",
+	"oldserxid",
+	"subtrans",
 	"DistributedLogCtl", 				/* GPDB-specific */
 	"other"						/* has to be last */
 };
@@ -3920,7 +3920,6 @@ pgstat_get_wait_activity(WaitEventActivity w)
 		case WAIT_EVENT_WAL_WRITER_MAIN:
 			event_name = "WalWriterMain";
 			break;
-
 		case WAIT_EVENT_BACKOFF_MAIN:
 			event_name = "BackoffSweeperMain";
 			break;
@@ -3929,6 +3928,9 @@ pgstat_get_wait_activity(WaitEventActivity w)
 			break;
 		case WAIT_EVENT_GLOBAL_DEADLOCK_DETECTOR_MAIN:
 			event_name = "GlobalDeadLockDetectorMain";
+			break;
+		case WAIT_EVENT_HEARTBEAT_MAIN:
+			event_name = "HeartbeatMain";
 			break;
 			/* no default case, so that compiler will warn */
 	}
@@ -4583,6 +4585,9 @@ pgstat_get_backend_desc(BackendType backendType)
 		case B_ARCHIVER:
 			backendDesc = "archiver";
 			break;
+		case B_HEARTBEAT:
+			backendDesc = "heartbeat";
+			break;
 	}
 
 	return backendDesc;
@@ -4669,15 +4674,6 @@ pgstat_send_bgwriter(void)
 {
 	/* We assume this initializes to zeroes */
 	static const PgStat_MsgBgWriter all_zeroes;
-
-	/*
-	 * Non hot standby mirror should not send bgwriter statistics to the
-	 * stat collector, since stat collector is not started when mirror
-	 * is not in hot standby mode. Sending statistics would cause the
-	 * Recv-Q buffer to be filled up.
-	 */
-	if (!EnableHotStandby && IsRoleMirror())
-		return;
 
 	/*
 	 * This function can be called even if nothing at all has happened. In

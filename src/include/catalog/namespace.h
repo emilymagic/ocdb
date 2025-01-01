@@ -17,6 +17,7 @@
 #include "nodes/primnodes.h"
 #include "storage/lock.h"
 
+
 /*
  *	This structure holds a list of possible functions or operators
  *	found by namespace lookup.  Each function/operator is identified
@@ -135,13 +136,6 @@ extern Oid	LookupNamespaceNoError(const char *nspname);
 extern Oid	LookupExplicitNamespace(const char *nspname, bool missing_ok);
 extern Oid	get_namespace_oid(const char *nspname, bool missing_ok);
 
-extern void DropTempTableNamespaceForResetSession(Oid namespaceOid);
-extern void DropTempTableNamespaceEntryForResetSession(Oid namespaceOid, Oid toastNamespaceOid);
-extern void SetTempNamespace(Oid namespaceOid, Oid toastNamespaceOid);
-extern Oid  ResetTempNamespace(void);
-extern bool TempNamespaceOidIsValid(void);  /* GPDB only:  used by cdbgang.c */
-extern void InitTempTableNamespace(void);
-
 extern Oid	LookupCreationNamespace(const char *nspname);
 extern void CheckSetNamespace(Oid oldNspOid, Oid nspOid);
 extern Oid	QualifiedNameGetCreationNamespace(List *names, char **objname_p);
@@ -152,10 +146,10 @@ extern char *NameListToQuotedString(List *names);
 extern bool isTempNamespace(Oid namespaceId);
 extern bool isTempToastNamespace(Oid namespaceId);
 extern bool isTempOrTempToastNamespace(Oid namespaceId);
+extern bool isAuxNamespace(Oid namespaceId);
 extern bool isAnyTempNamespace(Oid namespaceId);
 extern bool isOtherTempNamespace(Oid namespaceId);
 extern TempNamespaceStatus checkTempNamespaceStatus(Oid namespaceId);
-extern bool isTempNamespaceMustBeIdle(Oid namespaceId, HTAB *aliveSessions);
 extern bool isTempNamespaceInUse(Oid namespaceId);
 extern int	GetTempNamespaceBackendId(Oid namespaceId);
 extern Oid	GetTempToastNamespace(void);
@@ -163,8 +157,6 @@ extern void GetTempNamespaceState(Oid *tempNamespaceId,
 								  Oid *tempToastNamespaceId);
 extern void SetTempNamespaceState(Oid tempNamespaceId,
 								  Oid tempToastNamespaceId);
-extern void SetTempNamespaceStateAfterBoot(Oid tempNamespaceId,
-								  Oid tempToastNamespaceId); /* GPDB only */
 extern void ResetTempTableNamespace(void);
 
 extern OverrideSearchPath *GetOverrideSearchPath(MemoryContext context);
@@ -189,5 +181,7 @@ extern char *namespace_search_path;
 
 extern List *fetch_search_path(bool includeImplicit);
 extern int	fetch_search_path_array(Oid *sarray, int sarray_len);
+
+extern void InvalidBaseSearchPath(void);
 
 #endif							/* NAMESPACE_H */

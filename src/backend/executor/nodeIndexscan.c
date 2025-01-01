@@ -30,6 +30,7 @@
 #include "postgres.h"
 
 #include "access/nbtree.h"
+#include "utils/pickcat.h"
 #include "cdb/cdbvars.h"
 #include "access/relscan.h"
 #include "access/tableam.h"

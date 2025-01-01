@@ -43,7 +43,10 @@
 #include "utils/datum.h"
 #include "utils/rel.h"
 
+#include "access/tileam.h"
 #include "cdb/cdbaocsam.h"
+#include "utils/dispatchcat.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbgang.h"
 #include "nodes/altertablenodes.h"
 
@@ -598,7 +601,6 @@ _outAppend(StringInfo str, const Append *node)
 	WRITE_NODE_FIELD(appendplans);
 	WRITE_INT_FIELD(first_partial_plan);
 	WRITE_NODE_FIELD(part_prune_info);
-	WRITE_NODE_FIELD(join_prune_paramids);
 }
 
 static void
@@ -1496,6 +1498,7 @@ _outRefreshClause(StringInfo str, const RefreshClause *node)
 	WRITE_BOOL_FIELD(concurrent);
 	WRITE_BOOL_FIELD(skipData);
 	WRITE_NODE_FIELD(relation);
+	WRITE_OID_FIELD(oidNewHeap);
 }
 
 static void
@@ -1788,6 +1791,7 @@ _outSubPlan(StringInfo str, const SubPlan *node)
 	WRITE_NODE_FIELD(extParam);
 	WRITE_FLOAT_FIELD(startup_cost, "%.2f");
 	WRITE_FLOAT_FIELD(per_call_cost, "%.2f");
+	WRITE_INT_FIELD(subLinkId);
 }
 
 static void
@@ -5122,6 +5126,18 @@ _outCreatePLangStmt(StringInfo str, const CreatePLangStmt *node)
 }
 
 static void
+_outCreateTableAsStmt(StringInfo str, const CreateTableAsStmt *node)
+{
+	WRITE_NODE_TYPE("CREATETABLEASSTMT");
+
+	WRITE_NODE_FIELD(query);
+	WRITE_NODE_FIELD(into);
+	WRITE_ENUM_FIELD(relkind, ObjectType);
+	WRITE_BOOL_FIELD(is_select_into);
+	WRITE_BOOL_FIELD(if_not_exists);
+}
+
+static void
 _outVacuumStmt(StringInfo str, const VacuumStmt *node)
 {
 	WRITE_NODE_TYPE("VACUUMSTMT");
@@ -5491,7 +5507,53 @@ _outTupleDescNode(StringInfo str, const TupleDescNode *node)
 	WRITE_INT_FIELD(tuple->tdtypmod);
 	WRITE_INT_FIELD(tuple->tdrefcount);
 }
+
+static void
+_outBlockListNode(StringInfo str, const BlockListNode *node)
+{
+	WRITE_NODE_TYPE("BLOCKLISTNODE");
+
+	WRITE_OID_FIELD(relid);
+	WRITE_OID_FIELD(relfilenode);
+	WRITE_NODE_FIELD(blockListInfo);
+}
+
 #endif /* COMPILING_BINARY_FUNCS */
+
+static void
+_outNextValNode(StringInfo str, const NextValNode *node)
+{
+	WRITE_NODE_TYPE("NEXTVALNODE");
+
+	WRITE_OID_FIELD(relid);
+	WRITE_LONG_FIELD(plast);
+	WRITE_LONG_FIELD(pcached);
+	WRITE_LONG_FIELD(pincrement);
+	WRITE_BOOL_FIELD(poverflow);
+}
+
+static void
+_outBlockDesc2(StringInfo str, const BlockDesc2 *node)
+{
+	WRITE_NODE_TYPE("BLOCKDESC2");
+
+	WRITE_UINT_FIELD(blockid);
+	WRITE_UINT64_FIELD(newKey.tid);
+	WRITE_UINT64_FIELD(newKey.seq);
+	WRITE_UINT_FIELD(block_size);
+	WRITE_UINT_FIELD(block_tuple_num);
+}
+
+static void
+_outCsQuery(StringInfo str, const CsQuery *node)
+{
+	WRITE_NODE_TYPE("CSQUERY");
+
+	WRITE_ENUM_FIELD(cmdType, CsType);
+	WRITE_STRING_FIELD(query_string);
+	WRITE_NODE_FIELD(data);
+};
+
 
 #ifndef COMPILING_BINARY_FUNCS
 /*
@@ -6447,6 +6509,9 @@ outNode(StringInfo str, const void *obj)
 			case T_CreatePLangStmt:
 				_outCreatePLangStmt(str, obj);
 				break;
+			case T_CreateTableAsStmt:
+				_outCreateTableAsStmt(str, obj);
+				break;
 			case T_VacuumStmt:
 				_outVacuumStmt(str, obj);
 				break;
@@ -6576,7 +6641,18 @@ outNode(StringInfo str, const void *obj)
 			case T_GpPartitionListSpec:
 				_outGpPartitionListSpec(str, obj);
 				break;
-
+			case T_BlockDesc2:
+				_outBlockDesc2(str, obj);
+				break;
+			case T_BlockListNode:
+				_outBlockListNode(str, obj);
+				break;
+			case T_CsQuery:
+				_outCsQuery(str, obj);
+				break;
+			case T_NextValNode:
+				_outNextValNode(str, obj);
+				break;
 			default:
 
 				/*

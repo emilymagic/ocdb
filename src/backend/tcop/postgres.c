@@ -38,12 +38,15 @@
 
 #include <pthread.h>
 
+#include "access/tileam.h"
 #include "access/parallel.h"
 #include "access/printtup.h"
 #include "access/xact.h"
+#include "access/memoryheapam.h"
 #include "catalog/oid_dispatch.h"
 #include "catalog/pg_type.h"
 #include "catalog/namespace.h"
+#include "utils/dispatchcat.h"
 #include "commands/async.h"
 #include "commands/extension.h"
 #include "commands/prepare.h"
@@ -88,11 +91,11 @@
 #include "utils/timestamp.h"
 #include "mb/pg_wchar.h"
 
+#include "utils/pickcat.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbsrlz.h"
-#include "cdb/cdbtm.h"
-#include "cdb/cdbdtxcontextinfo.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbendpoint.h"
@@ -100,7 +103,7 @@
 #include "cdb/ml_ipc.h"
 #include "utils/guc.h"
 #include "access/twophase.h"
-#include "postmaster/backoff.h"
+#include "utils/inval.h"
 #include "utils/resource_manager.h"
 
 #include "utils/session_state.h"
@@ -229,8 +232,6 @@ static ProcSignalReason RecoveryConflictReason;
 static MemoryContext row_description_context = NULL;
 static StringInfoData row_description_buf;
 
-static DtxContextInfo TempDtxContextInfo = DtxContextInfo_StaticInit;
-
 /* ----------------------------------------------------------------
  *		decls for routines only used in this file
  * ----------------------------------------------------------------
@@ -254,9 +255,6 @@ static void drop_unnamed_stmt(void);
 static void log_disconnections(int code, Datum arg);
 static void enable_statement_timeout(void);
 static void disable_statement_timeout(void);
-static bool CheckDebugDtmActionSqlCommandTag(const char *sqlCommandTag);
-static bool CheckDebugDtmActionProtocol(DtxProtocolCommand dtxProtocolCommand,
-					DtxContextInfo *contextInfo);
 static bool renice_current_process(int nice_level);
 
 /*
@@ -472,6 +470,7 @@ SocketBackend(StringInfo inBuf)
 	switch (qtype)
 	{
 		case 'Q':				/* simple query */
+		case 'N':				/* catalog query */
 			doing_extended_query_message = false;
 			if (PG_PROTOCOL_MAJOR(FrontendProtocol) < 3)
 			{
@@ -1113,6 +1112,124 @@ pg_plan_queries(List *querytrees, int cursorOptions, ParamListInfo boundParams)
 	return stmt_list;
 }
 
+static void
+exec_catalog_server_query(const char *query_string)
+{
+	CommandDest dest = whereToSendOutput;
+	DestReceiver *receiver;
+	Portal		portal;
+
+
+	start_xact_command();
+
+	drop_unnamed_stmt();
+	portal = CreatePortal("", true, true);
+	portal->visible = false;
+
+	receiver = CreateDestReceiver(dest);
+	if (dest == DestRemote)
+		SetRemoteDestReceiverParams(receiver, portal);
+
+	PushActiveSnapshot(GetTransactionSnapshot());
+	cc_run_on_catalog_server(query_string);
+	PopActiveSnapshot();
+
+	PortalDrop(portal, false);
+
+	finish_xact_command();
+}
+
+static void
+exec_returning_command(CsQuery *csQuery)
+{
+	CommandDest dest = whereToSendOutput;
+	DestReceiver *receiver;
+	Portal		portal;
+	const char *commandTag;
+	bool needXact;
+
+	commandTag = "SELECT";
+
+	needXact = !xact_started;
+	if (needXact)
+		start_xact_command();
+
+	drop_unnamed_stmt();
+	portal = CreatePortal("", true, true);
+	portal->visible = false;
+
+	receiver = CreateDestReceiver(dest);
+	if (dest == DestRemote)
+		SetRemoteDestReceiverParams(receiver, portal);
+
+	PushActiveSnapshot(GetTransactionSnapshot());
+	if (csQuery->cmdType == CS_CONF)
+		cs_get_conf(csQuery->query_string, receiver);
+	else if (csQuery->cmdType == CS_NEXT_VAL)
+		cs_next_val((NextValNode *) csQuery->data, receiver);
+	PopActiveSnapshot();
+
+	PortalDrop(portal, false);
+
+	EndCommand(commandTag, dest);
+
+	if (needXact)
+		finish_xact_command();
+}
+
+static void
+exec_startup_query(void)
+{
+	CommandDest dest = whereToSendOutput;
+	DestReceiver *receiver;
+	Portal		portal;
+	const char *commandTag;
+
+	commandTag = "SELECT";
+
+	start_xact_command();
+
+	drop_unnamed_stmt();
+	portal = CreatePortal("", true, true);
+	portal->visible = false;
+
+	receiver = CreateDestReceiver(dest);
+	if (dest == DestRemote)
+		SetRemoteDestReceiverParams(receiver, portal);
+
+	PushActiveSnapshot(GetTransactionSnapshot());
+	cs_get_startup_catalog(receiver);
+	PopActiveSnapshot();
+
+	PortalDrop(portal, false);
+
+	EndCommand(commandTag, dest);
+
+	finish_xact_command();
+}
+
+static void
+exec_simple_command(CsQuery *csQuery)
+{
+	CommandDest dest = whereToSendOutput;
+	const char *commandTag;
+
+	commandTag = "XACT COMMAND";
+
+	if (csQuery->cmdType == CS_XACT_START)
+		start_xact_command();
+	else if (csQuery->cmdType == CS_XACT_FINISH)
+		finish_xact_command();
+	else if (csQuery->cmdType == CS_XACT_ABORT)
+		elog(ERROR, "Report abort");
+	else if (csQuery->cmdType == CS_MODIFY_TABLE)
+		cs_modify_table((BlockListNode *) csQuery->data);
+	else
+		elog(ERROR, "Wrong xact command type");
+
+	EndCommand(commandTag, dest);
+}
+
 /*
  * exec_mpp_query
  *
@@ -1128,7 +1245,9 @@ pg_plan_queries(List *querytrees, int cursorOptions, ParamListInfo boundParams)
 static void
 exec_mpp_query(const char *query_string,
 			   const char * serializedPlantree, int serializedPlantreelen,
-			   const char * serializedQueryDispatchDesc, int serializedQueryDispatchDesclen)
+			   const char * serializedQueryDispatchDesc, int serializedQueryDispatchDesclen,
+			   const char *serializedAux, int serializedAuxlen,
+			   const char *serializedCatalog, int serializedCataloglen)
 {
 	CommandDest dest = whereToSendOutput;
 	MemoryContext oldcontext;
@@ -1347,15 +1466,6 @@ exec_mpp_query(const char *query_string,
 			renice_current_process(PostmasterPriority + gp_segworker_relative_priority);
 		}
 
-		if (Debug_dtm_action == DEBUG_DTM_ACTION_FAIL_BEGIN_COMMAND &&
-			CheckDebugDtmActionSqlCommandTag(commandTag))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FAULT_INJECT),
-					 errmsg("Raise ERROR for debug_dtm_action = %d, commandTag = %s",
-							Debug_dtm_action, commandTag)));
-		}
-
 		/*
 		 * If we are in an aborted transaction, reject all commands except
 		 * COMMIT/ABORT.  It is important that this test occur before we try
@@ -1462,15 +1572,6 @@ exec_mpp_query(const char *query_string,
 		 */
 		finish_xact_command();
 
-		if (Debug_dtm_action == DEBUG_DTM_ACTION_FAIL_END_COMMAND &&
-			CheckDebugDtmActionSqlCommandTag(commandTag))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FAULT_INJECT),
-					 errmsg("Raise ERROR for debug_dtm_action = %d, commandTag = %s",
-							Debug_dtm_action, commandTag)));
-		}
-
 		/*
 		 * Tell client that we're done with this query.  Note we emit exactly
 		 * one EndCommand report for each raw parsetree, thus one for each SQL
@@ -1506,116 +1607,7 @@ exec_mpp_query(const char *query_string,
 	if (save_log_statement_stats)
 		ShowUsage("QUERY STATISTICS");
 
-
-	if (gp_enable_resqueue_priority)
-	{
-		BackoffBackendEntryExit();
-	}
-
 	debug_query_string = NULL;
-}
-
-static bool
-CheckDebugDtmActionProtocol(DtxProtocolCommand dtxProtocolCommand,
-				DtxContextInfo *contextInfo)
-{
-	if (Debug_dtm_action_nestinglevel == 0)
-	{
-		return (Debug_dtm_action_target == DEBUG_DTM_ACTION_TARGET_PROTOCOL &&
-			Debug_dtm_action_protocol == dtxProtocolCommand &&
-			Debug_dtm_action_segment == GpIdentity.segindex);
-	}
-	else
-	{
-		return (Debug_dtm_action_target == DEBUG_DTM_ACTION_TARGET_PROTOCOL &&
-			Debug_dtm_action_protocol == dtxProtocolCommand &&
-			Debug_dtm_action_segment == GpIdentity.segindex &&
-			Debug_dtm_action_nestinglevel == contextInfo->nestingLevel);
-	}
-}
-
-static void
-exec_mpp_dtx_protocol_command(DtxProtocolCommand dtxProtocolCommand,
-							  const char *loggingStr,
-							  const char *gid,
-							  DtxContextInfo *contextInfo)
-{
-	CommandDest dest = whereToSendOutput;
-	const char *commandTag = loggingStr;
-
-	if (log_statement == LOGSTMT_ALL)
-		elog(LOG,"DTM protocol command '%s' for gid = %s", loggingStr, gid);
-
-	elog((Debug_print_full_dtm ? LOG : DEBUG5),"exec_mpp_dtx_protocol_command received the dtxProtocolCommand = %d (%s) gid = %s",
-		 dtxProtocolCommand, loggingStr, gid);
-
-	set_ps_display(commandTag, false);
-
-	if (Debug_dtm_action == DEBUG_DTM_ACTION_FAIL_BEGIN_COMMAND &&
-		CheckDebugDtmActionProtocol(dtxProtocolCommand, contextInfo))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FAULT_INJECT),
-				 errmsg("Raise ERROR for debug_dtm_action = %d, debug_dtm_action_protocol = %s",
-						Debug_dtm_action, DtxProtocolCommandToString(dtxProtocolCommand))));
-	}
-	if (Debug_dtm_action == DEBUG_DTM_ACTION_PANIC_BEGIN_COMMAND &&
-		CheckDebugDtmActionProtocol(dtxProtocolCommand, contextInfo))
-	{
-		/*
-		 * Avoid core file generation for this PANIC. It helps to avoid
-		 * filling up disks during tests and also saves time.
-		 */
-		AvoidCorefileGeneration();
-		elog(PANIC,"PANIC for debug_dtm_action = %d, debug_dtm_action_protocol = %s",
-			 Debug_dtm_action, DtxProtocolCommandToString(dtxProtocolCommand));
-	}
-
-	BeginCommand(commandTag, dest);
-
-	performDtxProtocolCommand(dtxProtocolCommand, gid, contextInfo);
-
-	elog((Debug_print_full_dtm ? LOG : DEBUG5),"exec_mpp_dtx_protocol_command calling EndCommand for dtxProtocolCommand = %d (%s) gid = %s",
-		 dtxProtocolCommand, loggingStr, gid);
-
-	if (Debug_dtm_action == DEBUG_DTM_ACTION_FAIL_END_COMMAND &&
-		CheckDebugDtmActionProtocol(dtxProtocolCommand, contextInfo))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FAULT_INJECT),
-				 errmsg("Raise error for debug_dtm_action = %d, debug_dtm_action_protocol = %s",
-						Debug_dtm_action, DtxProtocolCommandToString(dtxProtocolCommand))));
-	}
-
-	/*
-	 * GPDB: There is a corner case that we need to delay connection
-	 * termination to here. see SyncRepWaitForLSN() for details.
-	 * */
-	if (ProcDiePending)
-		ereport(FATAL,
-				(errcode(ERRCODE_ADMIN_SHUTDOWN),
-				errmsg("Terminating the connection (DTM protocol command '%s' "
-					   "for gid=%s", loggingStr, gid)));
-
-	EndCommand(commandTag, dest);
-}
-
-static bool
-CheckDebugDtmActionSqlCommandTag(const char *sqlCommandTag)
-{
-	bool result;
-
-	result = (Debug_dtm_action_target == DEBUG_DTM_ACTION_TARGET_SQL &&
-			  strcmp(Debug_dtm_action_sql_command_tag, sqlCommandTag) == 0 &&
-			  Debug_dtm_action_segment == GpIdentity.segindex);
-
-	elog((Debug_print_full_dtm ? LOG : DEBUG5),"CheckDebugDtmActionSqlCommandTag Debug_dtm_action_target = %d, Debug_dtm_action_sql_command_tag = '%s' check '%s', Debug_dtm_action_segment = %d, Debug_dtm_action_primary = %s, result = %s.",
-		Debug_dtm_action_target,
-		Debug_dtm_action_sql_command_tag, (sqlCommandTag == NULL ? "<NULL>" : sqlCommandTag),
-		Debug_dtm_action_segment, (Debug_dtm_action_primary ? "true" : "false"),
-		(result ? "true" : "false"));
-
-	return result;
 }
 
 static void
@@ -1655,13 +1647,241 @@ restore_guc_to_QE(void )
 	gp_guc_restore_list = NIL;
 }
 
+static void
+exec_plan(const char *query_string, PlannedStmt *plan,  bool with_xact)
+{
+	CommandDest dest = whereToSendOutput;
+	MemoryContext oldcontext;
+	bool		save_log_statement_stats = log_statement_stats;
+
+	SIMPLE_FAULT_INJECTOR("exec_simple_query_start");
+
+	if (Gp_role != GP_ROLE_EXECUTE)
+		increment_command_count();
+
+	/*
+	 * Report query to various monitoring facilities.
+	 */
+	debug_query_string = query_string;
+
+	pgstat_report_activity(STATE_RUNNING, query_string);
+
+	TRACE_POSTGRESQL_QUERY_START(query_string);
+
+	/*
+	 * We use save_log_statement_stats so ShowUsage doesn't report incorrect
+	 * results because ResetUsage wasn't called.
+	 */
+	if (save_log_statement_stats)
+		ResetUsage();
+
+	/*
+	 * Start up a transaction command.  All queries generated by the
+	 * query_string will be in this same command block, *unless* we find a
+	 * BEGIN/COMMIT/ABORT statement; we have to force a new xact command after
+	 * one of those, else bad things will happen in xact.c. (Note that this
+	 * will normally change current memory context.)
+	 */
+	if (with_xact)
+		start_xact_command();
+
+	/*
+	 * Zap any pre-existing unnamed statement.  (While not strictly necessary,
+	 * it seems best to define simple-Query mode as if it used the unnamed
+	 * statement and portal; this ensures we recover any storage used by prior
+	 * unnamed operations.)
+	 */
+	drop_unnamed_stmt();
+
+	/*
+	 * Switch to appropriate context for constructing parsetrees.
+	 */
+	oldcontext = MemoryContextSwitchTo(MessageContext);
+
+
+
+	/*
+	 * Switch back to transaction context to enter the loop.
+	 */
+	MemoryContextSwitchTo(oldcontext);
+
+	/*
+	 * Run through the raw parsetree(s) and process each one.
+	 */
+	{
+		bool		snapshot_set = false;
+		const char *commandTag;
+		char		completionTag[COMPLETION_TAG_BUFSIZE];
+		List	   *plantree_list;
+		Portal		portal;
+		DestReceiver *receiver;
+		int16		format;
+
+		/*
+		 * Get the command name for use in status display (it also becomes the
+		 * default completion tag, down inside PortalRun).  Set ps_status and
+		 * do any special start-of-SQL-command processing needed by the
+		 * destination.
+		 */
+		commandTag = "XXXX";
+
+		set_ps_display(commandTag, false);
+
+		BeginCommand(commandTag, dest);
+
+		if (IsAbortedTransactionBlockState())
+			ereport(ERROR,
+					(errcode(ERRCODE_IN_FAILED_SQL_TRANSACTION),
+					 errmsg("current transaction is aborted, "
+							"commands ignored until end of transaction block"),
+					 errdetail_abort()));
+
+		/* Make sure we are in a transaction command */
+		if (with_xact)
+			start_xact_command();
+
+		/* If we got a cancel signal in parsing or prior command, quit */
+		CHECK_FOR_INTERRUPTS();
+
+		/*
+		 * OK to analyze, rewrite, and plan this query.
+		 *
+		 * Switch to appropriate context for constructing querytrees (again,
+		 * these must outlive the execution context).
+		 */
+		oldcontext = MemoryContextSwitchTo(MessageContext);
+
+		plantree_list = list_make1(plan);
+
+		/* Done with the snapshot used for parsing/planning */
+		if (snapshot_set)
+			PopActiveSnapshot();
+
+		/* If we got a cancel signal in analysis or planning, quit */
+		CHECK_FOR_INTERRUPTS();
+
+		/*
+		 * Create unnamed portal to run the query or queries in. If there
+		 * already is one, silently drop it.
+		 */
+		portal = CreatePortal("", true, true);
+		/* Don't display the portal in pg_cursors */
+		portal->visible = false;
+
+		/*
+		 * We don't have to copy anything into the portal, because everything
+		 * we are passing here is in MessageContext, which will outlive the
+		 * portal anyway.
+		 */
+		PortalDefineQuery(portal,
+						  NULL,
+						  query_string,
+						  T_Query,
+						  commandTag,
+						  plantree_list,
+						  NULL);
+
+		/*
+		 * Start the portal.  No parameters here.
+		 */
+		PortalStart(portal, NULL, 0, InvalidSnapshot, NULL);
+
+		/*
+		 * Select the appropriate output format: text unless we are doing a
+		 * FETCH from a binary cursor.  (Pretty grotty to have to do this here
+		 * --- but it avoids grottiness in other places.  Ah, the joys of
+		 * backward compatibility...)
+		 */
+		format = 0;				/* TEXT is default */
+//		if (IsA(parsetree->stmt, FetchStmt))
+//		{
+//			FetchStmt  *stmt = (FetchStmt *) parsetree->stmt;
+//
+//			if (!stmt->ismove)
+//			{
+//				Portal		fportal = GetPortalByName(stmt->portalname);
+//
+//				if (PortalIsValid(fportal) &&
+//					(fportal->cursorOptions & CURSOR_OPT_BINARY))
+//					format = 1; /* BINARY */
+//			}
+//		}
+		PortalSetResultFormat(portal, 1, &format);
+
+		/*
+		 * Now we can create the destination receiver object.
+		 */
+		receiver = CreateDestReceiver(dest);
+		if (dest == DestRemote)
+			SetRemoteDestReceiverParams(receiver, portal);
+
+		/*
+		 * Switch back to transaction context for execution.
+		 */
+		MemoryContextSwitchTo(oldcontext);
+
+		/*
+		 * Run the portal to completion, and then drop it (and the receiver).
+		 */
+		(void) PortalRun(portal,
+						 FETCH_ALL,
+						 true,	/* always top level */
+						 true,
+						 receiver,
+						 receiver,
+						 completionTag);
+
+		receiver->rDestroy(receiver);
+
+		PortalDrop(portal, false);
+
+		{
+			/*
+			 * We had better not see XACT_FLAGS_NEEDIMMEDIATECOMMIT set if
+			 * we're not calling finish_xact_command().  (The implicit
+			 * transaction block should have prevented it from getting set.)
+			 */
+			Assert(!(MyXactFlags & XACT_FLAGS_NEEDIMMEDIATECOMMIT));
+
+			/*
+			 * We need a CommandCounterIncrement after every query, except
+			 * those that start or end a transaction block.
+			 */
+			CommandCounterIncrement();
+		}
+
+		/*
+		 * Tell client that we're done with this query.  Note we emit exactly
+		 * one EndCommand report for each raw parsetree, thus one for each SQL
+		 * command the client sent, regardless of rewriting. (But a command
+		 * aborted by error will not send an EndCommand report at all.)
+		 */
+		EndCommand(completionTag, dest);
+	}							/* end loop over parsetrees */
+
+	/*
+	 * Close down transaction statement, if one is open.  (This will only do
+	 * something if the parsetree list was empty; otherwise the last loop
+	 * iteration already did it.)
+	 */
+	if (with_xact)
+		finish_xact_command();
+
+	if (save_log_statement_stats)
+		ShowUsage("QUERY STATISTICS");
+
+	TRACE_POSTGRESQL_QUERY_DONE(query_string);
+
+	debug_query_string = NULL;
+}
+
 /*
  * exec_simple_query
  *
  * Execute a "simple Query" protocol message.
  */
 static void
-exec_simple_query(const char *query_string)
+exec_simple_query(const char *query_string, bool with_xact)
 {
 	CommandDest dest = whereToSendOutput;
 	MemoryContext oldcontext;
@@ -1700,7 +1920,8 @@ exec_simple_query(const char *query_string)
 	 * one of those, else bad things will happen in xact.c. (Note that this
 	 * will normally change current memory context.)
 	 */
-	start_xact_command();
+	if (with_xact)
+		start_xact_command();
 
 	/*
 	 * Zap any pre-existing unnamed statement.  (While not strictly necessary,
@@ -1773,26 +1994,17 @@ exec_simple_query(const char *query_string)
 
 		BeginCommand(commandTag, dest);
 
-		if (Debug_dtm_action == DEBUG_DTM_ACTION_FAIL_BEGIN_COMMAND &&
-			CheckDebugDtmActionSqlCommandTag(commandTag))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FAULT_INJECT),
-					 errmsg("Raise ERROR for debug_dtm_action = %d, commandTag = %s",
-							Debug_dtm_action, commandTag)));
-		}
-
 		/*
 		 * GPDB: If we are connected in utility mode, disallow PREPARE
 		 * TRANSACTION statements.
 		 */
-		if (Gp_role == GP_ROLE_UTILITY && IsA(parsetree->stmt, TransactionStmt) &&
-			((TransactionStmt *) parsetree->stmt)->kind == TRANS_STMT_PREPARE)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("PREPARE TRANSACTION is not supported in utility mode")));
-		}
+//		if (Gp_role == GP_ROLE_UTILITY && IsA(parsetree->stmt, TransactionStmt) &&
+//			((TransactionStmt *) parsetree->stmt)->kind == TRANS_STMT_PREPARE)
+//		{
+//			ereport(ERROR,
+//					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+//					 errmsg("PREPARE TRANSACTION is not supported in utility mode")));
+//		}
 
 		/*
 		 * If we are in an aborted transaction, reject all commands except
@@ -1811,7 +2023,8 @@ exec_simple_query(const char *query_string)
 					 errdetail_abort()));
 
 		/* Make sure we are in a transaction command */
-		start_xact_command();
+		if (with_xact)
+			start_xact_command();
 
 		/*
 		 * If using an implicit transaction block, and we're not already in a
@@ -1944,7 +2157,8 @@ exec_simple_query(const char *query_string)
 			 */
 			if (use_implicit_block)
 				EndImplicitTransactionBlock();
-			finish_xact_command();
+			if (with_xact)
+				finish_xact_command();
 		}
 		else if (IsA(parsetree->stmt, TransactionStmt))
 		{
@@ -1952,7 +2166,8 @@ exec_simple_query(const char *query_string)
 			 * If this was a transaction control statement, commit it. We will
 			 * start a new xact command for the next command.
 			 */
-			finish_xact_command();
+			if (with_xact)
+				finish_xact_command();
 		}
 		else
 		{
@@ -1970,15 +2185,6 @@ exec_simple_query(const char *query_string)
 			CommandCounterIncrement();
 		}
 
-		if (Debug_dtm_action == DEBUG_DTM_ACTION_FAIL_END_COMMAND &&
-			CheckDebugDtmActionSqlCommandTag(commandTag))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FAULT_INJECT),
-					 errmsg("Raise ERROR for debug_dtm_action = %d, commandTag = %s",
-							Debug_dtm_action, commandTag)));
-		}
-
 		/*
 		 * Tell client that we're done with this query.  Note we emit exactly
 		 * one EndCommand report for each raw parsetree, thus one for each SQL
@@ -1993,7 +2199,8 @@ exec_simple_query(const char *query_string)
 	 * something if the parsetree list was empty; otherwise the last loop
 	 * iteration already did it.)
 	 */
-	finish_xact_command();
+	if (with_xact)
+		finish_xact_command();
 
 	/*
 	 * If there were no parsetrees, return EmptyQueryResponse message.
@@ -2026,6 +2233,32 @@ exec_simple_query(const char *query_string)
 	TRACE_POSTGRESQL_QUERY_DONE(query_string);
 
 	debug_query_string = NULL;
+}
+
+static void
+exec_simple_query_qd(const char *query_string)
+{
+	CdbCatalogAuxNode *catAuxNode;
+
+	errorFromCatalogServer = false;
+
+	start_xact_command();
+
+	drop_unnamed_stmt();
+
+	catAuxNode = cc_catalog_or_run(query_string);
+
+	if (catAuxNode)
+	{
+		MemoryHeapDataSet1(catAuxNode);
+
+		if (catAuxNode->plan)
+			exec_plan(query_string, catAuxNode->plan, true);
+		else
+			exec_simple_query(query_string, true);
+	};
+
+	finish_xact_command();
 }
 
 /*
@@ -2884,6 +3117,12 @@ exec_execute_message(const char *portal_name, int64 max_rows)
 			 */
 			CommandCounterIncrement();
 
+			/*
+			 * Set XACT_FLAGS_PIPELINING whenever we complete an Execute
+			 * message without immediately committing the transaction.
+			 */
+			MyXactFlags |= XACT_FLAGS_PIPELINING;
+
 			/* full command has been executed, reset timeout */
 			disable_statement_timeout();
 		}
@@ -2896,6 +3135,12 @@ exec_execute_message(const char *portal_name, int64 max_rows)
 		/* Portal run not complete, so send PortalSuspended */
 		if (whereToSendOutput == DestRemote)
 			pq_putemptymessage('s');
+
+		/*
+		 * Set XACT_FLAGS_PIPELINING whenever we suspend an Execute message,
+		 * too.
+		 */
+		MyXactFlags |= XACT_FLAGS_PIPELINING;
 	}
 
 	/*
@@ -3323,6 +3568,9 @@ start_xact_command(void)
 		StartTransactionCommand();
 
 		xact_started = true;
+
+		if (!IS_CATALOG_SERVER() && GpIdentity.segindex < 0)
+			cc_xact_command(CS_XACT_START);
 	}
 
 	/*
@@ -3343,6 +3591,7 @@ start_xact_command(void)
 		!get_timeout_active(CLIENT_CONNECTION_CHECK_TIMEOUT))
 		enable_timeout_after(CLIENT_CONNECTION_CHECK_TIMEOUT,
 							 client_connection_check_interval);
+
 }
 
 static void
@@ -3353,6 +3602,9 @@ finish_xact_command(void)
 
 	if (xact_started)
 	{
+		if (!IS_CATALOG_SERVER() && GpIdentity.segindex < 0)
+			cc_xact_command(CS_XACT_FINISH);
+
 		CommitTransactionCommand();
 
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -4712,6 +4964,199 @@ forbidden_in_retrieve_handler(int firstchar)
 						firstchar)));
 }
 
+static List *
+cs_get_query_list(const char *sql, bool *requiresSnapsthot)
+{
+	List	   *raw_parsetree_list;
+	RawStmt    *parsetree;
+	List	   *stmt_list = NIL;
+	List	   *queries = NULL;
+	bool		snapshot_set = false;
+
+	*requiresSnapsthot = true;
+
+	PG_TRY();
+	{
+		raw_parsetree_list = pg_parse_query(sql);
+
+		if (list_length(raw_parsetree_list) != 1)
+			exec_simple_query(sql, false);
+		else
+		{
+			parsetree = linitial(raw_parsetree_list);
+
+			*requiresSnapsthot = analyze_requires_snapshot(parsetree);
+
+			if (analyze_requires_snapshot(parsetree))
+			{
+				PushActiveSnapshot(GetTransactionSnapshot());
+				snapshot_set = true;
+			}
+
+			if (IsAbortedTransactionBlockState() &&
+				!IsTransactionExitStmt(parsetree->stmt))
+				ereport(ERROR,
+						(errcode(ERRCODE_IN_FAILED_SQL_TRANSACTION),
+						 errmsg("current transaction is aborted, "
+							    "commands ignored until end of transaction block"),
+						 errdetail_abort()));
+
+			stmt_list = pg_analyze_and_rewrite(parsetree,
+											   sql,
+											   NULL,
+											   0,
+											   NULL);
+
+			if (list_length(stmt_list) != 1)
+				exec_simple_query(sql, false);
+			else
+				queries = stmt_list;
+
+			if (snapshot_set)
+				PopActiveSnapshot();
+		}
+	}
+	PG_CATCH();
+	{
+		if (snapshot_set)
+			PopActiveSnapshot();
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return queries;
+}
+
+static CsRunType
+cs_get_run_type(List *stmt_list)
+{
+
+	Query	   *query;
+
+	if (!stmt_list)
+		return CS_RUN_SKIP;
+
+	query = linitial(stmt_list);
+	if (query->commandType == CMD_SELECT || query->commandType == CMD_INSERT ||
+		query->commandType == CMD_UPDATE || query->commandType == CMD_DELETE)
+	{
+	}
+	else if (query->commandType == CMD_UTILITY)
+	{
+		if (IsA(query->utilityStmt, CopyStmt))
+			return CS_RUN_CATALOG;
+		else if (IsA(query->utilityStmt,VariableSetStmt))
+			return CS_RUN_CATALOG;
+		else if (IsA(query->utilityStmt, ExplainStmt))
+		{
+			if (accessHeap)
+				return CS_RUN_UTILITY;
+			else
+				return CS_RUN_CATALOG;
+		}
+		else if (IsA(query->utilityStmt, PrepareStmt))
+			return CS_RUN_CATALOG;
+		else if (IsA(query->utilityStmt, DeallocateStmt))
+			return CS_RUN_CATALOG;
+		else if (IsA(query->utilityStmt, TransactionStmt))
+			return CS_RUN_CATALOG;
+		else
+			return CS_RUN_UTILITY;
+	}
+	else
+		return CS_RUN_UTILITY;
+
+	if (accessHeap)
+		return CS_RUN_UTILITY;
+	if (!accessTile)
+		return CS_RUN_UTILITY;
+
+	return CS_RUN_CATALOG;
+}
+
+
+static void
+exec_catalog_query(List *queryList, const char *sql, bool requiresSnapsthot)
+{
+	DestReceiver *receiver;
+	Portal		portal;
+	char commandTag[NAMEDATALEN];
+	CdbCatalogAuxNode *catAux;
+
+	if (requiresSnapsthot)
+		PushActiveSnapshot(GetTransactionSnapshot());
+
+	catAux = cs_get_catalog_from_sql(queryList, sql, commandTag);
+	if (requiresSnapsthot)
+		PopActiveSnapshot();
+
+	if (strcmp(commandTag, "Catalog") == 0)
+	{
+		int			dataSize;
+		char	   *data;
+		CommandDest dest = whereToSendOutput;
+
+		drop_unnamed_stmt();
+		portal = CreatePortal("", true, true);
+		portal->visible = false;
+
+		receiver = CreateDestReceiver(dest);
+		if (dest == DestRemote)
+			SetRemoteDestReceiverParams(receiver, portal);
+
+		data = serializeNode((Node *) catAux, &dataSize, NULL);
+		DestReceiveBytea(data, dataSize, receiver);
+		PortalDrop(portal, false);
+		EndCommand(commandTag, dest);
+	}
+	else if (strcmp(commandTag, "Server") == 0)
+	{
+		exec_simple_query(sql, false);
+	}
+	else if (strcmp(commandTag, "Both") == 0)
+	{
+		CommandDest dest = whereToSendOutput;
+
+		EndCommand(commandTag, dest);
+	}
+}
+
+static void
+cs_run_on_catalogserver(const char *sql)
+{
+	CsRunType runType;
+	List	   *stmt_list;
+	bool		requiresSnapsthot;
+
+	accessHeap = false;
+	accessTile = false;
+
+	stmt_list = cs_get_query_list(sql, &requiresSnapsthot);
+
+	runType = cs_get_run_type(stmt_list);
+	if (runType == CS_RUN_UTILITY)
+		exec_simple_query(sql, false);
+	else if(runType == CS_RUN_QD)
+	{
+		PG_TRY();
+		{
+			Gp_role = GP_ROLE_DISPATCH;
+			exec_simple_query(sql, false);
+			Gp_role = GP_ROLE_UTILITY;
+		}
+		PG_CATCH();
+		{
+			Gp_role = GP_ROLE_UTILITY;
+			PG_RE_THROW();
+		}
+		PG_END_TRY();
+	}
+	else if (runType == CS_RUN_CATALOG)
+	{
+		exec_catalog_query(stmt_list, sql, requiresSnapsthot);
+	}
+}
+
 /* ----------------------------------------------------------------
  * PostgresMain
  *	   postgres main loop -- all backends, interactive or otherwise start here
@@ -4955,11 +5400,6 @@ PostgresMain(int argc, char *argv[],
 	process_session_preload_libraries();
 
 	/*
-	 * DA requires these be cleared at start
-	 */
-	DtxContextInfo_Reset(&QEDtxContextInfo);
-
-	/*
 	 * Send this backend's cancellation info to the frontend.
 	 */
 	if (whereToSendOutput == DestRemote)
@@ -5009,6 +5449,7 @@ PostgresMain(int argc, char *argv[],
 	initStringInfo(&row_description_buf);
 	MemoryContextSwitchTo(TopMemoryContext);
 
+	s3_init();
 
 	/*
 	 * POSTGRES main processing loop begins here
@@ -5082,6 +5523,9 @@ PostgresMain(int argc, char *argv[],
 			debug_query_string = NULL;
 		}
 
+		if (!IS_CATALOG_SERVER() && GpIdentity.segindex < 0 && !errorFromCatalogServer)
+			cc_xact_command(CS_XACT_ABORT);
+
 		/*
 		 * Abort the current transaction in order to recover.
 		 */
@@ -5154,7 +5598,6 @@ PostgresMain(int argc, char *argv[],
 	/*
 	 * Non-error queries loop here.
 	 */
-
 	for (;;)
 	{
 		/*
@@ -5289,12 +5732,6 @@ PostgresMain(int argc, char *argv[],
 		DoingCommandRead = true;
 
 		/*
-		 * (2b) Check for temp table delete reset session work.
-		 */
-		if (Gp_role == GP_ROLE_DISPATCH)
-			GpDropTempTables();
-
-		/*
 		 * (3) read a command (loop blocks here)
 		 */
 		firstchar = ReadCommand(&input_message);
@@ -5383,18 +5820,65 @@ PostgresMain(int argc, char *argv[],
 					if (am_walsender)
 					{
 						if (!exec_replication_command(query_string))
-							exec_simple_query(query_string);
+							exec_simple_query(query_string, true);
 					}
 					else if (am_ftshandler)
 						HandleFtsMessage(query_string);
 					else if (am_faulthandler)
 						HandleFaultMessage(query_string);
 					else
-						exec_simple_query(query_string);
+					{
+						if (IS_CATALOG_SERVER())
+							exec_simple_query(query_string, true);
+						else
+						{
+							if (Gp_role == GP_ROLE_UTILITY)
+								exec_catalog_server_query(query_string);
+							else if (IS_QUERY_DISPATCHER())
+								exec_simple_query_qd(query_string);
+							else
+								elog(ERROR, "Why qeury executor?");
+						}
+					}
 
 					send_ready_for_query = true;
 				}
 				break;
+			case 'N': /* Get catalog from catalog server */
+			{
+				CsQuery *csQuery;
+				const char *csQuerybuf;
+				int csQuerybufLen;
+
+				csQuerybufLen = pq_getmsgint(&input_message, 4);
+				csQuerybuf = pq_getmsgbytes(&input_message, csQuerybufLen);
+				pq_getmsgend(&input_message);
+
+				csQuery = (CsQuery *) deserializeNode(csQuerybuf, csQuerybufLen);
+
+				if (csQuery->cmdType == CS_QUERY)
+				{
+					CatCollectorClear();
+					CatalogCollectInit();
+					cs_run_on_catalogserver(csQuery->query_string);
+					CatCollectorClear();
+				}
+				else if (csQuery->cmdType == CS_CONF ||
+						 csQuery->cmdType == CS_NEXT_VAL)
+					exec_returning_command(csQuery);
+				else if (csQuery->cmdType == CS_STARTUP)
+					exec_startup_query();
+				else if (csQuery->cmdType == CS_XACT_START ||
+						 csQuery->cmdType == CS_XACT_FINISH ||
+						 csQuery->cmdType == CS_XACT_ABORT ||
+						 csQuery->cmdType == CS_MODIFY_TABLE)
+					exec_simple_command(csQuery);
+				else
+					elog(ERROR, "Catalog server query wrong type");
+
+				send_ready_for_query = true;
+			}
+			break;
             case 'M': /* MPP dispatched stmt from QD */
 				{
 					/*
@@ -5403,17 +5887,20 @@ PostgresMain(int argc, char *argv[],
 					 */
 					const char *query_string = "";
 
-					const char *serializedDtxContextInfo = NULL;
 					const char *serializedPlantree = NULL;
 					const char *serializedQueryDispatchDesc = NULL;
+					const char *serializedMemoryHeapData = NULL;
 					const char *resgroupInfoBuf = NULL;
+					const char *serializedAux = NULL;
 
 					int is_hs_dispatch;
 					int query_string_len = 0;
-					int serializedDtxContextInfolen = 0;
 					int serializedPlantreelen = 0;
 					int serializedQueryDispatchDesclen = 0;
+					int serializedMemoryHeapDataLen = 0;
 					int resgroupInfoLen = 0;
+					int serializedAuxlen = 0;
+
 					TimestampTz statementStart;
 					Oid suid;
 					Oid ouid;
@@ -5462,35 +5949,7 @@ PostgresMain(int argc, char *argv[],
 					query_string_len = pq_getmsgint(&input_message, 4);
 					serializedPlantreelen = pq_getmsgint(&input_message, 4);
 					serializedQueryDispatchDesclen = pq_getmsgint(&input_message, 4);
-					serializedDtxContextInfolen = pq_getmsgint(&input_message, 4);
-
-					/* read in the DTX context info */
-					if (serializedDtxContextInfolen == 0)
-						serializedDtxContextInfo = NULL;
-					else
-						serializedDtxContextInfo = pq_getmsgbytes(&input_message,serializedDtxContextInfolen);
-
-					DtxContextInfo_Deserialize(serializedDtxContextInfo, serializedDtxContextInfolen, &TempDtxContextInfo);
-					if (TempDtxContextInfo.distributedXid != InvalidDistributedTransactionId &&
-						!IS_QUERY_DISPATCHER()) /* On segments only */
-					{
-						/*
-						 * In theory we do not need to track nextGxid on
-						 * segments since we generate gxid on the coordinator,
-						 * but we still do this due to:
-						 * 1. For possible debuggging purpose.
-						 * 2. pg_resetwal on the coordinator needs this value
-						 *    on all the segments for nextGxid guessing.
-						 *    Normally we do not need to use pg_resetwal since
-						 *    there is coordinator failover but pg_resetwal
-						 *    is still possibly useful in some scenarios.
-						 * 3. The related code change on segments are lightweight.
-						 */
-						SpinLockAcquire(shmGxidGenLock);
-						if (TempDtxContextInfo.distributedXid > ShmemVariableCache->nextGxid)
-							ShmemVariableCache->nextGxid = TempDtxContextInfo.distributedXid;
-						SpinLockRelease(shmGxidGenLock);
-					}
+					serializedMemoryHeapDataLen = pq_getmsgint(&input_message, 4);
 
 					/* get the query string and kick off processing. */
 					if (query_string_len > 0)
@@ -5502,6 +5961,10 @@ PostgresMain(int argc, char *argv[],
 					if (serializedQueryDispatchDesclen > 0)
 						serializedQueryDispatchDesc = pq_getmsgbytes(&input_message,serializedQueryDispatchDesclen);
 
+					if (serializedMemoryHeapDataLen > 0)
+						serializedMemoryHeapData = pq_getmsgbytes(&input_message,
+														   serializedMemoryHeapDataLen);
+
 					/*
 					 * Always use the same GpIdentity.numsegments with QD on QEs
 					 */
@@ -5511,14 +5974,10 @@ PostgresMain(int argc, char *argv[],
 					if (resgroupInfoLen > 0)
 						resgroupInfoBuf = pq_getmsgbytes(&input_message, resgroupInfoLen);
 
-					/* process local variables for temporary namespace */
-					{
-						Oid			tempNamespaceId, tempToastNamespaceId;
-
-						tempNamespaceId = pq_getmsgint(&input_message, sizeof(tempNamespaceId));
-						tempToastNamespaceId = pq_getmsgint(&input_message, sizeof(tempToastNamespaceId));
-						SetTempNamespaceStateAfterBoot(tempNamespaceId, tempToastNamespaceId);
-					}
+					/* Get catalog text */
+					serializedAuxlen = pq_getmsgint(&input_message, 4);
+					if (serializedAuxlen > 0)
+						serializedAux = pq_getmsgbytes(&input_message, serializedAuxlen);
 
 					pq_getmsgend(&input_message);
 
@@ -5539,11 +5998,14 @@ PostgresMain(int argc, char *argv[],
 					if (ouid > 0 && ouid != GetSessionUserId())
 						SetCurrentRoleId(ouid, false); /* Set the outer UserId */
 
-					setupQEDtxContext(&TempDtxContextInfo);
-
 					if (cuid > 0)
 						SetUserIdAndContext(cuid, false); /* Set current userid */
 
+
+					MemoryHeapStorageReset();
+            		InvalidateSystemCaches();
+					MemoryHeapDataSet2(serializedMemoryHeapData, serializedMemoryHeapDataLen,
+									   serializedAux, serializedAuxlen);
 					if (serializedPlantreelen==0)
 					{
 						if (strncmp(query_string, "BEGIN", 5) == 0)
@@ -5568,13 +6030,18 @@ PostgresMain(int argc, char *argv[],
 						}
 						else
 						{
-							exec_simple_query(query_string);
+							exec_simple_query(query_string, true);
 						}
 					}
 					else
+					{
+
 						exec_mpp_query(query_string,
 									   serializedPlantree, serializedPlantreelen,
-									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen);
+									   serializedQueryDispatchDesc, serializedQueryDispatchDesclen,
+									   serializedAux, serializedAuxlen,
+									   serializedMemoryHeapData, serializedMemoryHeapDataLen);
+					}
 
 					SetUserIdAndSecContext(GetOuterUserId(), 0);
 
@@ -5585,51 +6052,7 @@ PostgresMain(int argc, char *argv[],
 
             case 'T': /* MPP dispatched dtx protocol command from QD */
 				{
-					DtxProtocolCommand dtxProtocolCommand;
-					int loggingStrLen;
-					const char *loggingStr;
-					int gidLen;
-					const char *gid;
-					int serializedDtxContextInfolen;
-					const char *serializedDtxContextInfo;
-
-					if (Gp_role != GP_ROLE_EXECUTE)
-						ereport(ERROR,
-								(errcode(ERRCODE_PROTOCOL_VIOLATION),
-								 errmsg("MPP protocol messages are only supported in QD - QE connections")));
-
-					elog(DEBUG1, "Message type %c received by from libpq, len = %d", firstchar, input_message.len); /* TODO: Remove this */
-
-					/* get the transaction protocol command # */
-					dtxProtocolCommand = (DtxProtocolCommand) pq_getmsgint(&input_message, 4);
-
-					/* get the logging string length */
-					loggingStrLen = pq_getmsgint(&input_message, 4);
-
-					/* get the logging string */
-					loggingStr = pq_getmsgbytes(&input_message,loggingStrLen);
-
-					/* get the logging string length */
-					gidLen = pq_getmsgint(&input_message, 4);
-
-					/* get the logging string */
-					gid = pq_getmsgbytes(&input_message,gidLen);
-
-					serializedDtxContextInfolen = pq_getmsgint(&input_message, 4);
-
-					/* read in the DTX context info */
-					if (serializedDtxContextInfolen == 0)
-						serializedDtxContextInfo = NULL;
-					else
-						serializedDtxContextInfo = pq_getmsgbytes(&input_message,serializedDtxContextInfolen);
-
-					DtxContextInfo_Deserialize(serializedDtxContextInfo, serializedDtxContextInfolen, &TempDtxContextInfo);
-
-					pq_getmsgend(&input_message);
-
-					exec_mpp_dtx_protocol_command(dtxProtocolCommand, loggingStr, gid, &TempDtxContextInfo);
-
-					send_ready_for_query = true;
+					elog(ERROR, "Dtx has been removed");
             	}
 				break;
 
@@ -5878,6 +6301,7 @@ PostgresMain(int argc, char *argv[],
 								firstchar)));
 		}
 	}							/* end of input-reading loop */
+	s3_destroy();
 }
 
 /*

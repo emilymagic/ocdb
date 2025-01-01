@@ -257,13 +257,8 @@ ExecMergeAppend(PlanState *pstate)
 		 */
 		if (node->ms_valid_subplans == NULL)
 		{
-			MergeAppend *plan = (MergeAppend *) node->ps.plan;
-
 			node->ms_valid_subplans =
-				ExecFindMatchingSubPlans(node->ms_prune_state,
-										 node->ps.state,
-										 list_length(plan->mergeplans),
-										 plan->join_prune_paramids);
+				ExecFindMatchingSubPlans(node->ms_prune_state);
 		}
 
 		/*

@@ -250,9 +250,6 @@ CreatePublication(CreatePublicationStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackAddObject(PublicationRelationId, myself.objectId, GetUserId(), "CREATE", "PUBLICATION");
 	}
 
 	return myself;
@@ -465,9 +462,6 @@ AlterPublication(AlterPublicationStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackUpdObject(PublicationRelationId, pubform->oid, GetUserId(), "ALTER", "PUBLICATION");
 	}
 
 	/* Cleanup. */

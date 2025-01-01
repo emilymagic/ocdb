@@ -16,6 +16,7 @@ top_builddir = ../..
 export enable_gpfdist
 export with_openssl
 
+
 PORT_BASE ?= 7000
 NUM_PRIMARY_MIRROR_PAIRS ?= 3
 BLDWRAP_POSTGRES_CONF_ADDONS := $(BLDWRAP_POSTGRES_CONF_ADDONS)
@@ -29,9 +30,10 @@ WITH_STANDBY = true
 endif
 
 export DEMO_PORT_BASE=$(PORT_BASE)
+export CATALOG_PORT=5432
 export NUM_PRIMARY_MIRROR_PAIRS
-export WITH_MIRRORS
-export WITH_STANDBY
+#export WITH_MIRRORS
+#export WITH_STANDBY
 export BLDWRAP_POSTGRES_CONF_ADDONS
 export DEFAULT_QD_MAX_CONNECT=150
 
@@ -59,5 +61,14 @@ clean destroy-demo-cluster:
 	@echo "======================================================================"
 	@./demo_cluster.sh -d
 	@echo ""
+
+catalog:
+	@./demo_catalog.sh
+	@echo ""
+
+cleancatalog:
+	@./demo_catalog.sh -d
+	@echo ""
+
 
 .PHONY: all cluster create-demo-cluster create-segwalrep-cluster probe clean check clean destroy-demo-cluster

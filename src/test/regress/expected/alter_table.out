@@ -1,4 +1,3 @@
-set optimizer_print_missing_stats = off;
 --
 -- ALTER_TABLE
 --
@@ -44,14 +43,14 @@ INSERT INTO attmp (a, b, c, d, e, f, g,    i,    k, l, m, n, p, q, r, s, t,
 	v, w, x, y, z)
    VALUES (4, 'name', 'text', 4.1, 4.1, 2, '(4.1,4.1,3.1,3.1)',
 	'c',
-	314159, '(1,1)', '512',
+	314159, '(1,1,1)', '512',
 	'1 2 3 4 5 6 7 8', true, '(1.1,1.1)', '(4.1,4.1,3.1,3.1)',
 	'(0,2,4.1,4.1,3.1,3.1)', '(4.1,4.1,3.1,3.1)',
 	'epoch', '01:00:10', '{1.0,2.0,3.0,4.0}', '{1.0,2.0,3.0,4.0}', '{1,2,3,4}');
 SELECT * FROM attmp;
- initial | a |  b   |  c   |  d  |  e  | f |           g           | i |   k    |   l   |  m  |        n        | p |     q     |           r           |              s              |          t          |            v             |        w         |     x     |     y     |     z     
----------+---+------+------+-----+-----+---+-----------------------+---+--------+-------+-----+-----------------+---+-----------+-----------------------+-----------------------------+---------------------+--------------------------+------------------+-----------+-----------+-----------
-         | 4 | name | text | 4.1 | 4.1 | 2 | ((4.1,4.1),(3.1,3.1)) | c | 314159 | (1,1) | 512 | 1 2 3 4 5 6 7 8 | t | (1.1,1.1) | [(4.1,4.1),(3.1,3.1)] | ((0,2),(4.1,4.1),(3.1,3.1)) | (4.1,4.1),(3.1,3.1) | Thu Jan 01 00:00:00 1970 | @ 1 hour 10 secs | {1,2,3,4} | {1,2,3,4} | {1,2,3,4}
+ initial | a |  b   |  c   |  d  |  e  | f |           g           | i |   k    |    l    |  m  |        n        | p |     q     |           r           |              s              |          t          |            v             |        w         |     x     |     y     |     z     
+---------+---+------+------+-----+-----+---+-----------------------+---+--------+---------+-----+-----------------+---+-----------+-----------------------+-----------------------------+---------------------+--------------------------+------------------+-----------+-----------+-----------
+         | 4 | name | text | 4.1 | 4.1 | 2 | ((4.1,4.1),(3.1,3.1)) | c | 314159 | (1,1,1) | 512 | 1 2 3 4 5 6 7 8 | t | (1.1,1.1) | [(4.1,4.1),(3.1,3.1)] | ((0,2),(4.1,4.1),(3.1,3.1)) | (4.1,4.1),(3.1,3.1) | Thu Jan 01 00:00:00 1970 | @ 1 hour 10 secs | {1,2,3,4} | {1,2,3,4} | {1,2,3,4}
 (1 row)
 
 DROP TABLE attmp;
@@ -86,14 +85,14 @@ INSERT INTO attmp (a, b, c, d, e, f, g,    i,   k, l, m, n, p, q, r, s, t,
 	v, w, x, y, z)
    VALUES (4, 'name', 'text', 4.1, 4.1, 2, '(4.1,4.1,3.1,3.1)',
         'c',
-	314159, '(1,1)', '512',
+	314159, '(1,1,1)', '512',
 	'1 2 3 4 5 6 7 8', true, '(1.1,1.1)', '(4.1,4.1,3.1,3.1)',
 	'(0,2,4.1,4.1,3.1,3.1)', '(4.1,4.1,3.1,3.1)',
 	'epoch', '01:00:10', '{1.0,2.0,3.0,4.0}', '{1.0,2.0,3.0,4.0}', '{1,2,3,4}');
 SELECT * FROM attmp;
- initial | a |  b   |  c   |  d  |  e  | f |           g           | i |   k    |   l   |  m  |        n        | p |     q     |           r           |              s              |          t          |            v             |        w         |     x     |     y     |     z     
----------+---+------+------+-----+-----+---+-----------------------+---+--------+-------+-----+-----------------+---+-----------+-----------------------+-----------------------------+---------------------+--------------------------+------------------+-----------+-----------+-----------
-         | 4 | name | text | 4.1 | 4.1 | 2 | ((4.1,4.1),(3.1,3.1)) | c | 314159 | (1,1) | 512 | 1 2 3 4 5 6 7 8 | t | (1.1,1.1) | [(4.1,4.1),(3.1,3.1)] | ((0,2),(4.1,4.1),(3.1,3.1)) | (4.1,4.1),(3.1,3.1) | Thu Jan 01 00:00:00 1970 | @ 1 hour 10 secs | {1,2,3,4} | {1,2,3,4} | {1,2,3,4}
+ initial | a |  b   |  c   |  d  |  e  | f |           g           | i |   k    |    l    |  m  |        n        | p |     q     |           r           |              s              |          t          |            v             |        w         |     x     |     y     |     z     
+---------+---+------+------+-----+-----+---+-----------------------+---+--------+---------+-----+-----------------+---+-----------+-----------------------+-----------------------------+---------------------+--------------------------+------------------+-----------+-----------+-----------
+         | 4 | name | text | 4.1 | 4.1 | 2 | ((4.1,4.1),(3.1,3.1)) | c | 314159 | (1,1,1) | 512 | 1 2 3 4 5 6 7 8 | t | (1.1,1.1) | [(4.1,4.1),(3.1,3.1)] | ((0,2),(4.1,4.1),(3.1,3.1)) | (4.1,4.1),(3.1,3.1) | Thu Jan 01 00:00:00 1970 | @ 1 hour 10 secs | {1,2,3,4} | {1,2,3,4} | {1,2,3,4}
 (1 row)
 
 CREATE INDEX attmp_idx ON attmp (a, (d + e), b);
@@ -160,7 +159,7 @@ CREATE TABLE part_attmp1 PARTITION OF part_attmp FOR VALUES FROM (0) TO (100);
 ALTER INDEX part_attmp_pkey RENAME TO part_attmp_index;
 ALTER INDEX part_attmp1_pkey RENAME TO part_attmp1_index;
 ALTER TABLE part_attmp RENAME TO part_at2tmp;
--- ALTER TABLE part_attmp1 RENAME TO part_at2tmp1; -- GPDB cascades parent rename to child partition
+ALTER TABLE part_attmp1 RENAME TO part_at2tmp1;
 SET ROLE regress_alter_table_user1;
 ALTER INDEX part_attmp_index RENAME TO fail;
 ERROR:  must be owner of index part_attmp_index
@@ -292,7 +291,7 @@ RESET ROLE;
 set enable_seqscan to off;
 set enable_bitmapscan to off;
 -- 5 values, sorted
-SELECT unique1 FROM tenk1 WHERE unique1 < 5 ORDER BY 1;
+SELECT unique1 FROM tenk1 WHERE unique1 < 5;
  unique1 
 ---------
        0
@@ -337,7 +336,6 @@ CREATE TABLE constraint_rename_test (a int CONSTRAINT con1 CHECK (a > 0), b int,
  c      | integer |           |          | 
 Check constraints:
     "con1" CHECK (a > 0)
-Distributed by: (a)
 
 CREATE TABLE constraint_rename_test2 (a int CONSTRAINT con1 CHECK (a > 0), d int) INHERITS (constraint_rename_test);
 NOTICE:  merging column "a" with inherited definition
@@ -353,7 +351,6 @@ NOTICE:  merging constraint "con1" with inherited definition
 Check constraints:
     "con1" CHECK (a > 0)
 Inherits: constraint_rename_test
-Distributed by: (a)
 
 ALTER TABLE constraint_rename_test2 RENAME CONSTRAINT con1 TO con1foo; -- fail
 ERROR:  cannot rename inherited constraint "con1"
@@ -370,7 +367,6 @@ ALTER TABLE constraint_rename_test RENAME CONSTRAINT con1 TO con1foo; -- ok
 Check constraints:
     "con1foo" CHECK (a > 0)
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d constraint_rename_test2
       Table "public.constraint_rename_test2"
@@ -383,7 +379,6 @@ Distributed by: (a)
 Check constraints:
     "con1foo" CHECK (a > 0)
 Inherits: constraint_rename_test
-Distributed by: (a)
 
 ALTER TABLE constraint_rename_test ADD CONSTRAINT con2 CHECK (b > 0) NO INHERIT;
 ALTER TABLE ONLY constraint_rename_test RENAME CONSTRAINT con2 TO con2foo; -- ok
@@ -399,7 +394,6 @@ Check constraints:
     "con1foo" CHECK (a > 0)
     "con2bar" CHECK (b > 0) NO INHERIT
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d constraint_rename_test2
       Table "public.constraint_rename_test2"
@@ -412,7 +406,6 @@ Distributed by: (a)
 Check constraints:
     "con1foo" CHECK (a > 0)
 Inherits: constraint_rename_test
-Distributed by: (a)
 
 ALTER TABLE constraint_rename_test ADD CONSTRAINT con3 PRIMARY KEY (a);
 ALTER TABLE constraint_rename_test RENAME CONSTRAINT con3 TO con3foo; -- ok
@@ -429,7 +422,6 @@ Check constraints:
     "con1foo" CHECK (a > 0)
     "con2bar" CHECK (b > 0) NO INHERIT
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d constraint_rename_test2
       Table "public.constraint_rename_test2"
@@ -442,7 +434,6 @@ Distributed by: (a)
 Check constraints:
     "con1foo" CHECK (a > 0)
 Inherits: constraint_rename_test
-Distributed by: (a)
 
 DROP TABLE constraint_rename_test2;
 DROP TABLE constraint_rename_test;
@@ -493,7 +484,6 @@ ERROR:  column "c" referenced in foreign key constraint does not exist
 ALTER TABLE attmp3 add constraint attmpconstr foreign key(a) references attmp2(b) match full;
 ERROR:  column "b" referenced in foreign key constraint does not exist
 -- Try (and fail) to add constraint due to invalid data
--- (passes on GPDB, because GPDB doesn't enforce foreign keys)
 ALTER TABLE attmp3 add constraint attmpconstr foreign key (a) references attmp2 match full;
 -- Delete failing row
 DELETE FROM attmp3 where a=5;
@@ -504,19 +494,12 @@ ALTER TABLE attmp3 drop constraint attmpconstr;
 INSERT INTO attmp3 values (5,50);
 -- Try NOT VALID and then VALIDATE CONSTRAINT, but fails. Delete failure then re-validate
 ALTER TABLE attmp3 add constraint attmpconstr foreign key (a) references attmp2 match full NOT VALID;
--- FK constraints are not supported in GPDB
---start_ignore
 ALTER TABLE attmp3 validate constraint attmpconstr;
-ERROR:  insert or update on table "attmp3" violates foreign key constraint "attmpconstr"
-DETAIL:  Key (a)=(5) is not present in table "attmp2".
---end_ignore
 -- Delete failing row
 DELETE FROM attmp3 where a=5;
 -- Try (and succeed) and repeat to show it works on already valid constraint
---start_ignore
 ALTER TABLE attmp3 validate constraint attmpconstr;
 ALTER TABLE attmp3 validate constraint attmpconstr;
---end_ignore
 -- Try a non-verified CHECK constraint
 ALTER TABLE attmp3 ADD CONSTRAINT b_greater_than_ten CHECK (b > 10); -- fail
 ERROR:  check constraint "b_greater_than_ten" is violated by some row
@@ -599,65 +582,57 @@ create table nv_child_2011 () inherits (nv_parent);
 alter table nv_child_2010 add check (d between '2010-01-01'::date and '2010-12-31'::date) not valid;
 alter table nv_child_2011 add check (d between '2011-01-01'::date and '2011-12-31'::date) not valid;
 explain (costs off) select * from nv_parent where d between '2011-08-01' and '2011-08-31';
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2010
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2011
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
- Optimizer: Postgres query optimizer
-(9 rows)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Append
+   ->  Seq Scan on nv_parent
+         Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+   ->  Seq Scan on nv_child_2010
+         Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+   ->  Seq Scan on nv_child_2011
+         Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+(7 rows)
 
 create table nv_child_2009 (check (d between '2009-01-01'::date and '2009-12-31'::date)) inherits (nv_parent);
 explain (costs off) select * from nv_parent where d between '2011-08-01'::date and '2011-08-31'::date;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2010
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
-         ->  Seq Scan on nv_child_2011
-               Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
- Optimizer: Postgres query optimizer
-(9 rows)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Append
+   ->  Seq Scan on nv_parent
+         Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+   ->  Seq Scan on nv_child_2010
+         Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+   ->  Seq Scan on nv_child_2011
+         Filter: ((d >= '08-01-2011'::date) AND (d <= '08-31-2011'::date))
+(7 rows)
 
 explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2010
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2011
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2009
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
- Optimizer: Postgres query optimizer
-(11 rows)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Append
+   ->  Seq Scan on nv_parent
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+   ->  Seq Scan on nv_child_2010
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+   ->  Seq Scan on nv_child_2011
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+   ->  Seq Scan on nv_child_2009
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+(9 rows)
 
 -- after validation, the constraint should be used
 alter table nv_child_2011 VALIDATE CONSTRAINT nv_child_2011_d_check;
 explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Append
-         ->  Seq Scan on nv_parent
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2010
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
-         ->  Seq Scan on nv_child_2009
-               Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
- Optimizer: Postgres query optimizer
-(9 rows)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Append
+   ->  Seq Scan on nv_parent
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+   ->  Seq Scan on nv_child_2010
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+   ->  Seq Scan on nv_child_2009
+         Filter: ((d >= '08-01-2009'::date) AND (d <= '08-31-2009'::date))
+(7 rows)
 
 -- add an inherited NOT VALID constraint
 alter table nv_parent add check (d between '2001-01-01'::date and '2099-12-31'::date) not valid;
@@ -670,7 +645,6 @@ Check constraints:
     "nv_child_2009_d_check" CHECK (d >= '01-01-2009'::date AND d <= '12-31-2009'::date)
     "nv_parent_d_check" CHECK (d >= '01-01-2001'::date AND d <= '12-31-2099'::date) NOT VALID
 Inherits: nv_parent
-Distributed by: (d)
 
 -- we leave nv_parent and children around to help test pg_dump logic
 -- Foreign key adding test with mixed types
@@ -693,7 +667,6 @@ DROP TABLE FKTABLE;
 -- because int=int8 exists and is a member of the integer opfamily
 CREATE TEMP TABLE FKTABLE (ftest1 int8);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
-WARNING:  referential integrity (FOREIGN KEY) constraints are not supported in Greenplum Database, will not be enforced
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
 INSERT INTO FKTABLE VALUES(43);		-- should fail
@@ -713,15 +686,13 @@ CREATE TEMP TABLE PKTABLE (ptest1 numeric PRIMARY KEY);
 INSERT INTO PKTABLE VALUES(42);
 CREATE TEMP TABLE FKTABLE (ftest1 int);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
-WARNING:  referential integrity (FOREIGN KEY) constraints are not supported in Greenplum Database, will not be enforced
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
 INSERT INTO FKTABLE VALUES(43);		-- should fail
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 CREATE TEMP TABLE PKTABLE (ptest1 int, ptest2 inet,
-                           PRIMARY KEY(ptest1, ptest2))
-                           distributed by (ptest1);
+                           PRIMARY KEY(ptest1, ptest2));
 -- This should fail, because we just chose really odd types
 CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) references pktable;
@@ -857,7 +828,6 @@ drop table atacc1;
 create table atacc1 (test int);
 create table atacc2 (test2 int);
 create table atacc3 (test3 int) inherits (atacc1, atacc2);
-NOTICE:  table has parent, setting distribution columns to match parent table
 alter table atacc2 add constraint foo check (test2>0);
 -- fail and then succeed on atacc2
 insert into atacc2 (test2) values (-3);
@@ -876,7 +846,6 @@ drop table atacc1;
 create table atacc1 (test int);
 create table atacc2 (test2 int);
 create table atacc3 (test3 int) inherits (atacc1, atacc2);
-NOTICE:  table has parent, setting distribution columns to match parent table
 alter table atacc3 no inherit atacc2;
 -- fail
 alter table atacc3 no inherit atacc2;
@@ -943,7 +912,7 @@ ERROR:  check constraint "foo" is violated by some row
 drop table atacc2;
 drop table atacc1;
 -- test unique constraint adding
-create table atacc1 ( test int );
+create table atacc1 ( test int ) ;
 -- add a unique constraint
 alter table atacc1 add constraint atacc_test1 unique (test);
 -- insert first value
@@ -956,8 +925,8 @@ DETAIL:  Key (test)=(2) already exists.
 insert into atacc1 (test) values (4);
 -- try to create duplicates via alter table using - should fail
 alter table atacc1 alter column test type integer using 0;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
+ERROR:  could not create unique index "atacc_test1"
+DETAIL:  Key (test)=(0) is duplicated.
 drop table atacc1;
 -- let's do one where the unique constraint fails when added
 create table atacc1 ( test int );
@@ -995,8 +964,6 @@ drop table atacc1;
 -- lets do some naming tests
 create table atacc1 (test int, test2 int, unique(test));
 alter table atacc1 add unique (test2);
-ERROR:  UNIQUE constraint must contain all columns in the table's distribution key
-DETAIL:  Distribution key column "test" is not included in the constraint.
 -- should fail for @@ second one @@
 insert into atacc1 (test2, test) values (3, 3);
 insert into atacc1 (test2, test) values (2, 3);
@@ -1004,7 +971,7 @@ ERROR:  duplicate key value violates unique constraint "atacc1_test_key"
 DETAIL:  Key (test)=(3) already exists.
 drop table atacc1;
 -- test primary key constraint adding
-create table atacc1 ( id serial, test int) distributed by (test);
+create table atacc1 ( id serial, test int) ;
 -- add a primary key constraint
 alter table atacc1 add constraint atacc_test1 primary key (test);
 -- insert first value
@@ -1025,10 +992,6 @@ ERROR:  multiple primary keys for table "atacc1" are not allowed
 -- drop first primary key constraint
 alter table atacc1 drop constraint atacc_test1 restrict;
 -- try adding a primary key on oid (should succeed)
-alter table atacc1 add constraint atacc_oid1 primary key(id);
-ERROR:  PRIMARY KEY definition must contain all columns in the table's distribution key
-DETAIL:  Distribution key column "test" is not included in the constraint.
-alter table atacc1 set distributed by (id);
 alter table atacc1 add constraint atacc_oid1 primary key(id);
 drop table atacc1;
 -- let's do one where the primary key constraint fails when added
@@ -1081,8 +1044,6 @@ drop table atacc1;
 create table atacc1 (a int primary key);
 alter table atacc1 add constraint atacc1_fkey foreign key (a) references atacc1 (a) not valid;
 alter table atacc1 validate constraint atacc1_fkey, alter a type bigint;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
 drop table atacc1;
 -- we've also seen issues with check constraints being validated at the wrong
 -- time when there's a pending table rewrite.
@@ -1211,7 +1172,6 @@ drop table atacc1;
 -- test inheritance
 create table parent (a int);
 create table child (b varchar(255)) inherits (parent);
-NOTICE:  table has parent, setting distribution columns to match parent table
 alter table parent alter a set not null;
 insert into parent values (NULL);
 ERROR:  null value in column "a" violates not-null constraint
@@ -1309,7 +1269,6 @@ ERROR:  relation "nosuchtable" does not exist
 create table atacc1 (a int4 not null, b int4, c int4 not null, d int4);
 insert into atacc1 values (1, 2, 3, 4);
 alter table atacc1 drop a;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 alter table atacc1 drop a;
 ERROR:  column "a" of relation "atacc1" does not exist
 -- SELECTs
@@ -1575,7 +1534,7 @@ alter table atacc1 drop column value;
 alter table atacc1 add column value int check (value < 10);
 insert into atacc1(value) values (100);
 ERROR:  new row for relation "atacc1" violates check constraint "atacc1_value_check"
-DETAIL:  Failing row contains (21, 100).
+DETAIL:  Failing row contains (2, 100).
 insert into atacc1(id, value) values (null, 0);
 ERROR:  null value in column "id" violates not-null constraint
 DETAIL:  Failing row contains (null, 0).
@@ -1584,9 +1543,7 @@ drop table atacc1;
 create table parent (a int, b int, c int);
 insert into parent values (1, 2, 3);
 alter table parent drop a;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 create table child (d varchar(255)) inherits (parent);
-NOTICE:  table has parent, setting distribution columns to match parent table
 insert into child values (12, 13, 'testing');
 select * from parent;
  b  | c  
@@ -1682,9 +1639,7 @@ drop table attest;
 -- test inheritance
 create table dropColumn (a int, b int, e int);
 create table dropColumnChild (c int) inherits (dropColumn);
-NOTICE:  table has parent, setting distribution columns to match parent table
 create table dropColumnAnother (d int) inherits (dropColumnChild);
-NOTICE:  table has parent, setting distribution columns to match parent table
 -- these two should fail
 alter table dropColumnchild drop column a;
 ERROR:  cannot drop inherited column "a"
@@ -1694,14 +1649,9 @@ ERROR:  cannot drop inherited column "b"
 alter table only dropColumn drop column e;
 alter table dropColumnChild drop column c;
 alter table dropColumn drop column a;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 create table renameColumn (a int);
 create table renameColumnChild (b int) inherits (renameColumn);
-NOTICE:  table has parent, setting distribution columns to match parent table
 create table renameColumnAnother (c int) inherits (renameColumnChild);
-NOTICE:  table has parent, setting distribution columns to match parent table
 -- these three should fail
 alter table renameColumnChild rename column a to d;
 ERROR:  cannot rename inherited column "a"
@@ -1725,14 +1675,12 @@ ERROR:  column must be added to child tables too
 -- Test corner cases in dropping of inherited columns
 create table p1 (f1 int, f2 int);
 create table c1 (f1 int not null) inherits(p1);
-NOTICE:  table has parent, setting distribution columns to match parent table
 NOTICE:  merging column "f1" with inherited definition
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
 ERROR:  cannot drop inherited column "f1"
 -- should work
 alter table p1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 -- c1.f1 is still there, but no longer inherited
 select f1 from c1;
  f1 
@@ -1740,7 +1688,6 @@ select f1 from c1;
 (0 rows)
 
 alter table c1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 select f1 from c1;
 ERROR:  column "f1" does not exist
 LINE 1: select f1 from c1;
@@ -1750,13 +1697,10 @@ drop table p1 cascade;
 NOTICE:  drop cascades to table c1
 create table p1 (f1 int, f2 int);
 create table c1 () inherits(p1);
-NOTICE:  table has parent, setting distribution columns to match parent table
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
 ERROR:  cannot drop inherited column "f1"
 alter table p1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 -- c1.f1 is dropped now, since there is no local definition for it
 select f1 from c1;
 ERROR:  column "f1" does not exist
@@ -1767,38 +1711,30 @@ drop table p1 cascade;
 NOTICE:  drop cascades to table c1
 create table p1 (f1 int, f2 int);
 create table c1 () inherits(p1);
-NOTICE:  table has parent, setting distribution columns to match parent table
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
 ERROR:  cannot drop inherited column "f1"
 alter table only p1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 -- c1.f1 is NOT dropped, but must now be considered non-inherited
 alter table c1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 drop table p1 cascade;
 NOTICE:  drop cascades to table c1
 create table p1 (f1 int, f2 int);
 create table c1 (f1 int not null) inherits(p1);
-NOTICE:  table has parent, setting distribution columns to match parent table
 NOTICE:  merging column "f1" with inherited definition
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
 ERROR:  cannot drop inherited column "f1"
 alter table only p1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 -- c1.f1 is still there, but no longer inherited
 alter table c1 drop column f1;
-NOTICE:  dropping a column that is part of the distribution policy forces a random distribution policy
 drop table p1 cascade;
 NOTICE:  drop cascades to table c1
 create table p1(id int, name text);
 create table p2(id2 int, name text, height int);
 create table c1(age int) inherits(p1,p2);
-NOTICE:  table has parent, setting distribution columns to match parent table
 NOTICE:  merging multiple inherited definitions of column "name"
 create table gc1() inherits (c1);
-NOTICE:  table has parent, setting distribution columns to match parent table
 select relname, attname, attinhcount, attislocal
 from pg_class join pg_attribute on (pg_class.oid = pg_attribute.attrelid)
 where relname in ('p1','p2','c1','gc1') and attnum > 0 and not attisdropped
@@ -1882,7 +1818,6 @@ order by attrelid::regclass::text, attnum;
 -- test renumbering of child-table columns in inherited operations
 create table p1 (f1 int);
 create table c1 (f2 text, f3 int) inherits (p1);
-NOTICE:  table has parent, setting distribution columns to match parent table
 alter table p1 add column a1 int check (a1 > 0);
 alter table p1 add column f2 text;
 NOTICE:  merging definition of column "f2" for child "c1"
@@ -1912,7 +1847,6 @@ NOTICE:  drop cascades to table c1
 -- its datatype
 create domain mytype as text;
 create temp table foo (f1 text, f2 mytype, f3 text);
-alter table foo set distributed randomly;
 insert into foo values('bb','cc','dd');
 select * from foo;
  f1 | f2 | f3 
@@ -1955,10 +1889,8 @@ alter table foo alter f1 TYPE integer; -- fails
 ERROR:  column "f1" cannot be cast automatically to type integer
 HINT:  You might need to specify "USING f1::integer".
 alter table foo alter f1 TYPE varchar(10);
-create sequence anothertab_atcol1_seq cache 1;
-create table anothertab (atcol1 int8 default nextval('anothertab_atcol1_seq'), atcol2 boolean,
-	constraint anothertab_chk check (atcol1 <= 50))
-	distributed randomly;
+create table anothertab (atcol1 serial8, atcol2 boolean,
+	constraint anothertab_chk check (atcol1 <= 3));
 insert into anothertab (atcol1, atcol2) values (default, true);
 insert into anothertab (atcol1, atcol2) values (default, false);
 select * from anothertab;
@@ -1982,9 +1914,9 @@ select * from anothertab;
       2 | f
 (2 rows)
 
-insert into anothertab (atcol1, atcol2) values (55, null); -- fails
-ERROR:  new row for relation "anothertab" violates check constraint "anothertab_chk"  (seg2 127.0.1.1:7004 pid=2013848)
-DETAIL:  Failing row contains (55, null).
+insert into anothertab (atcol1, atcol2) values (45, null); -- fails
+ERROR:  new row for relation "anothertab" violates check constraint "anothertab_chk"
+DETAIL:  Failing row contains (45, null).
 insert into anothertab (atcol1, atcol2) values (default, null);
 select * from anothertab;
  atcol1 | atcol2 
@@ -2032,7 +1964,7 @@ select * from anothertab;
 drop table anothertab;
 -- Test index handling in alter table column type (cf. bugs #15835, #15865)
 create table anothertab(f1 int primary key, f2 int unique,
-                        f3 int, f4 int, f5 int) distributed replicated;
+                        f3 int, f4 int, f5 int);
 alter table anothertab
   add exclude using btree (f3 with =);
 alter table anothertab
@@ -2061,24 +1993,13 @@ Indexes:
     "anothertab_f3_excl" EXCLUDE USING btree (f3 WITH =)
     "anothertab_f4_excl" EXCLUDE USING btree (f4 WITH =) WHERE (f4 IS NOT NULL)
     "anothertab_f4_excl1" EXCLUDE USING btree (f4 WITH =) WHERE (f5 > 0)
-Distributed Replicated
 
--- In GPDB, you cannot change the type of a column that's part of a unique key
-alter table anothertab drop constraint anothertab_pkey;
-alter table anothertab drop constraint anothertab_f1_f4_key ;
-alter table anothertab drop constraint anothertab_f2_key;
-drop index anothertab_f4_idx;
 alter table anothertab alter column f1 type bigint;
 alter table anothertab
   alter column f2 type bigint,
   alter column f3 type bigint,
   alter column f4 type bigint;
 alter table anothertab alter column f5 type bigint;
--- restore primary and unique keys
-alter table anothertab add constraint anothertab_pkey primary key (f1);
-alter table anothertab add constraint anothertab_f1_f4_key unique (f1, f4);
-create unique index on anothertab(f4);
-alter table anothertab add constraint anothertab_f2_key unique (f2);
 \d anothertab
             Table "public.anothertab"
  Column |  Type  | Collation | Nullable | Default 
@@ -2097,7 +2018,6 @@ Indexes:
     "anothertab_f3_excl" EXCLUDE USING btree (f3 WITH =)
     "anothertab_f4_excl" EXCLUDE USING btree (f4 WITH =) WHERE (f4 IS NOT NULL)
     "anothertab_f4_excl1" EXCLUDE USING btree (f4 WITH =) WHERE (f5 > 0)
-Distributed Replicated
 
 drop table anothertab;
 create table another (f1 int, f2 text);
@@ -2115,13 +2035,12 @@ select * from another;
 alter table another
   alter f1 type text using f2 || ' more',
   alter f2 type bigint using f1 * 10;
-ERROR:  cannot alter type of a column used in a distribution policy
 select * from another;
- f1 |  f2   
-----+-------
-  1 | one
-  2 | two
-  3 | three
+     f1     | f2 
+------------+----
+ one more   | 10
+ two more   | 20
+ three more | 30
 (3 rows)
 
 drop table another;
@@ -2148,7 +2067,6 @@ create table at_partitioned (a int, b text) partition by range (a);
 create table at_part_1 partition of at_partitioned for values from (0) to (1000);
 insert into at_partitioned values (512, '0.123');
 create table at_part_2 (b text, a int);
-alter table at_part_2 set distributed by (a);
 insert into at_part_2 values ('1.234', 1024);
 create index on at_partitioned (b);
 create index on at_partitioned (a);
@@ -2225,9 +2143,6 @@ insert into at_partitioned values(3, 'bar');
 create temp table old_oids as
   select relname, oid as oldoid, relfilenode as oldfilenode
   from pg_class where relname like 'at_partitioned%';
--- GPDB: the output for these queries differ from upstream, because GPDB
--- assigns a new relfilenode for every table, it never uses the table's
--- OID as the relfilenode like Postgres does.
 select relname,
   c.oid = oldoid as orig_oid,
   case relfilenode
@@ -2260,10 +2175,7 @@ select conname, obj_description(oid, 'pg_constraint') as desc
  at_partitioned_id_name_key   | parent constraint
 (3 rows)
 
--- this doesn't work in GPDB, which makes the rest of the test quite pointless.
 alter table at_partitioned alter column name type varchar(127);
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
 -- Note: these tests currently show the wrong behavior for comments :-(
 select relname,
   c.oid = oldoid as orig_oid,
@@ -2277,23 +2189,23 @@ select relname,
   from pg_class c left join old_oids using (relname)
   where relname like 'at_partitioned%'
   order by relname;
-           relname            | orig_oid | storage |     desc      
-------------------------------+----------+---------+---------------
+           relname            | orig_oid | storage |     desc     
+------------------------------+----------+---------+--------------
  at_partitioned               | t        | none    | 
  at_partitioned_0             | t        | orig    | 
- at_partitioned_0_id_name_key | t        | orig    | child 0 index
+ at_partitioned_0_id_name_key | f        | OTHER   | parent index
  at_partitioned_1             | t        | orig    | 
- at_partitioned_1_id_name_key | t        | orig    | child 1 index
- at_partitioned_id_name_key   | t        | none    | parent index
+ at_partitioned_1_id_name_key | f        | OTHER   | parent index
+ at_partitioned_id_name_key   | f        | none    | parent index
 (6 rows)
 
 select conname, obj_description(oid, 'pg_constraint') as desc
   from pg_constraint where conname like 'at_partitioned%'
   order by conname;
-           conname            |        desc        
-------------------------------+--------------------
- at_partitioned_0_id_name_key | child 0 constraint
- at_partitioned_1_id_name_key | child 1 constraint
+           conname            |       desc        
+------------------------------+-------------------
+ at_partitioned_0_id_name_key | 
+ at_partitioned_1_id_name_key | 
  at_partitioned_id_name_key   | parent constraint
 (3 rows)
 
@@ -2316,12 +2228,26 @@ alter table recur1 alter column f2 type recur2; -- fails
 ERROR:  composite type recur1 cannot be made a member of itself
 -- SET STORAGE may need to add a TOAST table
 create table test_storage (a text);
+select reltoastrelid <> 0 as has_toast_table
+  from pg_class where oid = 'test_storage'::regclass;
+ has_toast_table 
+-----------------
+ t
+(1 row)
+
 alter table test_storage alter a set storage plain;
-alter table test_storage add b int default 0; -- rewrite table to remove its TOAST table
+-- rewrite table to remove its TOAST table; need a non-constant column default
+alter table test_storage add b int default random()::int;
+select reltoastrelid <> 0 as has_toast_table
+  from pg_class where oid = 'test_storage'::regclass;
+ has_toast_table 
+-----------------
+ f
+(1 row)
+
 alter table test_storage alter a set storage extended; -- re-add TOAST table
 select reltoastrelid <> 0 as has_toast_table
-from pg_class
-where oid = 'test_storage'::regclass;
+  from pg_class where oid = 'test_storage'::regclass;
  has_toast_table 
 -----------------
  t
@@ -2331,11 +2257,11 @@ where oid = 'test_storage'::regclass;
 create index test_storage_idx on test_storage (b, a);
 alter table test_storage alter column a set storage external;
 \d+ test_storage
-                                Table "public.test_storage"
- Column |  Type   | Collation | Nullable | Default | Storage  | Stats target | Description 
---------+---------+-----------+----------+---------+----------+--------------+-------------
- a      | text    |           |          |         | external |              | 
- b      | integer |           |          | 0       | plain    |              | 
+                                     Table "public.test_storage"
+ Column |  Type   | Collation | Nullable |      Default      | Storage  | Stats target | Description 
+--------+---------+-----------+----------+-------------------+----------+--------------+-------------
+ a      | text    |           |          |                   | external |              | 
+ b      | integer |           |          | random()::integer | plain    |              | 
 Indexes:
     "test_storage_idx" btree (b, a)
 
@@ -2359,7 +2285,6 @@ CREATE TABLE test_inh_check_child() INHERITS(test_inh_check);
 Check constraints:
     "test_inh_check_a_check" CHECK (a > 10.2::double precision)
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d test_inh_check_child
             Table "public.test_inh_check_child"
@@ -2370,7 +2295,6 @@ Distributed by: (a)
 Check constraints:
     "test_inh_check_a_check" CHECK (a > 10.2::double precision)
 Inherits: test_inh_check
-Distributed by: (a)
 
 select relname, conname, coninhcount, conislocal, connoinherit
   from pg_constraint c, pg_class r
@@ -2392,7 +2316,6 @@ ALTER TABLE test_inh_check ALTER COLUMN a TYPE numeric;
 Check constraints:
     "test_inh_check_a_check" CHECK (a::double precision > 10.2::double precision)
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d test_inh_check_child
             Table "public.test_inh_check_child"
@@ -2403,7 +2326,6 @@ Distributed by: (a)
 Check constraints:
     "test_inh_check_a_check" CHECK (a::double precision > 10.2::double precision)
 Inherits: test_inh_check
-Distributed by: (a)
 
 select relname, conname, coninhcount, conislocal, connoinherit
   from pg_constraint c, pg_class r
@@ -2432,7 +2354,6 @@ Check constraints:
     "bnoinherit" CHECK (b > 100::double precision) NO INHERIT
     "test_inh_check_a_check" CHECK (a::double precision > 10.2::double precision)
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d test_inh_check_child
             Table "public.test_inh_check_child"
@@ -2445,7 +2366,6 @@ Check constraints:
     "bmerged" CHECK (b > 1::double precision)
     "test_inh_check_a_check" CHECK (a::double precision > 10.2::double precision)
 Inherits: test_inh_check
-Distributed by: (a)
 
 select relname, conname, coninhcount, conislocal, connoinherit
   from pg_constraint c, pg_class r
@@ -2474,7 +2394,6 @@ Check constraints:
     "bnoinherit" CHECK (b::double precision > 100::double precision) NO INHERIT
     "test_inh_check_a_check" CHECK (a::double precision > 10.2::double precision)
 Number of child tables: 1 (Use \d+ to list them.)
-Distributed by: (a)
 
 \d test_inh_check_child
         Table "public.test_inh_check_child"
@@ -2487,7 +2406,6 @@ Check constraints:
     "bmerged" CHECK (b::double precision > 1::double precision)
     "test_inh_check_a_check" CHECK (a::double precision > 10.2::double precision)
 Inherits: test_inh_check
-Distributed by: (a)
 
 select relname, conname, coninhcount, conislocal, connoinherit
   from pg_constraint c, pg_class r
@@ -2540,7 +2458,6 @@ ROLLBACK;
  t      | text    |           |          | 
 Foreign-key constraints:
     "check_fk_presence_2_id_fkey" FOREIGN KEY (id) REFERENCES check_fk_presence_1(id)
-Distributed by: (id)
 
 DROP TABLE check_fk_presence_1, check_fk_presence_2;
 -- check column addition within a view (bug #14876)
@@ -2573,15 +2490,12 @@ View definition:
    FROM at_view_1 v1;
 
 explain (verbose, costs off) select * from at_view_2;
-                           QUERY PLAN                           
-----------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Output: bt.id, bt.stuff, (to_json(ROW(bt.id, bt.stuff)))
-   ->  Seq Scan on public.at_base_table bt
-         Output: bt.id, bt.stuff, to_json(ROW(bt.id, bt.stuff))
- Optimizer: Postgres query optimizer
- Settings: constraint_exclusion=partition
-(6 rows)
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Seq Scan on public.at_base_table bt
+   Output: bt.id, bt.stuff, to_json(ROW(bt.id, bt.stuff))
+ Settings: constraint_exclusion = 'partition'
+(3 rows)
 
 select * from at_view_2;
  id | stuff  |             j              
@@ -2617,65 +2531,71 @@ View definition:
    FROM at_view_1 v1;
 
 explain (verbose, costs off) select * from at_view_2;
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Output: bt.id, bt.stuff, (to_json(ROW(bt.id, bt.stuff, NULL)))
-   ->  Seq Scan on public.at_base_table bt
-         Output: bt.id, bt.stuff, to_json(ROW(bt.id, bt.stuff, NULL))
- Optimizer: Postgres query optimizer
- Settings: constraint_exclusion=partition
-(6 rows)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Seq Scan on public.at_base_table bt
+   Output: bt.id, bt.stuff, to_json(ROW(bt.id, bt.stuff, 4))
+ Settings: constraint_exclusion = 'partition'
+(3 rows)
 
 select * from at_view_2;
- id | stuff  |                   j                    
-----+--------+----------------------------------------
- 23 | skidoo | {"id":23,"stuff":"skidoo","more":null}
+ id | stuff  |                  j                  
+----+--------+-------------------------------------
+ 23 | skidoo | {"id":23,"stuff":"skidoo","more":4}
 (1 row)
 
 drop view at_view_2;
 drop view at_view_1;
 drop table at_base_table;
--- check adding a column not iself requiring a rewrite, together with
+-- related case (bug #17811)
+begin;
+create temp table t1 as select * from int8_tbl;
+create temp view v1 as select 1::int8 as q1;
+create temp view v2 as select * from v1;
+create or replace temp view v1 with (security_barrier = true)
+  as select * from t1;
+create temp table log (q1 int8, q2 int8);
+create rule v1_upd_rule as on update to v1
+  do also insert into log values (new.*);
+update v2 set q1 = q1 + 1 where q1 = 123;
+select * from t1;
+        q1        |        q2         
+------------------+-------------------
+ 4567890123456789 |               123
+ 4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789
+              124 |               456
+              124 |  4567890123456789
+(5 rows)
+
+select * from log;
+ q1  |        q2        
+-----+------------------
+ 124 |              456
+ 124 | 4567890123456789
+(2 rows)
+
+rollback;
+-- check adding a column not itself requiring a rewrite, together with
 -- a column requiring a default (bug #16038)
 -- ensure that rewrites aren't silently optimized away, removing the
 -- value of the test
-CREATE FUNCTION check_ddl_rewrite(p_tablename text, p_ddl text)
+CREATE FUNCTION check_ddl_rewrite(p_tablename regclass, p_ddl text)
 RETURNS boolean
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_result boolean;
+    v_relfilenode oid;
 BEGIN
-    CREATE TEMP TABLE before_ddl(segid int, relfilenode oid);
-    CREATE TEMP TABLE after_ddl(segid int, relfilenode oid);
-
-    INSERT INTO before_ddl SELECT gp_segment_id segid, relfilenode FROM gp_dist_random('pg_class')
-    WHERE relname = p_tablename ORDER BY segid;
+    v_relfilenode := relfilenode FROM pg_class WHERE oid = p_tablename;
 
     EXECUTE p_ddl;
 
-    INSERT INTO after_ddl SELECT gp_segment_id segid, relfilenode FROM gp_dist_random('pg_class')
-    WHERE relname = p_tablename ORDER BY segid;
-
-    v_result := (SELECT count(a.*)=0 FROM before_ddl b INNER JOIN after_ddl a ON b.segid = a.segid AND b.relfilenode = a.relfilenode);
-
-    DROP TABLE before_ddl;
-    DROP TABLE after_ddl;
-
-    RETURN v_result;
+    RETURN v_relfilenode <> (SELECT relfilenode FROM pg_class WHERE oid = p_tablename);
 END;
 $$;
 CREATE TABLE rewrite_test(col text);
-CREATE TABLE rewrite_test_ao(col text) USING ao_row;
-CREATE TABLE rewrite_test_co(col text) USING ao_column;
 INSERT INTO rewrite_test VALUES ('something');
 INSERT INTO rewrite_test VALUES (NULL);
-INSERT INTO rewrite_test_ao VALUES ('something');
-INSERT INTO rewrite_test_ao VALUES (NULL);
-INSERT INTO rewrite_test_co VALUES ('something');
-INSERT INTO rewrite_test_co VALUES (NULL);
--- Testing all three AMs.
--- For AOCO table, never table rewrite (just need to write new column)
 -- empty[12] don't need rewrite, but notempty[12]_rewrite will force one
 SELECT check_ddl_rewrite('rewrite_test', $$
   ALTER TABLE rewrite_test
@@ -2697,46 +2617,6 @@ $$);
  t
 (1 row)
 
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-  ALTER TABLE rewrite_test_ao
-      ADD COLUMN empty1 text,
-      ADD COLUMN notempty1_rewrite serial;
-$$);
- check_ddl_rewrite 
--------------------
- t
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-    ALTER TABLE rewrite_test_ao
-        ADD COLUMN notempty2_rewrite serial,
-        ADD COLUMN empty2 text;
-$$);
- check_ddl_rewrite 
--------------------
- t
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-  ALTER TABLE rewrite_test_co
-      ADD COLUMN empty1 text,
-      ADD COLUMN notempty1_rewrite serial;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-    ALTER TABLE rewrite_test_co
-        ADD COLUMN notempty2_rewrite serial,
-        ADD COLUMN empty2 text;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
 -- also check that fast defaults cause no problem, first without rewrite
 SELECT check_ddl_rewrite('rewrite_test', $$
     ALTER TABLE rewrite_test
@@ -2750,46 +2630,6 @@ $$);
 
 SELECT check_ddl_rewrite('rewrite_test', $$
     ALTER TABLE rewrite_test
-        ADD COLUMN notempty4_norewrite int default 42,
-        ADD COLUMN empty4 text;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-    ALTER TABLE rewrite_test_ao
-        ADD COLUMN empty3 text,
-        ADD COLUMN notempty3_norewrite int default 42;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-    ALTER TABLE rewrite_test_ao
-        ADD COLUMN notempty4_norewrite int default 42,
-        ADD COLUMN empty4 text;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-    ALTER TABLE rewrite_test_co
-        ADD COLUMN empty3 text,
-        ADD COLUMN notempty3_norewrite int default 42;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-    ALTER TABLE rewrite_test_co
         ADD COLUMN notempty4_norewrite int default 42,
         ADD COLUMN empty4 text;
 $$);
@@ -2821,106 +2661,9 @@ $$);
  t
 (1 row)
 
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-    ALTER TABLE rewrite_test_ao
-        ADD COLUMN empty5 text,
-        ADD COLUMN notempty5_norewrite int default 42,
-        ADD COLUMN notempty5_rewrite serial;
-$$);
- check_ddl_rewrite 
--------------------
- t
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-    ALTER TABLE rewrite_test_ao
-        ADD COLUMN notempty6_rewrite serial,
-        ADD COLUMN empty6 text,
-        ADD COLUMN notempty6_norewrite int default 42;
-$$);
- check_ddl_rewrite 
--------------------
- t
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-    ALTER TABLE rewrite_test_co
-        ADD COLUMN empty5 text,
-        ADD COLUMN notempty5_norewrite int default 42,
-        ADD COLUMN notempty5_rewrite serial;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-    ALTER TABLE rewrite_test_co
-        ADD COLUMN notempty6_rewrite serial,
-        ADD COLUMN empty6 text,
-        ADD COLUMN notempty6_norewrite int default 42;
-$$);
- check_ddl_rewrite 
--------------------
- f
-(1 row)
-
--- check changing default value won't rewrite, and won't change existing rows
-SELECT check_ddl_rewrite('rewrite_test', $$
-    ALTER TABLE rewrite_test_co
-        ALTER COLUMN notempty6_norewrite SET DEFAULT 43;
-$$);
- check_ddl_rewrite 
-------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_ao', $$
-    ALTER TABLE rewrite_test_co
-        ALTER COLUMN notempty6_norewrite SET DEFAULT 43;
-$$);
- check_ddl_rewrite 
-------------
- f
-(1 row)
-
-SELECT check_ddl_rewrite('rewrite_test_co', $$
-    ALTER TABLE rewrite_test_co
-        ALTER COLUMN notempty6_norewrite SET DEFAULT 43;
-$$);
- check_ddl_rewrite 
-------------
- f
-(1 row)
-
--- check the tables to make sure the data is expected
--- note that serial order is undetermined for each column
-SELECT empty1, notempty1_rewrite in (1,21), notempty2_rewrite in (1,21), empty2, empty3, notempty3_norewrite, notempty4_norewrite, empty4, empty5, notempty5_norewrite, notempty5_rewrite in (1,21), notempty6_rewrite in (1,21), empty6, notempty6_norewrite FROM rewrite_test;
- empty1 | ?column? | ?column? | empty2 | empty3 | notempty3_norewrite | notempty4_norewrite | empty4 | empty5 | notempty5_norewrite | ?column? | ?column? | empty6 | notempty6_norewrite 
---------+----------+----------+--------+--------+---------------------+---------------------+--------+--------+---------------------+----------+----------+--------+---------------------
-        | t        | t        |        |        |                  42 |                  42 |        |        |                  42 | t        | t        |        |                  42
-        | t        | t        |        |        |                  42 |                  42 |        |        |                  42 | t        | t        |        |                  42
-(2 rows)
-
-SELECT empty1, notempty1_rewrite in (1,21), notempty2_rewrite in (1,21), empty2, empty3, notempty3_norewrite, notempty4_norewrite, empty4, empty5, notempty5_norewrite, notempty5_rewrite in (1,21), notempty6_rewrite in (1,21), empty6, notempty6_norewrite FROM rewrite_test_ao;
- empty1 | ?column? | ?column? | empty2 | empty3 | notempty3_norewrite | notempty4_norewrite | empty4 | empty5 | notempty5_norewrite | ?column? | ?column? | empty6 | notempty6_norewrite 
---------+----------+----------+--------+--------+---------------------+---------------------+--------+--------+---------------------+----------+----------+--------+---------------------
-        | t        | t        |        |        |                  42 |                  42 |        |        |                  42 | t        | t        |        |                  42
-        | t        | t        |        |        |                  42 |                  42 |        |        |                  42 | t        | t        |        |                  42
-(2 rows)
-
-SELECT empty1, notempty1_rewrite in (1,21), notempty2_rewrite in (1,21), empty2, empty3, notempty3_norewrite, notempty4_norewrite, empty4, empty5, notempty5_norewrite, notempty5_rewrite in (1,21), notempty6_rewrite in (1,21), empty6, notempty6_norewrite FROM rewrite_test_co;
- empty1 | ?column? | ?column? | empty2 | empty3 | notempty3_norewrite | notempty4_norewrite | empty4 | empty5 | notempty5_norewrite | ?column? | ?column? | empty6 | notempty6_norewrite 
---------+----------+----------+--------+--------+---------------------+---------------------+--------+--------+---------------------+----------+----------+--------+---------------------
-        | t        | t        |        |        |                  42 |                  42 |        |        |                  42 | t        | t        |        |                  42
-        | t        | t        |        |        |                  42 |                  42 |        |        |                  42 | t        | t        |        |                  42
-(2 rows)
-
 -- cleanup
-DROP FUNCTION check_ddl_rewrite(text, text);
+DROP FUNCTION check_ddl_rewrite(regclass, text);
 DROP TABLE rewrite_test;
-DROP TABLE rewrite_test_ao;
-DROP TABLE rewrite_test_co;
 --
 -- lock levels
 --
@@ -2998,7 +2741,6 @@ select * from my_locks order by 1;
 
 commit;
 begin; alter table alterlock set (toast.autovacuum_enabled = off);
-WARNING:  autovacuum is not supported in Greenplum
 select * from my_locks order by 1;
   relname  |       max_lockmode       
 -----------+--------------------------
@@ -3008,7 +2750,6 @@ select * from my_locks order by 1;
 
 commit;
 begin; alter table alterlock set (autovacuum_enabled = off);
-WARNING:  autovacuum is not supported in Greenplum
 select * from my_locks order by 1;
   relname  |       max_lockmode       
 -----------+--------------------------
@@ -3027,7 +2768,6 @@ select * from my_locks order by 1;
 rollback;
 -- test that mixing options with different lock levels works as expected
 begin; alter table alterlock set (autovacuum_enabled = off, fillfactor = 80);
-WARNING:  autovacuum is not supported in Greenplum
 select * from my_locks order by 1;
   relname  |       max_lockmode       
 -----------+--------------------------
@@ -3072,7 +2812,6 @@ select * from my_locks order by 1;
 (0 rows)
 
 alter table alterlock2 add foreign key (f1) references alterlock (f1);
-WARNING:  referential integrity (FOREIGN KEY) constraints are not supported in Greenplum Database, will not be enforced
 select * from my_locks order by 1;
   relname   |     max_lockmode      
 ------------+-----------------------
@@ -3084,7 +2823,6 @@ rollback;
 begin;
 alter table alterlock2
 add constraint alterlock2nv foreign key (f1) references alterlock (f1) NOT VALID;
-WARNING:  referential integrity (FOREIGN KEY) constraints are not supported in Greenplum Database, will not be enforced
 select * from my_locks order by 1;
   relname   |     max_lockmode      
 ------------+-----------------------
@@ -3115,15 +2853,11 @@ and c.relname = 'my_locks'
 group by c.relname;
 -- raise exception
 alter table my_locks set (autovacuum_enabled = false);
-WARNING:  autovacuum is not supported in Greenplum
 ERROR:  unrecognized parameter "autovacuum_enabled"
 alter view my_locks set (autovacuum_enabled = false);
-WARNING:  autovacuum is not supported in Greenplum
 ERROR:  unrecognized parameter "autovacuum_enabled"
 alter table my_locks reset (autovacuum_enabled);
-WARNING:  autovacuum is not supported in Greenplum
 alter view my_locks reset (autovacuum_enabled);
-WARNING:  autovacuum is not supported in Greenplum
 begin;
 alter view my_locks set (security_barrier=off);
 select * from my_locks order by 1;
@@ -3157,7 +2891,7 @@ drop type lockmodes;
 --
 create function test_strict(text) returns text as
     'select coalesce($1, ''got passed a null'');'
-    language sql CONTAINS SQL returns null on null input;
+    language sql returns null on null input;
 select test_strict(NULL);
  test_strict 
 -------------
@@ -3173,7 +2907,7 @@ select test_strict(NULL);
 
 create function non_strict(text) returns text as
     'select coalesce($1, ''got passed a null'');'
-    language sql CONTAINS SQL called on null input;
+    language sql called on null input;
 select non_strict(NULL);
     non_strict     
 -------------------
@@ -3194,7 +2928,7 @@ create schema alter1;
 create schema alter2;
 create table alter1.t1(f1 serial primary key, f2 int check (f2 > 0));
 create view alter1.v1 as select * from alter1.t1;
-create function alter1.plus1(int) returns int as 'select $1+1' language sql CONTAINS SQL;
+create function alter1.plus1(int) returns int as 'select $1+1' language sql;
 create domain alter1.posint integer check (value > 0);
 create type alter1.ctype as (f1 int, f2 text);
 create function alter1.same(alter1.ctype, alter1.ctype) returns boolean language sql
@@ -3234,8 +2968,8 @@ select * from alter2.t1;
 ----+----
   1 | 11
   2 | 12
- 21 | 13
- 22 | 14
+  3 | 13
+  4 | 14
 (4 rows)
 
 select * from alter2.v1;
@@ -3243,8 +2977,8 @@ select * from alter2.v1;
 ----+----
   1 | 11
   2 | 12
- 21 | 13
- 22 | 14
+  3 | 13
+  4 | 14
 (4 rows)
 
 select alter2.plus1(41);
@@ -3339,6 +3073,13 @@ CREATE TYPE test_type1 AS (a int, b text);
 CREATE TABLE test_tbl1 (x int, y test_type1);
 ALTER TYPE test_type1 ALTER ATTRIBUTE b TYPE varchar; -- fails
 ERROR:  cannot alter type "test_type1" because column "test_tbl1.y" uses it
+DROP TABLE test_tbl1;
+CREATE TABLE test_tbl1 (x int, y text);
+CREATE INDEX test_tbl1_idx ON test_tbl1((row(x,y)::test_type1));
+ALTER TYPE test_type1 ALTER ATTRIBUTE b TYPE varchar; -- fails
+ERROR:  cannot alter type "test_type1" because column "test_tbl1_idx.row" uses it
+DROP TABLE test_tbl1;
+DROP TYPE test_type1;
 CREATE TYPE test_type2 AS (a int, b text);
 CREATE TABLE test_tbl2 OF test_type2;
 CREATE TABLE test_tbl2_subclass () INHERITS (test_tbl2);
@@ -3357,7 +3098,6 @@ CREATE TABLE test_tbl2_subclass () INHERITS (test_tbl2);
  b      | text    |           |          | 
 Number of child tables: 1 (Use \d+ to list them.)
 Typed table of type: test_type2
-Distributed by: (a)
 
 ALTER TYPE test_type2 ADD ATTRIBUTE c text; -- fails
 ERROR:  cannot alter type "test_type2" because it is the type of a typed table
@@ -3380,7 +3120,6 @@ ALTER TYPE test_type2 ADD ATTRIBUTE c text CASCADE;
  c      | text    |           |          | 
 Number of child tables: 1 (Use \d+ to list them.)
 Typed table of type: test_type2
-Distributed by: (a)
 
 ALTER TYPE test_type2 ALTER ATTRIBUTE b TYPE varchar; -- fails
 ERROR:  cannot alter type "test_type2" because it is the type of a typed table
@@ -3403,7 +3142,6 @@ ALTER TYPE test_type2 ALTER ATTRIBUTE b TYPE varchar CASCADE;
  c      | text              |           |          | 
 Number of child tables: 1 (Use \d+ to list them.)
 Typed table of type: test_type2
-Distributed by: (a)
 
 ALTER TYPE test_type2 DROP ATTRIBUTE b; -- fails
 ERROR:  cannot alter type "test_type2" because it is the type of a typed table
@@ -3424,7 +3162,6 @@ ALTER TYPE test_type2 DROP ATTRIBUTE b CASCADE;
  c      | text    |           |          | 
 Number of child tables: 1 (Use \d+ to list them.)
 Typed table of type: test_type2
-Distributed by: (a)
 
 ALTER TYPE test_type2 RENAME ATTRIBUTE a TO aa; -- fails
 ERROR:  cannot alter type "test_type2" because it is the type of a typed table
@@ -3445,7 +3182,6 @@ ALTER TYPE test_type2 RENAME ATTRIBUTE a TO aa CASCADE;
  c      | text    |           |          | 
 Number of child tables: 1 (Use \d+ to list them.)
 Typed table of type: test_type2
-Distributed by: (aa)
 
 \d test_tbl2_subclass
          Table "public.test_tbl2_subclass"
@@ -3454,9 +3190,9 @@ Distributed by: (aa)
  aa     | integer |           |          | 
  c      | text    |           |          | 
 Inherits: test_tbl2
-Distributed by: (aa)
 
-DROP TABLE test_tbl2_subclass;
+DROP TABLE test_tbl2_subclass, test_tbl2;
+DROP TYPE test_type2;
 CREATE TYPE test_typex AS (a int, b text);
 CREATE TABLE test_tblx (x int, y test_typex check ((y).a > 0));
 ALTER TYPE test_typex DROP ATTRIBUTE a; -- fails
@@ -3471,7 +3207,6 @@ NOTICE:  drop cascades to constraint test_tblx_y_check on table test_tblx
 --------+------------+-----------+----------+---------
  x      | integer    |           |          | 
  y      | test_typex |           |          | 
-Distributed by: (x)
 
 DROP TABLE test_tblx;
 DROP TYPE test_typex;
@@ -3520,7 +3255,6 @@ ALTER TABLE tt7 NOT OF;
 --------+--------------+-----------+----------+---------
  x      | integer      |           |          | 
  y      | numeric(8,2) |           |          | 
-Distributed by: (x)
 
 -- make sure we can drop a constraint on the parent but it remains on the child
 CREATE TABLE test_drop_constr_parent (c text CHECK (c IS NOT NULL));
@@ -3537,8 +3271,6 @@ NOTICE:  drop cascades to table test_drop_constr_child
 --
 ALTER TABLE IF EXISTS tt8 ADD COLUMN f int;
 NOTICE:  relation "tt8" does not exist, skipping
-ALTER TABLE IF EXISTS tt8 SET DISTRIBUTED BY(f);
-NOTICE:  relation "tt8" does not exist, skipping
 ALTER TABLE IF EXISTS tt8 ADD CONSTRAINT xxx PRIMARY KEY(f);
 NOTICE:  relation "tt8" does not exist, skipping
 ALTER TABLE IF EXISTS tt8 ADD CHECK (f BETWEEN 0 AND 10);
@@ -3552,7 +3284,6 @@ NOTICE:  relation "tt8" does not exist, skipping
 CREATE TABLE tt8(a int);
 CREATE SCHEMA alter2;
 ALTER TABLE IF EXISTS tt8 ADD COLUMN f int;
-ALTER TABLE IF EXISTS tt8 SET DISTRIBUTED BY(f);
 ALTER TABLE IF EXISTS tt8 ADD CONSTRAINT xxx PRIMARY KEY(f);
 ALTER TABLE IF EXISTS tt8 ADD CHECK (f BETWEEN 0 AND 10);
 ALTER TABLE IF EXISTS tt8 ALTER COLUMN f SET DEFAULT 0;
@@ -3568,7 +3299,6 @@ Indexes:
     "xxx" PRIMARY KEY, btree (f1)
 Check constraints:
     "tt8_f_check" CHECK (f1 >= 0 AND f1 <= 10)
-Distributed by: (f1)
 
 DROP TABLE alter2.tt8;
 DROP SCHEMA alter2;
@@ -3645,16 +3375,8 @@ SELECT conname as constraint, obj_description(oid, 'pg_constraint') as comment F
 -- first, to test that no-op codepath, and another one that does.
 ALTER TABLE comment_test ALTER COLUMN indexed_col SET DATA TYPE int;
 ALTER TABLE comment_test ALTER COLUMN indexed_col SET DATA TYPE text;
--- Changing the data type of an indexed column is not supported in GPDB as of fecd245
 ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE int;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
 ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE text;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
-ALTER TABLE comment_test DROP CONSTRAINT comment_test_pk;
-ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE text;
-ALTER TABLE comment_test ADD CONSTRAINT comment_test_pk PRIMARY KEY (id);
 ALTER TABLE comment_test ALTER COLUMN positive_col SET DATA TYPE int;
 ALTER TABLE comment_test ALTER COLUMN positive_col SET DATA TYPE bigint;
 -- Check that the comments are intact.
@@ -3665,16 +3387,16 @@ SELECT col_description('comment_test'::regclass, 1) as comment;
 (1 row)
 
 SELECT indexrelid::regclass::text as index, obj_description(indexrelid, 'pg_class') as comment FROM pg_index where indrelid = 'comment_test'::regclass ORDER BY 1, 2;
-       index        |           comment            
---------------------+------------------------------
+       index        |                    comment                    
+--------------------+-----------------------------------------------
  comment_test_index | Simple index on comment_test
- comment_test_pk    | 
+ comment_test_pk    | Index backing the PRIMARY KEY of comment_test
 (2 rows)
 
 SELECT conname as constraint, obj_description(oid, 'pg_constraint') as comment FROM pg_constraint where conrelid = 'comment_test'::regclass ORDER BY 1, 2;
            constraint            |                    comment                    
 ---------------------------------+-----------------------------------------------
- comment_test_pk                 | 
+ comment_test_pk                 | PRIMARY KEY constraint of comment_test
  comment_test_positive_col_check | CHECK constraint on comment_test.positive_col
 (2 rows)
 
@@ -3689,11 +3411,9 @@ COMMENT ON INDEX comment_test_child_fk IS 'Index backing the FOREIGN KEY of comm
 COMMENT ON CONSTRAINT comment_test_child_fk ON comment_test_child IS 'FOREIGN KEY constraint of comment_test_child';
 -- Change column type of parent
 ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE text;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
 ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE int USING id::integer;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
+ERROR:  foreign key constraint "comment_test_child_fk" cannot be implemented
+DETAIL:  Key columns "id" and "id" are of incompatible types: text and integer.
 -- Comments should be intact
 SELECT col_description('comment_test_child'::regclass, 1) as comment;
               comment              
@@ -3851,54 +3571,6 @@ ALTER TABLE logged1 SET UNLOGGED; -- silently do nothing
 DROP TABLE logged3;
 DROP TABLE logged2;
 DROP TABLE logged1;
---
--- Test for splitting after dropping a column
---
-DROP TABLE IF EXISTS test_part;
-NOTICE:  table "test_part" does not exist, skipping
-CREATE TABLE test_part (
-    field_part timestamp without time zone,
-    field1 int,
-    field2 text,
-    field3 int
-) PARTITION BY RANGE(field_part)
-          (
-          PARTITION p2017 START ('2017-01-01'::date) END ('2018-01-01'::date) WITH (appendonly=false ),
-          DEFAULT PARTITION p_overflow  WITH (appendonly=false )
-          );
-NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column named 'field_part' as the Greenplum Database data distribution key for this table.
-HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
-DROP TABLE IF EXISTS test_ref;
-NOTICE:  table "test_ref" does not exist, skipping
-CREATE TABLE test_ref (
-    field1 text,
-    field2 text
-);
-INSERT INTO test_part select '2017-01-01'::date + interval '1 days' * mod (id,1000) , mod(id,50), 'test ' || mod(id,5) ,mod(id,2) from generate_series(1,10000) id;
-INSERT INTO test_ref select 'test ' || id , 'values' from generate_series(1,10) id;
-ALTER TABLE test_part DROP COLUMN field1;
-ALTER TABLE test_part   SPLIT DEFAULT PARTITION
-START('2018-01-01'::date)
-       END( '2018-02-01'::date);
-ANALYZE test_part;
-ANALYZE test_ref;
-SELECT * FROM test_part WHERE field2 IN (SELECT field1 FROM test_ref) ORDER BY 1 LIMIT 10;
-        field_part        | field2 | field3 
---------------------------+--------+--------
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
- Mon Jan 02 00:00:00 2017 | test 1 |      1
-(10 rows)
-
-DROP TABLE test_ref;
-DROP TABLE test_part;
 -- test ADD COLUMN IF NOT EXISTS
 CREATE TABLE test_add_column(c1 integer);
 \d test_add_column
@@ -4104,7 +3776,6 @@ CREATE TABLE fail_part (
 	b char(3),
 	a int NOT NULL
 );
-alter table fail_part set distributed by (a);
 ALTER TABLE list_parted ATTACH PARTITION fail_part FOR VALUES IN (1);
 ERROR:  child table "fail_part" has different type for column "b"
 ALTER TABLE fail_part ALTER b TYPE char (2) COLLATE "POSIX";
@@ -4116,7 +3787,6 @@ CREATE TABLE fail_part (
 	b char(2) COLLATE "C",
 	a int NOT NULL
 );
-alter table fail_part set distributed by (a);
 ALTER TABLE list_parted ATTACH PARTITION fail_part FOR VALUES IN (1);
 ERROR:  child table is missing constraint "check_a"
 -- check that the constraint matches in definition with parent's constraint
@@ -4261,7 +3931,6 @@ CREATE TABLE part_6 (
 	LIKE list_parted2,
 	CONSTRAINT check_a CHECK (a IS NOT NULL AND a = 6)
 );
-alter table part_6 set distributed by (a);
 ALTER TABLE part_6 DROP c;
 ALTER TABLE list_parted2 ATTACH PARTITION part_6 FOR VALUES IN (6);
 -- Similar to above, but the table being attached is a partitioned table
@@ -4279,7 +3948,6 @@ CREATE TABLE part_7_a_null (
 	CONSTRAINT check_b CHECK (b IS NULL OR b = 'a'),
 	CONSTRAINT check_a CHECK (a IS NOT NULL AND a = 7)
 );
-alter table part_7_a_null set distributed by (a);
 ALTER TABLE part_7_a_null DROP c, DROP d, DROP e;
 ALTER TABLE part_7 ATTACH PARTITION part_7_a_null FOR VALUES IN ('a', null);
 ALTER TABLE list_parted2 ATTACH PARTITION part_7 FOR VALUES IN (7);
@@ -4386,7 +4054,7 @@ DROP TABLE fail_part;
 -- fails with incorrect object type
 CREATE VIEW at_v1 AS SELECT 1 as a;
 ALTER TABLE at_v1 ATTACH PARTITION dummy default;
-ERROR:  "at_v1" is not a partitioned table or index
+ERROR:  "at_v1" is not a partitioned table or index (parse_utilcmd.c:4332)
 DROP VIEW at_v1;
 --
 -- DETACH PARTITION
@@ -4517,7 +4185,6 @@ DROP TABLE fail_def_part;
 DROP TABLE hash_parted;
 -- more tests for certain multi-level partitioning scenarios
 create table p (a int, b int) partition by range (a, b);
-alter table p set distributed by (b);
 create table p1 (b int, a int not null) partition by range (b);
 create table p11 (like p1);
 alter table p11 drop a;
@@ -4566,7 +4233,6 @@ DROP USER regress_alter_table_user1;
 create table defpart_attach_test (a int) partition by list (a);
 create table defpart_attach_test1 partition of defpart_attach_test for values in (1);
 create table defpart_attach_test_d (b int, a int);
-alter table defpart_attach_test_d set distributed by (a);
 alter table defpart_attach_test_d drop b;
 insert into defpart_attach_test_d values (1), (2);
 -- error because its constraint as the default partition would be violated
@@ -4609,10 +4275,10 @@ create or replace function func_part_attach() returns trigger
   end $$;
 create trigger trig_part_attach before insert on tab_part_attach
   for each statement execute procedure func_part_attach();
-ERROR:  Triggers for statements are not yet supported
 insert into tab_part_attach values (1);
-DETAIL:  Partition key of the failing row contains (a) = (1).
-ERROR:  no partition of relation "tab_part_attach" found for row
+ERROR:  cannot ALTER TABLE "tab_part_attach" because it is being used by active queries in this session
+CONTEXT:  SQL statement "alter table tab_part_attach attach partition tab_part_attach_1 for values in (1)"
+PL/pgSQL function func_part_attach() line 4 at EXECUTE
 drop table tab_part_attach;
 drop function func_part_attach();
 -- test case where the partitioning operator is a SQL function whose
@@ -4665,8 +4331,8 @@ create trigger xtrig
   after update on bar1
   referencing old table as old
   for each statement execute procedure xtrig();
-ERROR:  Triggers for statements are not yet supported
 update bar1 set a = a + 1;
+INFO:  a=1, b=1
 /* End test case for bug #16242 */
 -- Test that ALTER TABLE rewrite preserves a clustered index
 -- for normal indexes and indexes on constraints.
@@ -4685,8 +4351,6 @@ select indexrelid::regclass, indisclustered from pg_index
 (2 rows)
 
 alter table alttype_cluster alter a type bigint;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
 select indexrelid::regclass, indisclustered from pg_index
   where indrelid = 'alttype_cluster'::regclass
   order by indexrelid::regclass::text;
@@ -4708,8 +4372,6 @@ select indexrelid::regclass, indisclustered from pg_index
 (2 rows)
 
 alter table alttype_cluster alter a type int;
-ERROR:  cannot alter column with primary key or unique constraint
-HINT:  DROP the constraint first, and recreate it after the ALTER
 select indexrelid::regclass, indisclustered from pg_index
   where indrelid = 'alttype_cluster'::regclass
   order by indexrelid::regclass::text;
@@ -4740,58 +4402,3 @@ DETAIL:  Failing row contains (2, 1).
 -- ...and doesn't when the partition is detached along with its own partition
 alter table target_parted detach partition attach_parted;
 insert into attach_parted_part1 values (2, 1);
--- Test that altering owner of partition root should recurse into the child tables.
-create role atown_r1;
-create role atown_r2 in role atown_r1;
-set role atown_r2;
-create table atown_part(a int, b int) partition by range(a) (partition p1 start (1) end (100));
-select c.relname, r.rolname from pg_class c join pg_roles r on c.relowner = r.oid where relname like 'atown_part%';
-       relname       | rolname  
----------------------+----------
- atown_part          | atown_r2
- atown_part_1_prt_p1 | atown_r2
-(2 rows)
-
-alter table atown_part owner to atown_r1;
-alter table atown_part add partition start(100) end(200);
--- both existing and new child tables should have the new owner
-select c.relname, r.rolname from pg_class c join pg_roles r on c.relowner = r.oid where relname like 'atown_part%';
-       relname       | rolname  
----------------------+----------
- atown_part          | atown_r1
- atown_part_1_prt_1  | atown_r1
- atown_part_1_prt_p1 | atown_r1
-(3 rows)
-
--- should only alter the partition root with ONLY keyword
-alter table only atown_part owner to atown_r2;
-select c.relname, r.rolname from pg_class c join pg_roles r on c.relowner = r.oid where relname like 'atown_part%';
-       relname       | rolname  
----------------------+----------
- atown_part          | atown_r2
- atown_part_1_prt_1  | atown_r1
- atown_part_1_prt_p1 | atown_r1
-(3 rows)
-
--- please refer to:  https://github.com/greenplum-db/gpdb/issues/15034
-create table transform_issue_15034(c DECIMAL);
-alter table transform_issue_15034 alter c SET DEFAULT (((0.1)>(0.9) IS UNKNOWN)::INT)::MONEY;
-drop table transform_issue_15034;
-drop table atown_part;
-reset role;
-drop role atown_r1;
-drop role atown_r2;
-CREATE TABLE IF NOT EXISTS table_issue_15494(c0 boolean NULL);
-ALTER TABLE table_issue_15494 ALTER c0 SET DEFAULT (6>5) IS NULL;
-DROP TABLE table_issue_15494;
-CREATE TABLE IF NOT EXISTS table_issue_15494(c0 boolean);
-ALTER TABLE table_issue_15494 ALTER c0 SET DEFAULT ((1.5::FLOAT) NOTNULL);
-DROP TABLE table_issue_15494;
--- please refer to:  https://github.com/greenplum-db/gpdb/issues/16805
-create table IF NOT EXISTS float2double_table(c1 float,c2 float,c3 float);
-NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column named 'c1' as the Greenplum Database data distribution key for this table.
-HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
-create index float2double_table_idx_c1c2c3 on float2double_table(c1,c2,c3);
-create unique index float2double_table_uniqidx_c1c2c3 on float2double_table(c1,c2,c3);
-ALTER TABLE float2double_table ALTER COLUMN c1 TYPE double precision;
-DROP TABLE float2double_table;
