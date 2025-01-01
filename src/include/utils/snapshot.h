@@ -19,8 +19,6 @@
 #include "lib/pairingheap.h"
 #include "storage/buf.h"
 
-#include "cdb/cdbdistributedsnapshot.h"  /* DistributedSnapshotWithLocalMapping */
-
 
 /*
  * The different snapshot types.  We use SnapshotData structures to represent
@@ -204,12 +202,6 @@ typedef struct SnapshotData
 
 	TimestampTz whenTaken;		/* timestamp when snapshot was taken */
 	XLogRecPtr	lsn;			/* position in the WAL stream when taken */
-
-	/*
-	 * GP: Global information about which transactions are visible for a
-	 * distributed transaction, with cached local xids
-	 */
-	DistributedSnapshotWithLocalMapping	distribSnapshotWithLocalMapping;
 } SnapshotData;
 
 #endif							/* SNAPSHOT_H */

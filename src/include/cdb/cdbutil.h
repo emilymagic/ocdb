@@ -183,6 +183,7 @@ bool cdbcomponent_qesExist(void);
 bool cdbcomponent_activeQEsExist(void);
 
 List *cdbcomponent_getCdbComponentsList(void);
+extern GpSegConfigEntry * readGpSegConfigFromCatalog(int *total_dbs);
 
 extern void writeGpSegConfigToFTSFiles(void);
 

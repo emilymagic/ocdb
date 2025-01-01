@@ -53,6 +53,7 @@ void		add_one_elt(char *eltname, eary *eary);
 char	   *get_comma_elts(eary *eary);
 PGconn	   *sql_conn(struct options *);
 int			sql_exec(PGconn *, const char *sql, bool quiet);
+void		sql_exec_command(PGconn *conn, struct options *opts);
 void		sql_exec_dumpalldbs(PGconn *, struct options *);
 void		sql_exec_dumpalltables(PGconn *, struct options *);
 void		sql_exec_searchtables(PGconn *, struct options *);
@@ -449,6 +450,22 @@ sql_exec(PGconn *conn, const char *todo, bool quiet)
 }
 
 /*
+ * Run sql.
+ */
+void
+sql_exec_command(PGconn *conn, struct options *opts)
+{
+	char		todo[1024];
+
+	/* get the oid and database name from the system pg_database table */
+	snprintf(todo, sizeof(todo),
+			 "create table public.t1(a int)");
+
+	sql_exec(conn, todo, opts->quiet);
+}
+
+
+/*
  * Dump all databases.  There are no system objects to worry about.
  */
 void
@@ -608,45 +625,47 @@ main(int argc, char **argv)
 	}
 	pgconn = sql_conn(my_opts);
 
-	/* display only tablespaces */
-	if (my_opts->tablespaces)
-	{
-		if (!my_opts->quiet)
-			printf("All tablespaces:\n");
-		sql_exec_dumpalltbspc(pgconn, my_opts);
+//	/* display only tablespaces */
+//	if (my_opts->tablespaces)
+//	{
+//		if (!my_opts->quiet)
+//			printf("All tablespaces:\n");
+//		sql_exec_dumpalltbspc(pgconn, my_opts);
+//
+//		PQfinish(pgconn);
+//		exit(0);
+//	}
+//
+//	/* display the given elements in the database */
+//	if (my_opts->oids->num > 0 ||
+//		my_opts->tables->num > 0 ||
+//		my_opts->filenodes->num > 0)
+//	{
+//		if (!my_opts->quiet)
+//			printf("From database \"%s\":\n", my_opts->dbname);
+//		sql_exec_searchtables(pgconn, my_opts);
+//
+//		PQfinish(pgconn);
+//		exit(0);
+//	}
+//
+//	/* no elements given; dump the given database */
+//	if (my_opts->dbname && !my_opts->nodb)
+//	{
+//		if (!my_opts->quiet)
+//			printf("From database \"%s\":\n", my_opts->dbname);
+//		sql_exec_dumpalltables(pgconn, my_opts);
+//
+//		PQfinish(pgconn);
+//		exit(0);
+//	}
 
-		PQfinish(pgconn);
-		exit(0);
-	}
-
-	/* display the given elements in the database */
-	if (my_opts->oids->num > 0 ||
-		my_opts->tables->num > 0 ||
-		my_opts->filenodes->num > 0)
-	{
-		if (!my_opts->quiet)
-			printf("From database \"%s\":\n", my_opts->dbname);
-		sql_exec_searchtables(pgconn, my_opts);
-
-		PQfinish(pgconn);
-		exit(0);
-	}
-
-	/* no elements given; dump the given database */
-	if (my_opts->dbname && !my_opts->nodb)
-	{
-		if (!my_opts->quiet)
-			printf("From database \"%s\":\n", my_opts->dbname);
-		sql_exec_dumpalltables(pgconn, my_opts);
-
-		PQfinish(pgconn);
-		exit(0);
-	}
+	sql_exec_command(pgconn, my_opts);
 
 	/* no database either; dump all databases */
-	if (!my_opts->quiet)
-		printf("All databases:\n");
-	sql_exec_dumpalldbs(pgconn, my_opts);
+//	if (!my_opts->quiet)
+//		printf("All databases:\n");
+//	sql_exec_dumpalldbs(pgconn, my_opts);
 
 	PQfinish(pgconn);
 	return 0;

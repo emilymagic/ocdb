@@ -24,7 +24,6 @@ SUBDIRS = \
 	pg_config \
 	pg_controldata \
 	pg_ctl \
-	pg_dump \
 	pg_resetwal \
 	pg_rewind \
 	pg_test_fsync \
@@ -33,7 +32,8 @@ SUBDIRS = \
 	pg_waldump \
 	pgbench \
 	psql \
-	scripts
+	scripts \
+	s3tools
 
 ifeq ($(PORTNAME), win32)
 SUBDIRS += pgevent

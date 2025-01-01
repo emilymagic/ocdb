@@ -15,7 +15,6 @@
 #ifndef RESOURCEMANAGER_H
 #define RESOURCEMANAGER_H
 
-#include "utils/resscheduler.h"
 #include "utils/resgroup.h"
 
 #define IsResQueueEnabled() \

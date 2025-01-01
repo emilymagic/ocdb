@@ -56,6 +56,8 @@
 #include "catalog/pg_operator.h"
 #include "catalog/pg_range.h"
 #include "catalog/pg_type.h"
+#include "utils/pickcat.h"
+#include "utils/dispatchcat.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
 #include "lib/dshash.h"
@@ -299,7 +301,6 @@ static void cache_range_element_properties(TypeCacheEntry *typentry);
 static void TypeCacheRelCallback(Datum arg, Oid relid);
 static void TypeCacheOpcCallback(Datum arg, int cacheid, uint32 hashvalue);
 static void TypeCacheConstrCallback(Datum arg, int cacheid, uint32 hashvalue);
-static void load_enum_cache_data(TypeCacheEntry *tcache);
 static EnumItem *find_enumitem(TypeCacheEnumData *enumdata, Oid arg);
 static int	enum_oid_cmp(const void *left, const void *right);
 static void shared_record_typmod_registry_detach(dsm_segment *segment,
@@ -325,6 +326,7 @@ lookup_type_cache(Oid type_id, int flags)
 {
 	TypeCacheEntry *typentry;
 	bool		found;
+	CacheNode  *cacheNode = NULL;
 
 	if (TypeCacheHash == NULL)
 	{
@@ -364,6 +366,9 @@ lookup_type_cache(Oid type_id, int flags)
 		HeapTuple	tp;
 		Form_pg_type typtup;
 
+		cacheNode = MemoryContextAllocZero(CacheMemoryContext, sizeof(CacheNode));
+		BeginCacheCollect(cacheNode);
+
 		tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_id));
 		if (!HeapTupleIsValid(tp))
 			ereport(ERROR,
@@ -400,8 +405,30 @@ lookup_type_cache(Oid type_id, int flags)
 			firstDomainTypeEntry = typentry;
 		}
 
+		typentry->cdbTupleCache = cacheNode;
+
 		ReleaseSysCache(tp);
 	}
+	else
+	{
+		if (typentry->cdbTupleCache == NULL)
+		{
+			HeapTuple	tp;
+
+			typentry->cdbTupleCache = MemoryContextAllocZero(CacheMemoryContext,
+															 sizeof(CacheNode));
+			BeginCacheCollect(typentry->cdbTupleCache);
+
+			tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_id));
+
+			ReleaseSysCache(tp);
+		}
+		else
+		{
+			BeginCacheCollect(typentry->cdbTupleCache);
+		}
+	}
+
 
 	/*
 	 * Look up opclasses if we haven't already and any dependent info is
@@ -777,6 +804,10 @@ lookup_type_cache(Oid type_id, int flags)
 	{
 		load_domaintype_info(typentry);
 	}
+
+	EndCacheCollect();
+
+	CdbCopyCacheTuples(typentry->cdbTupleCache);
 
 	return typentry;
 }
@@ -2180,6 +2211,7 @@ TypeCacheRelCallback(Datum arg, Oid relid)
 
 			/* Reset equality/comparison/hashing validity information */
 			typentry->flags = 0;
+			typentry->cdbTupleCache = NULL;
 		}
 		else if (typentry->typtype == TYPTYPE_DOMAIN)
 		{
@@ -2190,7 +2222,10 @@ TypeCacheRelCallback(Datum arg, Oid relid)
 			 * type is composite, we don't need to reset anything.
 			 */
 			if (typentry->flags & TCFLAGS_DOMAIN_BASE_IS_COMPOSITE)
+			{
 				typentry->flags = 0;
+				typentry->cdbTupleCache = NULL;
+			}
 		}
 	}
 }
@@ -2394,7 +2429,7 @@ compare_values_of_enum(TypeCacheEntry *tcache, Oid arg1, Oid arg2)
 /*
  * Load (or re-load) the enumData member of the typcache entry.
  */
-static void
+void
 load_enum_cache_data(TypeCacheEntry *tcache)
 {
 	TypeCacheEnumData *enumdata;

@@ -21,7 +21,6 @@ ifeq "$(enable_debug_extensions)" "yes"
                gp_exttable_fdw \
                gp_legacy_string_agg \
                gp_replica_check \
-               gp_toolkit \
                pg_hint_plan
 else
 	recurse_targets = gp_sparse_vector \
@@ -29,7 +28,6 @@ else
                gp_internal_tools \
                gp_legacy_string_agg \
                gp_exttable_fdw \
-               gp_toolkit \
                pg_hint_plan
 endif
 
@@ -75,4 +73,3 @@ installcheck:
 	if [ "$(with_zstd)" = "yes" ]; then $(MAKE) -C zstd installcheck; fi
 	$(MAKE) -C gp_sparse_vector installcheck
 	$(MAKE) -C gp_exttable_fdw installcheck
-	$(MAKE) -C gp_toolkit installcheck

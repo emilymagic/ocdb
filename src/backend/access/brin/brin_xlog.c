@@ -12,7 +12,6 @@
 
 #include "access/brin_page.h"
 #include "access/brin_pageops.h"
-#include "access/brin_revmap.h"
 #include "access/brin_xlog.h"
 #include "access/bufmask.h"
 #include "access/xlogutils.h"
@@ -33,7 +32,7 @@ brin_xlog_createidx(XLogReaderState *record)
 	buf = XLogInitBufferForRedo(record, 0);
 	Assert(BufferIsValid(buf));
 	page = (Page) BufferGetPage(buf);
-	brin_metapage_init(page, xlrec->pagesPerRange, xlrec->version, xlrec->isAO);
+	brin_metapage_init(page, xlrec->pagesPerRange, xlrec->version);
 	PageSetLSN(page, lsn);
 	MarkBufferDirty(buf);
 	UnlockReleaseBuffer(buf);
@@ -216,39 +215,10 @@ brin_xlog_revmap_extend(XLogReaderState *record)
 	BlockNumber targetBlk;
 	XLogRedoAction action;
 
-	/* GPDB AO/CO specific */
-	bool		ao_chain_exists = false;
-	Buffer 		currLastRevmapBuf = InvalidBuffer;
-
 	xlrec = (xl_brin_revmap_extend *) XLogRecGetData(record);
 
 	XLogRecGetBlockTag(record, 1, NULL, NULL, &targetBlk);
 	Assert(xlrec->targetBlk == targetBlk);
-
-	/*
-	 * GPDB: If we have registered backup block id = 2, it means that this index
-	 * is on an AO/CO relation, and we are extending a revmap chain.
-	 */
-	ao_chain_exists = XLogRecGetBlockTag(record, 2, NULL, NULL, NULL);
-	if (ao_chain_exists)
-	{
-		XLogRedoAction 	currLastRevmapBufAction =
-							  XLogReadBufferForRedo(record, 2, &currLastRevmapBuf);
-
-		Assert(xlrec->isAO);
-
-		if (currLastRevmapBufAction == BLK_NEEDS_REDO)
-		{
-			/* Extend the chain for the current block sequence. */
-			Page currLastRevmapPage = BufferGetPage(currLastRevmapBuf);
-
-			Assert(!PageIsNew(currLastRevmapPage));
-
-			BrinNextRevmapPage(currLastRevmapPage) = xlrec->targetBlk;
-			PageSetLSN(currLastRevmapPage, lsn);
-			MarkBufferDirty(currLastRevmapBuf);
-		}
-	}
 
 	/* Update the metapage */
 	action = XLogReadBufferForRedo(record, 0, &metabuf);
@@ -260,30 +230,8 @@ brin_xlog_revmap_extend(XLogReaderState *record)
 		metapg = BufferGetPage(metabuf);
 		metadata = (BrinMetaPageData *) PageGetContents(metapg);
 
-		AssertImply(xlrec->isAO, metadata->isAO);
-
-		if (!metadata->isAO)
-		{
-			Assert(metadata->lastRevmapPage == xlrec->targetBlk - 1);
-			metadata->lastRevmapPage = xlrec->targetBlk;
-			Assert(!ao_chain_exists);
-		}
-		else
-		{
-			/* GPDB AO/CO: Update the metapage's revmap chain info */
-			int blockSeq = xlrec->blockSeq;
-
-			if (!ao_chain_exists)
-			{
-				/* Begin a new chain */
-				metadata->aoChainInfo[blockSeq].firstPage = xlrec->targetBlk;
-			}
-
-			Assert(xlrec->targetBlk != InvalidBlockNumber);
-			Assert(xlrec->targetPageNum != InvalidLogicalPageNum);
-			metadata->aoChainInfo[blockSeq].lastPage = xlrec->targetBlk;
-			metadata->aoChainInfo[blockSeq].lastLogicalPageNum = xlrec->targetPageNum;
-		}
+		Assert(metadata->lastRevmapPage == xlrec->targetBlk - 1);
+		metadata->lastRevmapPage = xlrec->targetBlk;
 
 		PageSetLSN(metapg, lsn);
 
@@ -309,18 +257,12 @@ brin_xlog_revmap_extend(XLogReaderState *record)
 	page = (Page) BufferGetPage(buf);
 	brin_page_init(page, BRIN_PAGETYPE_REVMAP);
 
-	/* GPDB: Set the logical page number for AO/CO tables */
-	if (xlrec->isAO)
-		BrinLogicalPageNum(page) = xlrec->targetPageNum;
-
 	PageSetLSN(page, lsn);
 	MarkBufferDirty(buf);
 
 	UnlockReleaseBuffer(buf);
 	if (BufferIsValid(metabuf))
 		UnlockReleaseBuffer(metabuf);
-	if (BufferIsValid(currLastRevmapBuf))
-		UnlockReleaseBuffer(currLastRevmapBuf);
 }
 
 static void

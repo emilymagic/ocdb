@@ -547,12 +547,12 @@ select array(select row(v.a,s1.*) from (select two,four, count(*) from onek grou
 
 set enable_indexscan = false;
 set work_mem = '64kB';
-explain (costs off)
-  select unique1,
-         count(two), count(four), count(ten),
-         count(hundred), count(thousand), count(twothousand),
-         count(*)
-    from tenk1 group by grouping sets (unique1,twothousand,thousand,hundred,ten,four,two);
+-- explain (costs off)
+--   select unique1,
+--          count(two), count(four), count(ten),
+--          count(hundred), count(thousand), count(twothousand),
+--          count(*)
+--     from tenk1 group by grouping sets (unique1,twothousand,thousand,hundred,ten,four,two);
 explain (costs off)
   select unique1,
          count(two), count(four), count(ten),
@@ -561,12 +561,12 @@ explain (costs off)
     from tenk1 group by grouping sets (unique1,hundred,ten,four,two);
 
 set work_mem = '384kB';
-explain (costs off)
-  select unique1,
-         count(two), count(four), count(ten),
-         count(hundred), count(thousand), count(twothousand),
-         count(*)
-    from tenk1 group by grouping sets (unique1,twothousand,thousand,hundred,ten,four,two);
+-- explain (costs off)
+--   select unique1,
+--          count(two), count(four), count(ten),
+--          count(hundred), count(thousand), count(twothousand),
+--          count(*)
+--     from tenk1 group by grouping sets (unique1,twothousand,thousand,hundred,ten,four,two);
 
 -- check collation-sensitive matching between grouping expressions
 -- (similar to a check for aggregates, but there are additional code

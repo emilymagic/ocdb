@@ -35,7 +35,6 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 #include "utils/resource_manager.h"
-#include "utils/resscheduler.h"
 #include "utils/faultinjector.h"
 #include "utils/metrics_utils.h"
 
@@ -1930,6 +1929,8 @@ SPI_result_code_string(int code)
 			return "SPI_OK_REL_REGISTER";
 		case SPI_OK_REL_UNREGISTER:
 			return "SPI_OK_REL_UNREGISTER";
+		case SPI_OK_TD_REGISTER:
+			return "SPI_OK_TD_REGISTER";
 	}
 	/* Unrecognized code ... return something useful ... */
 	sprintf(buf, "Unrecognized SPI code %d", code);
@@ -2753,44 +2754,7 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 			}
 			else
 				res = SPI_OK_SELECT;
-
-			/* 
-			 * Checking if we need to put this through resource queue.
-			 * If the Active portal already hold a lock on the queue, we cannot
-			 * acquire it again.
-			 */
-			if (Gp_role == GP_ROLE_DISPATCH && IsResQueueEnabled() && !superuser())
-			{
-				/*
-				 * This is SELECT, so we should have planTree anyway.
-				 */
-				Assert(queryDesc->plannedstmt->planTree);
-
-				/* 
-				 * MPP-6421 - An active portal may not yet be defined if we're
-				 * constant folding a stable or volatile function marked as
-				 * immutable -- a hack some customers use for partition pruning.
-				 *
-				 * MPP-16571 - Don't warn about such an event because there are
-				 * legitimate parts of the code where we evaluate stable and
-				 * volatile functions without an active portal -- describe
-				 * functions for table functions, for example.
-				 */
-				if (ActivePortal)
-				{
-					if (!IsResQueueLockedForPortal(ActivePortal))
-					{
-						/** TODO: siva - can we ever reach this point? */
-						ResLockPortal(ActivePortal, queryDesc);
-						ActivePortal->status = PORTAL_ACTIVE;
-					} 
-				}
-			}
-
 			break;
-		/* TODO Find a better way to indicate "returning".  When PlannedStmt
-		 * support is finished, the queryTree field will be gone.
-		 */
 		case CMD_INSERT:
 			if (queryDesc->plannedstmt->hasReturning)
 				res = SPI_OK_INSERT_RETURNING;

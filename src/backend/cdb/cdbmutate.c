@@ -1606,7 +1606,6 @@ pre_dispatch_function_evaluation_mutator(Node *node,
 			if (funcid == F_NEXTVAL_OID || funcid == F_CURRVAL_OID ||
 				funcid == F_SETVAL_OID)
 			{
-				ExecutorMarkTransactionUsesSequences();
 				is_seq_func = true;
 			}
 

@@ -115,9 +115,4 @@ extern void DescribeLockTag(StringInfo buf, const LOCKTAG *tag);
 
 extern const char *GetLockNameFromTagType(uint16 locktag_type);
 
-/* Knowledge about which locktags describe temp objects */
-extern bool LockTagIsTemp(const LOCKTAG *tag);
-
-extern void GxactLockTableInsert(DistributedTransactionId xid);
-extern void GxactLockTableWait(DistributedTransactionId xid);
 #endif							/* LMGR_H */

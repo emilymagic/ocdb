@@ -113,12 +113,10 @@ typedef struct
 	MemoryContext tempCtx;
 } CreateStmtContext;
 
-/* State shared by transformCreateSchemaStmt and its subroutines */
+/* State shared by transformCreateSchemaStmtElements and its subroutines */
 typedef struct
 {
-	const char *stmtType;		/* "CREATE SCHEMA" or "ALTER SCHEMA" */
-	char	   *schemaname;		/* name of schema */
-	RoleSpec   *authrole;		/* owner of schema */
+	const char *schemaname;		/* name of schema */
 	List	   *sequences;		/* CREATE SEQUENCE items */
 	List	   *tables;			/* CREATE TABLE items */
 	List	   *views;			/* CREATE VIEW items */
@@ -153,18 +151,11 @@ static void transformCheckConstraints(CreateStmtContext *cxt,
 static void transformConstraintAttrs(CreateStmtContext *cxt,
 									 List *constraintList);
 static void transformColumnType(CreateStmtContext *cxt, ColumnDef *column);
-static void setSchemaName(char *context_schema, char **stmt_schema_name);
+static void setSchemaName(const char *context_schema, char **stmt_schema_name);
 static void transformPartitionCmd(CreateStmtContext *cxt, PartitionCmd *cmd);
 static List *transformPartitionRangeBounds(ParseState *pstate, List *blist,
 										   Relation parent);
 static void validateInfiniteBounds(ParseState *pstate, List *blist);
-
-static DistributedBy *getLikeDistributionPolicy(TableLikeClause *e);
-static DistributedBy *transformDistributedBy(ParseState *pstate,
-											 CreateStmtContext *cxt,
-											 DistributedBy *distributedBy,
-											 DistributedBy *likeDistributedBy,
-											 bool bQuiet);
 
 /*
  * transformCreateStmt -
@@ -196,8 +187,8 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	ParseCallbackState pcbstate;
 	bool		is_foreign_table = IsA(stmt, CreateForeignTableStmt);
 
-	DistributedBy *likeDistributedBy = NULL;
-	bool		bQuiet = false;		/* shut up transformDistributedBy messages */
+//	DistributedBy *likeDistributedBy = NULL;
+//	bool		bQuiet = false;		/* shut up transformDistributedBy messages */
 
  	/*
 	 * We don't normally care much about the memory consumption of parsing,
@@ -337,16 +328,16 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 
 			case T_TableLikeClause:
 			{
-				bool            isBeginning = (cxt.columns == NIL);
+//				bool            isBeginning = (cxt.columns == NIL);
 
 				transformTableLikeClause(&cxt, (TableLikeClause *) element, false, stmt);
 
-				if (Gp_role == GP_ROLE_DISPATCH && isBeginning &&
-					stmt->distributedBy == NULL &&
-					stmt->inhRelations == NIL)
-				{
-					likeDistributedBy = getLikeDistributionPolicy((TableLikeClause*) element);
-				}
+//				if (Gp_role == GP_ROLE_DISPATCH && isBeginning &&
+//					stmt->distributedBy == NULL &&
+//					stmt->inhRelations == NIL)
+//				{
+//					likeDistributedBy = getLikeDistributionPolicy((TableLikeClause*) element);
+//				}
 				break;
 			}
 			case T_ColumnReferenceStorageDirective:
@@ -401,20 +392,20 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	 * Transform DISTRIBUTED BY (or construct a default one, if not given
 	 * explicitly).
 	 */
-	if (stmt->relKind == RELKIND_RELATION)
-	{
-		stmt->distributedBy = transformDistributedBy(pstate, &cxt,
-													 stmt->distributedBy,
-													 likeDistributedBy, bQuiet);
-	}
+//	if (stmt->relKind == RELKIND_RELATION)
+//	{
+//		stmt->distributedBy = transformDistributedBy(pstate, &cxt,
+//													 stmt->distributedBy,
+//													 likeDistributedBy, bQuiet);
+//	}
 
-	if (IsA(stmt, CreateForeignTableStmt))
-	{
-		DistributedBy *ft_distributedBy = ((CreateForeignTableStmt *)stmt)->distributedBy;
-		if (ft_distributedBy || likeDistributedBy)
-			stmt->distributedBy = transformDistributedBy(pstate, &cxt, ft_distributedBy,
-														 likeDistributedBy, bQuiet);
-	}
+//	if (IsA(stmt, CreateForeignTableStmt))
+//	{
+//		DistributedBy *ft_distributedBy = ((CreateForeignTableStmt *)stmt)->distributedBy;
+//		if (ft_distributedBy || likeDistributedBy)
+//			stmt->distributedBy = transformDistributedBy(pstate, &cxt, ft_distributedBy,
+//														 likeDistributedBy, bQuiet);
+//	}
 
 	/*
 	 * Postprocess check constraints.
@@ -465,6 +456,9 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 	AlterSeqStmt *altseqstmt;
 	List	   *attnamelist;
 	bool		has_cache_option = false;
+
+	/* Make a copy of this as we may end up modifying it in the code below */
+	seqoptions = list_copy(seqoptions);
 
 	/*
 	 * Determine namespace and name to use for the sequence.
@@ -1246,26 +1240,6 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 							  "Single LIKE clause with the INCLUDING AM option is also not allowed if access method is explicitly specified by a USING or WITH clause."),
 					errhint("Remove INCLUDING AM or append EXCLUDING AM if INCLUDING ALL is specified."));
 		stmt->accessMethod = get_am_name(relation->rd_rel->relam);
-	}
-
-	/* Copy reloptions if requested */
-	if (table_like_clause->options & CREATE_TABLE_LIKE_RELOPT)
-	{
-		if (stmt->options)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						errmsg(
-							"LIKE %s INCLUDING RELOPT is not allowed because the reloptions of table %s is already set",
-							RelationGetRelationName(relation),
-							cxt->relation->relname)),
-					errdetail(
-						"Multiple LIKE clauses with the INCLUDING RELOPT option is not allowed.\n"
-						"Single LIKE clause with the INCLUDING RELOPT option is also not allowed if reloptions is explicitly specified by a WITH clause."),
-					errhint(
-						"Remove INCLUDING RELOPT or append EXCLUDING RELOPT if INCLUDING ALL is specified."));
-		}
-		stmt->options = untransformRelOptions(get_rel_opts(relation));
 	}
 
 	/*
@@ -2194,8 +2168,8 @@ transformCreateExternalStmt(CreateExternalStmt *stmt, const char *queryString)
 	CreateStmtContext cxt;
 	List	   *result;
 	ListCell   *elements;
-	DistributedBy *likeDistributedBy = NULL;
-	bool	    bQuiet = false;	/* shut up transformDistributedBy messages */
+//	DistributedBy *likeDistributedBy = NULL;
+//	bool	    bQuiet = false;	/* shut up transformDistributedBy messages */
 	bool		iswritable = false;
 
 	/* Set up pstate */
@@ -2263,16 +2237,16 @@ transformCreateExternalStmt(CreateExternalStmt *stmt, const char *queryString)
 			case T_TableLikeClause:
 				{
 					/* LIKE */
-					bool	isBeginning = (cxt.columns == NIL);
+//					bool	isBeginning = (cxt.columns == NIL);
 
 					transformTableLikeClause(&cxt, (TableLikeClause *) element, true, NULL);
 
-					if (Gp_role == GP_ROLE_DISPATCH && isBeginning &&
-						stmt->distributedBy == NULL &&
-						iswritable /* dont bother if readable table */)
-					{
-						likeDistributedBy = getLikeDistributionPolicy((TableLikeClause *) element);
-					}
+//					if (Gp_role == GP_ROLE_DISPATCH && isBeginning &&
+//						stmt->distributedBy == NULL &&
+//						iswritable /* dont bother if readable table */)
+//					{
+//						likeDistributedBy = getLikeDistributionPolicy((TableLikeClause *) element);
+//					}
 				}
 				break;
 
@@ -2320,35 +2294,35 @@ transformCreateExternalStmt(CreateExternalStmt *stmt, const char *queryString)
 	 * EXECUTE type external tables encapsulate similar information in the
 	 * "ON <segment spec>" clause, which is stored in pg_foreign_table.ftoptions.
 	 */
-	if (iswritable)
-	{
-		if (stmt->distributedBy == NULL && likeDistributedBy == NULL)
-		{
-			/*
-			 * defaults to DISTRIBUTED RANDOMLY irrespective of the
-			 * gp_create_table_random_default_distribution guc.
-			 */
-			stmt->distributedBy = makeNode(DistributedBy);
-			stmt->distributedBy->ptype = POLICYTYPE_PARTITIONED;
-			stmt->distributedBy->keyCols = NIL;
-			stmt->distributedBy->numsegments = GP_POLICY_DEFAULT_NUMSEGMENTS();
-		}
-		else
-		{
-			/* regular DISTRIBUTED BY transformation */
-			stmt->distributedBy = transformDistributedBy(pstate, &cxt, stmt->distributedBy,
-														 (DistributedBy *) likeDistributedBy,
-														 bQuiet);
-			if (stmt->distributedBy->ptype == POLICYTYPE_REPLICATED)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("external tables can't have DISTRIBUTED REPLICATED clause")));
-		}
-	}
-	else if (stmt->distributedBy != NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-				 errmsg("readable external tables can\'t specify a DISTRIBUTED BY clause")));
+//	if (iswritable)
+//	{
+//		if (stmt->distributedBy == NULL && likeDistributedBy == NULL)
+//		{
+//			/*
+//			 * defaults to DISTRIBUTED RANDOMLY irrespective of the
+//			 * gp_create_table_random_default_distribution guc.
+//			 */
+//			stmt->distributedBy = makeNode(DistributedBy);
+//			stmt->distributedBy->ptype = POLICYTYPE_PARTITIONED;
+//			stmt->distributedBy->keyCols = NIL;
+//			stmt->distributedBy->numsegments = GP_POLICY_DEFAULT_NUMSEGMENTS();
+//		}
+//		else
+//		{
+//			/* regular DISTRIBUTED BY transformation */
+//			stmt->distributedBy = transformDistributedBy(pstate, &cxt, stmt->distributedBy,
+//														 (DistributedBy *) likeDistributedBy,
+//														 bQuiet);
+//			if (stmt->distributedBy->ptype == POLICYTYPE_REPLICATED)
+//				ereport(ERROR,
+//						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+//						 errmsg("external tables can't have DISTRIBUTED REPLICATED clause")));
+//		}
+//	}
+//	else if (stmt->distributedBy != NULL)
+//		ereport(ERROR,
+//				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+//				 errmsg("readable external tables can\'t specify a DISTRIBUTED BY clause")));
 
 	Assert(cxt.ckconstraints == NIL);
 	Assert(cxt.fkconstraints == NIL);
@@ -2365,688 +2339,6 @@ transformCreateExternalStmt(CreateExternalStmt *stmt, const char *queryString)
 	MemoryContextDelete(cxt.tempCtx);
 
 	return result;
-}
-
-/*
- * Process a DISTRIBUTED BY clause.
- *
- * If no DISTRIBUTED BY was given, this deduces a suitable default based on
- * various things.
- *
- * NOTE: We cannot form a GpPolicy object yet, because we don't know the
- * attribute numbers the columns will get. With inheritance, the table might
- * inherit more columns from a parent table, which are not visible in the
- * CreateStmt.
- */
-static DistributedBy *
-transformDistributedBy(ParseState *pstate,
-					   CreateStmtContext *cxt,
-					   DistributedBy *distributedBy,
-					   DistributedBy *likeDistributedBy,
-					   bool bQuiet)
-{
-	ListCell	*keys = NULL;
-	List		*distrkeys = NIL;
-	ListCell   *lc;
-	int			numsegments;
-
-	/*
-	 * utility mode creates can't have a policy.  Only the QD can have policies
-	 */
-	if (Gp_role != GP_ROLE_DISPATCH && !IsBinaryUpgrade)
-		return NULL;
-
-	if (distributedBy && distributedBy->numsegments > 0)
-		/* If numsegments is set in DISTRIBUTED BY use the specified value */
-		numsegments = distributedBy->numsegments;
-	else
-		/* Otherwise use DEFAULT as numsegments */
-		numsegments = GP_POLICY_DEFAULT_NUMSEGMENTS();
-
-	/* Explicitly specified distributed randomly, no further check needed */
-	if (distributedBy &&
-		(distributedBy->ptype == POLICYTYPE_PARTITIONED && distributedBy->keyCols == NIL))
-	{
-		distributedBy->numsegments = numsegments;
-		return distributedBy;
-	}
-
-	/* Check replicated policy */
-	if (distributedBy && distributedBy->ptype == POLICYTYPE_REPLICATED)
-	{
-		if (cxt->inhRelations != NIL)
-			ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("INHERITS clause cannot be used with DISTRIBUTED REPLICATED clause")));
-
-		distributedBy->numsegments = numsegments;
-		return distributedBy;
-	}
-
-	if (distributedBy)
-		distrkeys = distributedBy->keyCols;
-
-	/*
-	 * If distributedBy is NIL, the user did not explicitly say what he
-	 * wanted for a distribution policy.  So, we need to assign one.
-	 */
-	if (distrkeys == NIL)
-	{
-		/*
-		 * If we have a PRIMARY KEY or UNIQUE constraints, derive the distribution key
-		 * from them.
-		 *
-		 * The distribution key chosen to be the largest common subset of columns, across
-		 * all the PRIMARY KEY / UNIQUE constraints.
-		 */
-		/* begin with the PRIMARY KEY, if any */
-		if (cxt->pkey != NULL)
-		{
-			IndexStmt  *index = cxt->pkey;
-			List	   *indexParams;
-			ListCell   *ip;
-
-			Assert(index->indexParams != NULL);
-			indexParams = index->indexParams;
-
-			foreach(ip, indexParams)
-			{
-				IndexElem  *iparam = lfirst(ip);
-
-				if (iparam && iparam->name != 0)
-				{
-					IndexElem *distrkey = makeNode(IndexElem);
-
-					distrkey->name = iparam->name;
-					distrkey->opclass = NULL;
-
-					distrkeys = lappend(distrkeys, distrkey);
-				}
-			}
-		}
-
-		/* walk through all UNIQUE constraints next. */
-		foreach(lc, cxt->ixconstraints)
-		{
-			Constraint *constraint = (Constraint *) lfirst(lc);
-			ListCell   *ip;
-			List	   *new_distrkeys = NIL;
-
-			if (constraint->contype != CONSTR_UNIQUE)
-				continue;
-
-			if (distrkeys)
-			{
-				/*
-				 * We saw a PRIMARY KEY or UNIQUE constraint already. Find
-				 * the columns that are present in the key chosen so far,
-				 * and this constraint.
-				 */
-				foreach(ip, constraint->keys)
-				{
-					Value	   *v = lfirst(ip);
-					ListCell   *dkcell;
-
-					foreach(dkcell, distrkeys)
-					{
-						DistributionKeyElem  *dk = (DistributionKeyElem *) lfirst(dkcell);
-
-						if (strcmp(dk->name, strVal(v)) == 0)
-						{
-							new_distrkeys = lappend(new_distrkeys, dk);
-							break;
-						}
-					}
-				}
-
-				/* If there were no common columns, we're out of luck. */
-				if (new_distrkeys == NIL)
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-							 errmsg("UNIQUE or PRIMARY KEY definitions are incompatible with each other"),
-							 errhint("When there are multiple PRIMARY KEY / UNIQUE constraints, they must have at least one column in common.")));
-			}
-			else
-			{
-				/*
-				 * No distribution key chosen yet. Use this key as is.
-				 */
-				new_distrkeys = NIL;
-				foreach(ip, constraint->keys)
-				{
-					Value	   *v = lfirst(ip);
-					DistributionKeyElem  *dk = makeNode(DistributionKeyElem);
-
-					dk->name = strVal(v);
-					dk->opclass = NULL;
-					dk->location = -1;
-
-					new_distrkeys = lappend(new_distrkeys, dk);
-				}
-			}
-
-			distrkeys = new_distrkeys;
-		}
-	}
-
-	/*
-	 * If new table INHERITS from one or more parent tables, check parents.
-	 */
-	if (cxt->inhRelations != NIL)
-	{
-		ListCell   *entry;
-
-		foreach(entry, cxt->inhRelations)
-		{
-			RangeVar   *parent = (RangeVar *) lfirst(entry);
-			GpPolicy   *parentPolicy;
-			Relation	parentrel;
-
-			parentrel = heap_openrv(parent, AccessShareLock);
-			parentPolicy = parentrel->rd_cdbpolicy;
-
-			if (parentrel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("cannot inherit from foreign table \"%s\" to create table \"%s\"",
-								parent->relname, cxt->relation->relname),
-						 errdetail("An inheritance hierarchy cannot contain a mixture of distributed and non-distributed tables.")));
-			}
-
-			/*
-			 * Partitioned child must have partitioned parents. During binary
-			 * upgrade we allow to skip this check since that runs against a
-			 * segment in utility mode and the distribution policy isn't stored
-			 * in the segments.
-			 */
-			if ((parentPolicy == NULL ||
-					parentPolicy->ptype == POLICYTYPE_ENTRY) &&
-					!IsBinaryUpgrade)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("cannot inherit from catalog table \"%s\" to create table \"%s\"",
-								parent->relname, cxt->relation->relname),
-						 errdetail("An inheritance hierarchy cannot contain a mixture of distributed and non-distributed tables.")));
-			}
-
-			if ((parentPolicy == NULL ||
-					GpPolicyIsReplicated(parentPolicy)) &&
-					!IsBinaryUpgrade)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("cannot inherit from replicated table \"%s\" to create table \"%s\"",
-								parent->relname, cxt->relation->relname),
-						 errdetail("An inheritance hierarchy cannot contain a mixture of distributed and non-distributed tables.")));
-			}
-
-			/*
-			 * If we still don't know what distribution to use, and this
-			 * is an inherited table, set the distribution based on the
-			 * parent (or one of the parents)
-			 */
-			if (distrkeys == NIL && parentPolicy->nattrs >= 0)
-			{
-				if (!bQuiet)
-					ereport(NOTICE,
-							(errcode(ERRCODE_UNDEFINED_OBJECT),
-							 errmsg("table has parent, setting distribution columns to match parent table")));
-
-				distributedBy = make_distributedby_for_rel(parentrel);
-				heap_close(parentrel, AccessShareLock);
-
-				distributedBy->numsegments = numsegments;
-				return distributedBy;
-			}
-			heap_close(parentrel, AccessShareLock);
-		}
-	}
-
-	if (distrkeys == NIL && likeDistributedBy != NULL)
-	{
-		if (!bQuiet)
-			ereport(NOTICE,
-					(errmsg("table doesn't have 'DISTRIBUTED BY' clause, defaulting to distribution columns from LIKE table")));
-
-		if (likeDistributedBy->ptype == POLICYTYPE_PARTITIONED &&
-			likeDistributedBy->keyCols == NIL)
-		{
-			distributedBy = makeNode(DistributedBy);
-			distributedBy->ptype = POLICYTYPE_PARTITIONED;
-			distributedBy->numsegments = numsegments;
-			return distributedBy;
-		}
-		else if (likeDistributedBy->ptype == POLICYTYPE_REPLICATED)
-		{
-			distributedBy = makeNode(DistributedBy);
-			distributedBy->ptype = POLICYTYPE_REPLICATED;
-			distributedBy->numsegments = numsegments;
-			return distributedBy;
-		}
-
-		distrkeys = likeDistributedBy->keyCols;
-	}
-
-	/**
-	 * check for unique index.
-	 * If distrkeys is not determined by the above process,
-	 * we consider the most common columns in all unique indexes
-	 * as the distribution keys. UNIQUE/PRIMARY KEY INDEX is a global constraint
-	 * for the table and we require the hash distribution keys map the same values
-	 * on the unique constraint to the same segment. So, the set of the distribution
-	 * keys must be a subset of the set of columns on the unique constraint.
-	 *
-	 * Note: the UNIQUE/PRIMARY KEY index is not only an index, but also a constraint.
-	 * Even CREATE TABLE LIKE clause includes only constraints, not indexes, we still
-	 * check the uniqueness to compute the distribution keys.
-	 */
-	foreach(lc, cxt->inh_indexes)
-	{
-		IndexStmt  *index_stmt;
-		ListCell *cell;
-		List *new_distrkeys = NIL;
-
-		index_stmt = (IndexStmt *) lfirst(lc);
-		if (!index_stmt->unique && !index_stmt->primary)
-			continue;
-
-		if (distrkeys)
-		{
-			foreach(cell, index_stmt->indexParams)
-			{
-				IndexElem *iparam = lfirst(cell);
-				ListCell *dkcell;
-
-				/*
-				 * The index element could be either a column name or an expression.
-				 * If the index element is not a column name, it should be skipped
-				 * to compute the most common columns. For example,
-				 *
-				 *   create table t(i int, j int, k int) distributed by (i,j);
-				 *   create unique index on t(i, func1(j));
-				 *
-				 * The first index element is a name, the second index element
-				 * is an expression. The set of distribution keys is not a subset
-				 * of the column names in the index, so it violates the
-				 * compatibility and finally it fails.
-				 * But `create unique index on t(i, j);` will success.
-				 */
-				if (!iparam || !iparam->name)
-					continue;
-				foreach(dkcell, distrkeys)
-				{
-					DistributionKeyElem  *dk = (DistributionKeyElem *) lfirst(dkcell);
-					if (strcmp(dk->name, iparam->name) == 0)
-					{
-						new_distrkeys = lappend(new_distrkeys, dk);
-						break;
-					}
-				}
-			}
-			/* If there were no common columns, we're out of luck. */
-			if (new_distrkeys == NIL)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("UNIQUE or PRIMARY KEY definitions are incompatible with each other"),
-						 errhint("When there are multiple PRIMARY KEY / UNIQUE constraints, they must have at least one column in common.")));
-		}
-		else
-		{
-			foreach(cell, index_stmt->indexParams)
-			{
-				IndexElem *iparam = lfirst(cell);
-				if (iparam && iparam->name)
-				{
-					IndexElem *distrkey = makeNode(IndexElem);
-					distrkey->name = iparam->name;
-					distrkey->opclass = NULL;
-					new_distrkeys = lappend(new_distrkeys, distrkey);
-				}
-			}
-		}
-
-		distrkeys = new_distrkeys;
-	}
-
-	if (gp_create_table_random_default_distribution && NIL == distrkeys)
-	{
-		Assert(NULL == likeDistributedBy);
-
-		if (!bQuiet)
-		{
-			ereport(NOTICE,
-				(errcode(ERRCODE_SUCCESSFUL_COMPLETION),
-				 errmsg("using default RANDOM distribution since no distribution was specified"),
-				 errhint("Consider including the 'DISTRIBUTED BY' clause to determine the distribution of rows.")));
-		}
-
-		distributedBy = makeNode(DistributedBy);
-		distributedBy->ptype = POLICYTYPE_PARTITIONED;
-		distributedBy->numsegments = numsegments;
-		return distributedBy;
-	}
-	else if (distrkeys == NIL)
-	{
-		/*
-		 * if we get here, we haven't a clue what to use for the distribution columns.
-		 * table has one or more attributes and there is still no distribution
-		 * key. pick a default one. the winner is the first attribute that is
-		 * an Greenplum Database-hashable data type.
-		 */
-
-		ListCell   *columns;
-
-		if (cxt->inhRelations)
-		{
-			bool		found = false;
-			/* try inherited tables */
-			ListCell   *inher;
-
-			foreach(inher, cxt->inhRelations)
-			{
-				RangeVar   *inh = (RangeVar *) lfirst(inher);
-				Relation	rel;
-				int			count;
-
-				Assert(IsA(inh, RangeVar));
-				rel = heap_openrv(inh, AccessShareLock);
-				/* check user requested inheritance from valid relkind */
-				if (rel->rd_rel->relkind != RELKIND_RELATION &&
-					rel->rd_rel->relkind != RELKIND_FOREIGN_TABLE &&
-					rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
-					ereport(ERROR,
-							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("inherited relation \"%s\" is not a table or foreign table",
-									inh->relname)));
-				for (count = 0; count < rel->rd_att->natts; count++)
-				{
-					Form_pg_attribute inhattr = TupleDescAttr(rel->rd_att, count);
-					Oid typeOid = inhattr->atttypid;
-
-					if (inhattr->attisdropped)
-						continue;
-					if (cdb_default_distribution_opclass_for_type(typeOid) != InvalidOid)
-					{
-						char	   *inhname = NameStr(inhattr->attname);
-						DistributionKeyElem  *dkelem;
-
-						dkelem = makeNode(DistributionKeyElem);
-						dkelem->name = inhname;
-						dkelem->opclass = NULL;
-						dkelem->location = -1;
-
-						distrkeys = list_make1(dkelem);
-						if (!bQuiet)
-							ereport(NOTICE,
-								(errcode(ERRCODE_SUCCESSFUL_COMPLETION),
-								 errmsg("Table doesn't have 'DISTRIBUTED BY' clause -- Using column "
-										"named '%s' from parent table as the Greenplum Database data distribution key for this "
-										"table. ", inhname),
-								 errhint("The 'DISTRIBUTED BY' clause determines the distribution of data."
-								 		 " Make sure column(s) chosen are the optimal data distribution key to minimize skew.")));
-						found = true;
-						break;
-					}
-				}
-				heap_close(rel, NoLock);
-
-				if (distrkeys != NIL)
-					break;
-			}
-
-		}
-
-		if (distrkeys == NIL)
-		{
-			foreach(columns, cxt->columns)
-			{
-				ColumnDef  *column = (ColumnDef *) lfirst(columns);
-				Oid			typeOid;
-
-				if (column->generated == ATTRIBUTE_GENERATED_STORED)
-				{
-					/* generated columns can't in distribution key, skip */
-					continue;
-				}
-
-				typeOid = typenameTypeId(NULL, column->typeName);
-
-				/*
-				 * If we can hash this type, this column will be our default
-				 * key.
-				 */
-				if (cdb_default_distribution_opclass_for_type(typeOid))
-				{
-					DistributionKeyElem *dkelem = makeNode(DistributionKeyElem);
-
-					dkelem->name = column->colname;
-					dkelem->opclass = NULL;		/* or should we explicitly set the opclass we just looked up? */
-					dkelem->location = -1;
-
-					distrkeys = list_make1(dkelem);
-					if (!bQuiet)
-						ereport(NOTICE,
-							(errcode(ERRCODE_SUCCESSFUL_COMPLETION),
-							 errmsg("Table doesn't have 'DISTRIBUTED BY' clause -- Using column "
-									"named '%s' as the Greenplum Database data distribution key for this "
-									"table. ", column->colname),
-							 errhint("The 'DISTRIBUTED BY' clause determines the distribution of data."
-							 		 " Make sure column(s) chosen are the optimal data distribution key to minimize skew.")));
-					break;
-				}
-			}
-		}
-
-		if (distrkeys == NIL)
-		{
-			/*
-			 * There was no eligible distribution column to default to. This table
-			 * will be partitioned on an empty distribution key list. In other words,
-			 * tuples coming into the system will be randomly assigned a bucket.
-			 */
-			if (!bQuiet)
-				ereport(NOTICE,
-						(errcode(ERRCODE_UNDEFINED_OBJECT),
-						 errmsg("Table doesn't have 'DISTRIBUTED BY' clause, and no column type is suitable for a distribution key. Creating a NULL policy entry.")));
-
-			distributedBy = makeNode(DistributedBy);
-			distributedBy->ptype = POLICYTYPE_PARTITIONED;
-			distributedBy->numsegments = numsegments;
-			return distributedBy;
-		}
-	}
-	else
-	{
-		/*
-		 * We have a DISTRIBUTED BY column list, either specified by the user
-		 * or defaulted to a primary key or unique column. Process it now.
-		 */
-		foreach(keys, distrkeys)
-		{
-			DistributionKeyElem *dkelem = (DistributionKeyElem *) lfirst(keys);
-			char	   *colname = dkelem->name;
-			bool		found = false;
-			ListCell   *columns;
-
-			if (cxt->inhRelations)
-			{
-				/* try inherited tables */
-				ListCell   *inher;
-
-				foreach(inher, cxt->inhRelations)
-				{
-					RangeVar   *inh = (RangeVar *) lfirst(inher);
-					Relation	rel;
-					int			count;
-
-					Assert(IsA(inh, RangeVar));
-					rel = heap_openrv(inh, AccessShareLock);
-					/* check user requested inheritance from valid relkind */
-					if (rel->rd_rel->relkind != RELKIND_RELATION &&
-						rel->rd_rel->relkind != RELKIND_FOREIGN_TABLE &&
-						rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
-						ereport(ERROR,
-								(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-								 errmsg("inherited relation \"%s\" is not a table or foreign table",
-										inh->relname)));
-					for (count = 0; count < rel->rd_att->natts; count++)
-					{
-						Form_pg_attribute inhattr = TupleDescAttr(rel->rd_att, count);
-						char	   *inhname = NameStr(inhattr->attname);
-
-						if (inhattr->attisdropped)
-							continue;
-						if (strcmp(colname, inhname) == 0)
-						{
-							found = true;
-
-							break;
-						}
-					}
-					heap_close(rel, NoLock);
-					if (found)
-						elog(DEBUG1, "DISTRIBUTED BY clause refers to columns of inherited table");
-
-					if (found)
-						break;
-				}
-			}
-
-			if (!found)
-			{
-				foreach(columns, cxt->columns)
-				{
-					ColumnDef *column = (ColumnDef *) lfirst(columns);
-					Assert(IsA(column, ColumnDef));
-
-					if (strcmp(column->colname, colname) == 0)
-					{
-						if (column->generated == ATTRIBUTE_GENERATED_STORED)
-						{
-							/* The generated columns are computed after distribution.
-							 * If generated columns are used as distribution key, they
-							 * will always use null values to compute the distribution
-							 * key value, and it will cause wrong query results.
-							 */
-							ereport(ERROR,
-									(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-									 errmsg("cannot use generated column in distribution key"),
-									 errdetail("Column \"%s\" is a generated column.",
-												column->colname),
-									 parser_errposition(pstate, column->location)));
-						}
-						found = true;
-						break;
-					}
-				}
-			}
-
-			/*
-			 * In the ALTER TABLE case, don't complain about index keys
-			 * not created in the command; they may well exist already.
-			 * DefineIndex will complain about them if not, and will also
-			 * take care of marking them NOT NULL.
-			 */
-			if (!found && !cxt->isalter)
-				ereport(ERROR,
-						(errcode(ERRCODE_UNDEFINED_COLUMN),
-						 errmsg("column \"%s\" named in DISTRIBUTED BY clause does not exist", colname),
-						 parser_errposition(pstate, dkelem->location)));
-		}
-	}
-
-	/*
-	 * Ok, we have decided on the distribution key columns now, and have the column
-	 * names in 'distrkeys'. Perform last cross-checks between UNIQUE and PRIMARY KEY
-	 * constraints and the chosen distribution key. (These tests should always pass,
-	 * if the distribution key was derived from the PRIMARY KEY or UNIQUE constraints,
-	 * but it doesn't hurt to check even in those cases.)
-	 */
-	if (cxt && cxt->pkey)
-	{
-		/* The distribution key must be a subset of the primary key */
-		IndexStmt  *index = cxt->pkey;
-		ListCell   *dk;
-
-		foreach(dk, distrkeys)
-		{
-			char	   *distcolname = strVal(lfirst(dk));
-			ListCell   *ip;
-			bool		found = false;
-
-			foreach(ip, index->indexParams)
-			{
-				IndexElem  *iparam = lfirst(ip);
-
-				if (!iparam->name)
-					elog(ERROR, "PRIMARY KEY on an expression index not supported");
-
-				if (strcmp(iparam->name, distcolname) == 0)
-				{
-					found = true;
-					break;
-				}
-			}
-
-			if (!found)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("PRIMARY KEY and DISTRIBUTED BY definitions are incompatible"),
-						 errhint("When there is both a PRIMARY KEY and a DISTRIBUTED BY clause, the DISTRIBUTED BY clause must be a subset of the PRIMARY KEY.")));
-			}
-		}
-	}
-
-	/* Make sure distribution columns match any UNIQUE and PRIMARY KEY constraints. */
-	foreach (lc, cxt->ixconstraints)
-	{
-		Constraint *constraint = (Constraint *) lfirst(lc);
-		ListCell   *dk;
-
-		if (constraint->contype != CONSTR_PRIMARY &&
-			constraint->contype != CONSTR_UNIQUE)
-			continue;
-
-		foreach(dk, distrkeys)
-		{
-			char	   *distcolname = strVal(lfirst(dk));
-			ListCell   *ip;
-			bool		found = false;
-
-			foreach (ip, constraint->keys)
-			{
-				IndexElem  *iparam = lfirst(ip);
-
-				if (!iparam->name)
-					elog(ERROR, "UNIQUE constraint on an expression index not supported");
-
-				if (strcmp(iparam->name, distcolname) == 0)
-				{
-					found = true;
-					break;
-				}
-			}
-
-			if (!found)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("UNIQUE constraint and DISTRIBUTED BY definitions are incompatible"),
-						 errhint("When there is both a UNIQUE constraint and a DISTRIBUTED BY clause, the DISTRIBUTED BY clause must be a subset of the UNIQUE constraint.")));
-			}
-		}
-	}
-
-	/* Form the resulting Distributed By clause */
-	distributedBy = makeNode(DistributedBy);
-	distributedBy->ptype = POLICYTYPE_PARTITIONED;
-	distributedBy->keyCols = distrkeys;
-	distributedBy->numsegments = numsegments;
-
-	return distributedBy;
 }
 
 /*
@@ -4855,14 +4147,18 @@ transformColumnType(CreateStmtContext *cxt, ColumnDef *column)
 
 
 /*
- * transformCreateSchemaStmt -
- *	  analyzes the CREATE SCHEMA statement
+ * transformCreateSchemaStmtElements -
+ *	  analyzes the elements of a CREATE SCHEMA statement
  *
- * Split the schema element list into individual commands and place
- * them in the result list in an order such that there are no forward
- * references (e.g. GRANT to a table created later in the list). Note
- * that the logic we use for determining forward references is
- * presently quite incomplete.
+ * Split the schema element list from a CREATE SCHEMA statement into
+ * individual commands and place them in the result list in an order
+ * such that there are no forward references (e.g. GRANT to a table
+ * created later in the list). Note that the logic we use for determining
+ * forward references is presently quite incomplete.
+ *
+ * "schemaName" is the name of the schema that will be used for the creation
+ * of the objects listed, that may be compiled from the schema name defined
+ * in the statement or a role specification.
  *
  * SQL also allows constraints to make forward references, so thumb through
  * the table columns and move forward references to a posterior alter-table
@@ -4878,15 +4174,13 @@ transformColumnType(CreateStmtContext *cxt, ColumnDef *column)
  * extent.
  */
 List *
-transformCreateSchemaStmt(CreateSchemaStmt *stmt)
+transformCreateSchemaStmtElements(List *schemaElts, const char *schemaName)
 {
 	CreateSchemaStmtContext cxt;
 	List	   *result;
 	ListCell   *elements;
 
-	cxt.stmtType = "CREATE SCHEMA";
-	cxt.schemaname = stmt->schemaname;
-	cxt.authrole = (RoleSpec *) stmt->authrole;
+	cxt.schemaname = schemaName;
 	cxt.sequences = NIL;
 	cxt.tables = NIL;
 	cxt.views = NIL;
@@ -4898,7 +4192,7 @@ transformCreateSchemaStmt(CreateSchemaStmt *stmt)
 	 * Run through each schema element in the schema element list. Separate
 	 * statements by type, and do preliminary analysis.
 	 */
-	foreach(elements, stmt->schemaElts)
+	foreach(elements, schemaElts)
 	{
 		Node	   *element = lfirst(elements);
 
@@ -4983,10 +4277,10 @@ transformCreateSchemaStmt(CreateSchemaStmt *stmt)
  *		Set or check schema name in an element of a CREATE SCHEMA command
  */
 static void
-setSchemaName(char *context_schema, char **stmt_schema_name)
+setSchemaName(const char *context_schema, char **stmt_schema_name)
 {
 	if (*stmt_schema_name == NULL)
-		*stmt_schema_name = context_schema;
+		*stmt_schema_name = unconstify(char *, context_schema);
 	else if (strcmp(context_schema, *stmt_schema_name) != 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_SCHEMA_DEFINITION),
@@ -4994,32 +4288,6 @@ setSchemaName(char *context_schema, char **stmt_schema_name)
 						"different from the one being created (%s)",
 						*stmt_schema_name, context_schema)));
 }
-
-/*
- * getLikeDistributionPolicy
- *
- * For Greenplum Database distributed tables, default to
- * the same distribution as the first LIKE table, unless
- * we also have INHERITS
- */
-static DistributedBy *
-getLikeDistributionPolicy(TableLikeClause *e)
-{
-	DistributedBy *likeDistributedBy = NULL;
-	Relation	rel;
-
-	rel = relation_openrv(e->relation, AccessShareLock);
-
-	if (rel->rd_cdbpolicy != NULL && rel->rd_cdbpolicy->ptype != POLICYTYPE_ENTRY)
-	{
-		likeDistributedBy = make_distributedby_for_rel(rel);
-	}
-
-	relation_close(rel, AccessShareLock);
-
-	return likeDistributedBy;
-}
-
 
 /*
  * transformPartitionCmd

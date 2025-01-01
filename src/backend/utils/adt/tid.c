@@ -130,11 +130,17 @@ tidrecv(PG_FUNCTION_ARGS)
 	ItemPointer result;
 	BlockNumber blockNumber;
 	OffsetNumber offsetNumber;
+	int64 		xid;
+	int64 		seq;
 
 	blockNumber = pq_getmsgint(buf, sizeof(blockNumber));
 	offsetNumber = pq_getmsgint(buf, sizeof(offsetNumber));
+	xid = pq_getmsgint(buf, sizeof(xid));
+	seq = pq_getmsgint(buf, sizeof(seq));
 
 	result = (ItemPointer) palloc(sizeof(ItemPointerData));
+	result->xid = xid;
+	result->seq = seq;
 
 	ItemPointerSet(result, blockNumber, offsetNumber);
 
@@ -153,6 +159,8 @@ tidsend(PG_FUNCTION_ARGS)
 	pq_begintypsend(&buf);
 	pq_sendint32(&buf, ItemPointerGetBlockNumberNoCheck(itemPtr));
 	pq_sendint16(&buf, ItemPointerGetOffsetNumberNoCheck(itemPtr));
+	pq_sendint64(&buf, itemPtr->xid);
+	pq_sendint64(&buf, itemPtr->seq);
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 

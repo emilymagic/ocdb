@@ -24,8 +24,6 @@
 #include "utils/timestamp.h"
 #include "miscadmin.h"
 #include "storage/shmem.h"
-#include "cdb/cdbdtxcontextinfo.h"
-#include "cdb/cdbtm.h"
 
 BufferUsage pgBufferUsage;
 static BufferUsage save_pgBufferUsage;

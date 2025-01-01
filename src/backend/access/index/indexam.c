@@ -46,6 +46,7 @@
 
 #include "access/amapi.h"
 #include "access/heapam.h"
+#include "access/memoryheapam.h"
 #include "access/relscan.h"
 #include "access/tableam.h"
 #include "access/transam.h"
@@ -132,6 +133,9 @@ index_open(Oid relationId, LOCKMODE lockmode)
 {
 	Relation	r;
 
+	if (MemoryHeapActive())
+		return NULL;
+
 	r = relation_open(relationId, lockmode);
 
 	if (r->rd_rel->relkind != RELKIND_INDEX &&
@@ -157,6 +161,9 @@ void
 index_close(Relation relation, LOCKMODE lockmode)
 {
 	LockRelId	relid = relation->rd_lockInfo.lockRelId;
+
+	if (MemoryHeapActive())
+		return;
 
 	Assert(lockmode >= NoLock && lockmode < MAX_LOCKMODES);
 
@@ -191,30 +198,6 @@ index_insert(Relation indexRelation,
 	return indexRelation->rd_indam->aminsert(indexRelation, values, isnull,
 											 heap_t_ctid, heapRelation,
 											 checkUnique, indexInfo);
-}
-
-/* -------------------------
- *		index_insert_cleanup - clean up after all index inserts are done
- * -------------------------
- */
-void
-index_insert_cleanup(Relation indexRelation,
-					 IndexInfo *indexInfo)
-{
-	RELATION_CHECKS;
-	Assert(indexInfo);
-
-	/*
-	 * GPDB_17_MERGE_FIXME: Call aminsertcleanup callback here, when it becomes
-	 * available. For now, assume that BRIN is the only index type for which we
-	 * clean up at the end of an insert session.
-	 */
-	if (indexRelation->rd_rel->relam == BRIN_AM_OID && indexInfo->ii_AmCache)
-		brininsertcleanup(indexInfo);
-#if 0
-	if (indexRelation->rd_indam->aminsertcleanup && indexInfo->ii_AmCache)
-		indexRelation->rd_indam->aminsertcleanup(indexInfo);
-#endif
 }
 
 /*
@@ -664,47 +647,21 @@ index_getnext_slot(IndexScanDesc scan, ScanDirection direction, TupleTableSlot *
 	return false;
 }
 
-/*
- * index_initbitmap -- get an empty bitmap
- * */
-void
-index_initbitmap(IndexScanDesc scan, Node **bitmapP)
-{
-    Relation relation = scan->indexRelation;
-
-    if (relation->rd_amhandler == F_BMHANDLER)
-    {
-        bminitbitmap(bitmapP);
-    }
-    else if (relation->rd_amhandler == F_BTHANDLER)
-    {
-        *bitmapP = (Node *)tbm_create(work_mem * 1024L, NULL);
-    }
-    else
-    {
-        elog(ERROR, "Not support rd_amhandler %u to initbitmap under bitmapscan",
-            relation->rd_amhandler);
-    }
-
-    return;
-}
-
 /* ----------------
  *		index_getbitmap - get all tuples at once from an index scan
  *
- *		it invokes am's getmulti function to get a bitmap. If am is an on-disk
- *		bitmap index access method (see bitmap.h), then a StreamBitmap is
- *		returned; a TIDBitmap otherwise. Note that an index am's getmulti
- *		function can assume that the bitmap that it's given as argument is of
- *		the same type as what the function constructs itself.
+ * Adds the TIDs of all heap tuples satisfying the scan keys to a bitmap.
+ * Since there's no interlock between the index scan and the eventual heap
+ * access, this is only safe to use with MVCC-based snapshots: the heap
+ * item slot could have been replaced by a newer tuple by the time we get
+ * to it.
  *
- *  	GPDB: Since GPDB also support StreamBitmap node in bitmap index.
- *  	So normally we need to create specific bitmap node in the amgetbitmap AM.
- *  	This makes the function different from upstream.
+ * Returns the number of matching tuples found.  (Note: this might be only
+ * approximate, so it should only be used for statistical purposes.)
  * ----------------
  */
 int64
-index_getbitmap(IndexScanDesc scan, Node **bitmapP)
+index_getbitmap(IndexScanDesc scan, TIDBitmap *bitmap)
 {
 	int64		ntids;
 
@@ -717,7 +674,7 @@ index_getbitmap(IndexScanDesc scan, Node **bitmapP)
 	/*
 	 * have the am's getbitmap proc do all the work.
 	 */
-	ntids = scan->indexRelation->rd_indam->amgetbitmap(scan, bitmapP);
+	ntids = scan->indexRelation->rd_indam->amgetbitmap(scan, bitmap);
 
 	pgstat_count_index_tuples(scan->indexRelation, ntids);
 

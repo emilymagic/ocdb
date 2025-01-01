@@ -483,10 +483,6 @@ does_not_exist_skipping(ObjectType objtype, Node *object)
 			msg = gettext_noop("publication \"%s\" does not exist, skipping");
 			name = strVal((Value *) object);
 			break;
-		case OBJECT_EXTPROTOCOL:
-			msg = gettext_noop("protocol \"%s\" does not exist, skipping");
-			name = strVal((Value *) object);
-			break;
 		default:
 			elog(ERROR, "unrecognized object type: %d", (int) objtype);
 			break;
