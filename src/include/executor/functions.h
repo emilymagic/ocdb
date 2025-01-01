@@ -40,4 +40,6 @@ extern DestReceiver *CreateSQLFunctionDestReceiver(void);
 
 extern void querytree_safe_for_qe(Node *node);
 
+extern void init_sql_fcache(FmgrInfo *finfo, Oid collation, bool lazyEvalOK);
+
 #endif							/* FUNCTIONS_H */

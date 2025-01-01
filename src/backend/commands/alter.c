@@ -383,7 +383,6 @@ ExecRenameStmt_internal(RenameStmt *stmt)
 		case OBJECT_TYPE:
 			return RenameType(stmt);
 
-		case OBJECT_EXTPROTOCOL:
 		case OBJECT_AGGREGATE:
 		case OBJECT_COLLATION:
 		case OBJECT_CONVERSION:
@@ -920,7 +919,6 @@ ExecAlterOwnerStmt_internal(AlterOwnerStmt *stmt)
 										  newowner);
 
 			/* Generic cases */
-		case OBJECT_EXTPROTOCOL:
 		case OBJECT_AGGREGATE:
 		case OBJECT_COLLATION:
 		case OBJECT_CONVERSION:

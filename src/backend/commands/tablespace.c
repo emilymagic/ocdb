@@ -473,12 +473,6 @@ CreateTableSpace(CreateTableSpaceStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackAddObject(TableSpaceRelationId,
-						   tablespaceoid,
-						   GetUserId(),
-						   "CREATE", "TABLESPACE");
 	}
 
 	return tablespaceoid;
@@ -689,11 +683,6 @@ DropTableSpace(DropTableSpaceStmt *stmt)
 	 * Remove dependency on owner.
 	 */
 	deleteSharedDependencyRecordsFor(TableSpaceRelationId, tablespaceoid, 0);
-
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackDropObject(TableSpaceRelationId,
-							tablespaceoid);
 
 	/*
 	 * Acquire TablespaceCreateLock to ensure that no TablespaceCreateDbspace
@@ -1407,14 +1396,6 @@ RenameTableSpace(const char *oldname, const char *newname)
 	namestrcpy(&(newform->spcname), newname);
 
 	CatalogTupleUpdate(rel, &newtuple->t_self, newtuple);
-
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackUpdObject(TableSpaceRelationId,
-						   tspId,
-						   GetUserId(),
-						   "ALTER", "RENAME"
-				);
 
 	InvokeObjectPostAlterHook(TableSpaceRelationId, tspId, 0);
 

@@ -12,9 +12,9 @@ DATACHECKSUMS=1
 # ======================================================================
 
 if [ -z "${COORDINATOR_DATADIR}" ]; then
-  DATADIRS=${DATADIRS:-`pwd`/datadirs}
+  DATADIRS=${DATADIRS:-`pwd`/datadirs/cluster1}
 else
-  DATADIRS="${COORDINATOR_DATADIR}/datadirs"
+  DATADIRS="${COORDINATOR_DATADIR}/datadirs/cluster1"
 fi
 
 QDDIR=$DATADIRS/qddir
@@ -320,6 +320,8 @@ cat >> $CLUSTER_CONFIG <<-EOF
 	TRUSTED_SHELL="`pwd`/lalshell"
 	
 	ENCODING=UNICODE
+
+	CLUSTER_ID=1
 EOF
 
 if [ "${DATACHECKSUMS}" == "0" ]; then

@@ -412,6 +412,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	if (gp_log_optimization_time)
 		INSTR_TIME_SET_CURRENT(starttime);
 
+
+	max_parallel_workers_per_gather = 0;
 	/*
 	 * Set up global state for this planner invocation.  This data is needed
 	 * across all levels of sub-Query that might exist in the given command,
@@ -603,12 +605,10 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		Gather	   *gather = makeNode(Gather);
 
 		/*
-		 * If there are any initPlans attached to the formerly-top plan node,
-		 * move them up to the Gather node; same as we do for Material node in
-		 * materialize_finished_plan.
+		 * Top plan must not have any initPlans, else it shouldn't have been
+		 * marked parallel-safe.
 		 */
-		gather->plan.initPlan = top_plan->initPlan;
-		top_plan->initPlan = NIL;
+		Assert(top_plan->initPlan == NIL);
 
 		gather->plan.targetlist = top_plan->targetlist;
 		gather->plan.qual = NIL;

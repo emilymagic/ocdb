@@ -28,7 +28,6 @@ try:
     from gppylib.commands import dca
     from gppylib import pgconf
     from gppylib.heapchecksum import HeapChecksum
-    from gppylib.commands.pg import PgControlData
     from gppylib.operations.startSegments import *
     from gppylib.operations.detect_unreachable_hosts import get_unreachable_segment_hosts, mark_segments_down_for_unreachable_hosts
     from gppylib.utils import TableLogger
@@ -128,11 +127,6 @@ class GpStart:
                 self.coordinator_checksum_value = HeapChecksum(gparray=self.gparray, num_workers=num_workers,
                                                           logger=logger).get_coordinator_value()
 
-            if not self.skip_standby_check:
-                self.check_standby()
-            else:
-                logger.info("Skipping Standby activation status checking.")
-
             logger.info("Shutting down coordinator")
             self.shutdown_coordinator_only()
             # TODO: check results of command.
@@ -176,7 +170,6 @@ class GpStart:
         logger.info("Gathering information and validating the environment...")
         self._basic_setup()
 
-        self._check_version()
         self._check_coordinator_running()
 
     ######
@@ -198,24 +191,6 @@ class GpStart:
         logger.debug("Read from postgresql.conf max_connections=%s" % self.max_connections)
 
     ######
-    def _check_version(self):
-        self.gpversion = gp.GpVersion.local('local GP software version check', self.gphome)
-        logger.info("Greenplum Binary Version: '%s'" % self.gpversion)
-
-        # It would be nice to work out the catalog version => greenplum version
-        # calculation so that we can print out nicer error messages when
-        # version doesn't match.
-        bin_catversion = gp.GpCatVersion.local('local GP software catalag version check', self.gphome)
-        logger.info("Greenplum Catalog Version: '%s'" % bin_catversion)
-
-        dir_catversion = gp.GpCatVersionDirectory.local('local GP directory catalog version check', self.coordinator_datadir)
-
-        if bin_catversion != dir_catversion:
-            logger.info("COORDINATOR_DIRECTORY Catalog Version: '%s'" % dir_catversion)
-            logger.info("Catalog Version of coordinator directory incompatible with binaries")
-            raise ExceptionNoStackTraceNeeded("Catalog Versions are incompatible")
-
-    ######
     def _check_coordinator_running(self):
         logger.debug("Check if Coordinator is already running...")
         if os.path.exists(self.coordinator_datadir + '/postmaster.pid'):
@@ -233,15 +208,6 @@ class GpStart:
                         logfileDirectory=self.logfileDirectory)
         cmd.run()
         logger.debug("results of forcing coordinator shutdown: %s" % cmd)
-
-    def fetch_tli(self, data_dir_path, remoteHost=None):
-        if not remoteHost:
-            controldata = PgControlData("fetching pg_controldata locally", data_dir_path)
-        else:
-            controldata = PgControlData("fetching pg_controldata remotely", data_dir_path, REMOTE, remoteHost)
-
-        controldata.run(validateAfter=True)
-        return int(controldata.get_value("Latest checkpoint's TimeLineID"))
 
     class StandbyUnreachable(Exception):
         pass
@@ -263,37 +229,6 @@ class GpStart:
         logger.debug("Primary TLI = %d" % primary_tli)
         logger.debug("Standby TLI = %d" % standby_tli)
         return primary_tli < standby_tli
-
-    def check_standby(self):
-        try:
-            standby_activated = self._standby_activated()
-        except GpStart.StandbyUnreachable as err:
-            logger.warning("Standby host is unreachable, cannot determine whether the standby is currently acting as the coordinator. Received error: %s" % err)
-            logger.warning("Continue only if you are certain that the standby is not acting as the coordinator.")
-            if not self.interactive or not userinput.ask_yesno(None, "\nContinue with startup", 'N'):
-                if not self.interactive:
-                    logger.warning("Non interactive mode detected. Not starting the cluster. Start the cluster in interactive mode.")
-                self.shutdown_coordinator_only()
-                raise UserAbortedException()
-
-            # If the user wants to continue when the standby is unreachable,
-            # set start_standby to False to prevent starting the unreachable
-            # standy later in the startup process.
-            self.start_standby = False
-            return
-
-        if not standby_activated:
-            return
-
-        # stop the coordinator we've started up.
-        cmd = gp.GpStop("Shutting down coordinator", coordinatorOnly=True,
-                        fast=True, quiet=logging_is_quiet(),
-                        verbose=logging_is_verbose(),
-                        datadir=self.coordinator_datadir,
-                        parallel=self.parallel)
-        cmd.run(validateAfter=True)
-        logger.info("Coordinator Stopped...")
-        raise ExceptionNoStackTraceNeeded("Standby activated, this node no more can act as coordinator.")
 
     ######
     def _recovery_startup(self):
@@ -776,7 +711,7 @@ class GpStart:
         addTo.add_option('', '--wrapper-args', dest="wrapper_args", default=None, type='string')
         addTo.add_option('-S', '--skip_standby_check', dest="skip_standby_check", action='store_true', default=False)
         addTo.add_option('--skip-heap-checksum-validation', dest='skip_heap_checksum_validation',
-                         action='store_true', default=False, help='Skip the validation of data_checksums GUC. '
+                         action='store_true', default=True, help='Skip the validation of data_checksums GUC. '
                                                                   'Note: Starting up the cluster without this '
                                                                   'validation could lead to data loss.')
 

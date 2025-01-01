@@ -848,7 +848,7 @@ fileAnalyzeForeignTable(Relation relation,
 		 */
 		*totalpages = 10;
 		/* This function could dispatch gp_acquire_sample_rows to all segments */
-		*func = gp_acquire_sample_rows_func;
+		*func = file_acquire_sample_rows;
 		return true;
 	}
 

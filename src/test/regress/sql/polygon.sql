@@ -30,7 +30,7 @@ INSERT INTO POLYGON_TBL(f1) VALUES ('(0,1,2)');
 INSERT INTO POLYGON_TBL(f1) VALUES ('(0,1,2,3');
 
 INSERT INTO POLYGON_TBL(f1) VALUES ('asdf');
-ANALYZE POLYGON_TBL;
+
 
 SELECT '' AS four, * FROM POLYGON_TBL;
 
@@ -54,7 +54,6 @@ INSERT INTO quad_poly_tbl
 		(11001, NULL),
 		(11002, NULL),
 		(11003, NULL);
-ANALYZE quad_poly_tbl;
 
 CREATE INDEX quad_poly_tbl_idx ON quad_poly_tbl USING spgist(p);
 

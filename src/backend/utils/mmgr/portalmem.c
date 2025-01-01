@@ -33,7 +33,6 @@
 #include "cdb/cdbendpoint.h"
 #include "cdb/ml_ipc.h"
 #include "utils/resource_manager.h"
-#include "utils/resscheduler.h"
 
 /*
  * Estimate of the maximum number of open portals a user would have,
@@ -225,17 +224,6 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	portal->visible = true;
 	portal->creation_time = GetCurrentStatementStartTimestamp();
 
-	if (IsResQueueEnabled())
-	{
-		/* Only QD needs to set portal id if have enabled resource scheduling */
-		if (Gp_role == GP_ROLE_DISPATCH)
-		{
-			portal->portalId = ResCreatePortalId(name);
-			portal->queueId = GetResQueueId();
-		}
-		else if (Gp_role == GP_ROLE_EXECUTE)
-			portal->queueId = GetResQueueId();
-	}
 	portal->is_extended_query = false; /* default value */
 
 	/* put portal in table (sets portal->name) */
@@ -533,14 +521,6 @@ PortalDrop(Portal portal, bool isTopCommit)
 	 * infinite error-recovery loop.
 	 */
 	PortalHashTableDelete(portal);
-
-	/*
-	 * GPDB: Cleanup for resource queue associated with the portal (if any).
-	 */
-	if (IsResQueueLockedForPortal(portal) || ResPortalHasDanglingIncrement(portal))
-	{
-		ResUnLockPortal(portal);
-	}
 
 	/* drop cached plan reference, if any */
 	PortalReleaseCachedPlan(portal);
@@ -1176,92 +1156,6 @@ AtSubCleanup_Portals(SubTransactionId mySubid)
 
 		/* Zap it. */
 		PortalDrop(portal, false);
-	}
-}
-
-/*
- * At exit ensure all resource locks get released (holdable cursors).
- */
-void
-AtExitCleanup_ResPortals(void)
-{
-	HASH_SEQ_STATUS status;
-	PortalHashEnt *hentry;
-
-	if (PortalHashTable == NULL)
-		return;
-
-	hash_seq_init(&status, PortalHashTable);
-
-	while ((hentry = (PortalHashEnt *) hash_seq_search(&status)) != NULL)
-	{
-		Portal		portal = hentry->portal;
-
-		/*
-		 * Note: There is no real need to call ResPortalHasDanglingIncrement()
-		 * here. Only persisted holdable portals are cleaned up here and they
-		 * should already have hasResQueueLock=true.
-		 *
-		 * But we still do so out of paranoia/future-proofing.
-		 */
-		if (IsResQueueLockedForPortal(portal) || ResPortalHasDanglingIncrement(portal))
-			ResUnLockPortal(portal);
-
-	}
-}
-
-
-/*
- * TotalResPortalIncrements --  Calculate increment totals and count of portals
- * for all my portals with a given queueid.
- *
- * Note:
- *	Requires the ResQueueLock to be held before calling.
- *	We are deliberately obscure about the type of totalIncrements as
- *	don't want portal.h to need to include resscheuler.h.
- */
-void
-TotalResPortalIncrements(int pid, Oid queueid, Cost *totalIncrements, int *num)
-{
-	HASH_SEQ_STATUS 	status;
-	PortalHashEnt		*hentry;
-	ResPortalIncrement	*incrementSet;
-	ResPortalTag		portalTag;
-
-	int					i;
-
-	/* ensure the total is initialized to zero */
-	for (i = 0; i < NUM_RES_LIMIT_TYPES; i++)
-		totalIncrements[i] = 0;
-
-	hash_seq_init(&status, PortalHashTable);
-
-	while ((hentry = (PortalHashEnt *) hash_seq_search(&status)) != NULL)
-	{
-		Portal		portal = hentry->portal;
-
-
-		if (portal->queueId == queueid)
-		{
-			/*
-			 * Get the increment for this portal, skip if we can't find an
-			 * increment, as that portal is uninteresting.
-			 */
-			MemSet(&portalTag, 0, sizeof(ResPortalTag));
-			portalTag.pid = pid;
-			portalTag.portalId = portal->portalId;
-
-			incrementSet = ResIncrementFind(&portalTag);
-			if (!incrementSet)
-				continue;
-
-			/* Count it. */
-			(*num)++;
-
-			/* Add its increments to the total. */
-			for (i = 0; i < NUM_RES_LIMIT_TYPES; i++)
-				totalIncrements[i] += incrementSet->increments[i];
-		}
 	}
 }
 

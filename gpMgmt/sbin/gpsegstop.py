@@ -78,23 +78,26 @@ class SegStop(base.Command):
             cmd = gp.SegmentStop('segment shutdown', self.datadir, mode=self.mode, timeout=self.timeout)
             cmd.run()
 
-            results = cmd.get_results()
-            is_shutdown = False
+            # results = cmd.get_results()
+            # is_shutdown = False
+            #
+            # if results.rc == 0:
+            #     cmd = gp.SegmentIsShutDown('check if shutdown', self.datadir)
+            #     cmd.run()
+            #
+            #     if cmd.is_shutdown():
+            #         status = SegStopStatus(self.datadir, True, "Shutdown Succeeded")
+            #         self.result = status
+            #         is_shutdown = True
+            #     # MPP-16171
+            #     #
+            #     elif self.mode == 'immediate':
+            #         status = SegStopStatus(self.datadir, True, "Shutdown Immediate")
+            #         self.result = status
+            #         is_shutdown = True
 
-            if results.rc == 0:
-                cmd = gp.SegmentIsShutDown('check if shutdown', self.datadir)
-                cmd.run()
-
-                if cmd.is_shutdown():
-                    status = SegStopStatus(self.datadir, True, "Shutdown Succeeded")
-                    self.result = status
-                    is_shutdown = True
-                # MPP-16171
-                #
-                elif self.mode == 'immediate':
-                    status = SegStopStatus(self.datadir, True, "Shutdown Immediate")
-                    self.result = status
-                    is_shutdown = True
+            self.result = SegStopStatus(self.datadir, True, "Shutdown Succeeded")
+            is_shutdown = True
 
             # read pid and datadir from /tmp/.s.PGSQL.<port>.lock file
             name = "failed segment '%s'" % self.db

@@ -50,10 +50,15 @@
 #include "nodes/plannodes.h"
 #include "nodes/readfuncs.h"
 
+#include "access/tileam.h"
 #include "cdb/cdbaocsam.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbgang.h"
 #include "nodes/altertablenodes.h"
 #include "utils/builtins.h"
+#include "utils/dispatchcat.h"
+#include "utils/pickcat.h"
+
 
 /*
  * readfuncs.c is compiled normally into readfuncs.o, but it's also
@@ -633,6 +638,7 @@ _readRefreshClause(void)
 	READ_BOOL_FIELD(concurrent);
 	READ_BOOL_FIELD(skipData);
 	READ_NODE_FIELD(relation);
+	READ_OID_FIELD(oidNewHeap);
 
 	READ_DONE();
 }
@@ -680,6 +686,14 @@ _readConst(void)
 		token = pg_strtok(&length); /* skip "<>" */
 	else
 		local_node->constvalue = readDatum(local_node->constbyval);
+
+	if (local_node->consttype == 2205)
+	{
+		Relation relation;
+
+		relation = relation_open(local_node->constvalue, AccessShareLock);
+		relation_close(relation, AccessShareLock);
+	}
 
 	READ_DONE();
 }
@@ -2592,7 +2606,6 @@ _readAppend(void)
 	READ_NODE_FIELD(appendplans);
 	READ_INT_FIELD(first_partial_plan);
 	READ_NODE_FIELD(part_prune_info);
-	READ_NODE_FIELD(join_prune_paramids);
 
 	READ_DONE();
 }
@@ -3585,6 +3598,7 @@ _readSubPlan(void)
 	READ_NODE_FIELD(extParam);
 	READ_FLOAT_FIELD(startup_cost);
 	READ_FLOAT_FIELD(per_call_cost);
+	READ_INT_FIELD(subLinkId);
 
 	READ_DONE();
 }
@@ -3735,6 +3749,20 @@ _readCreatePLangStmt(void)
 	READ_NODE_FIELD(plinline);
 	READ_NODE_FIELD(plvalidator);
 	READ_BOOL_FIELD(pltrusted);
+
+	READ_DONE();
+}
+
+static CreateTableAsStmt *
+_readCreateTableAsStmt(void)
+{
+	READ_LOCALS(CreateTableAsStmt);
+
+	READ_NODE_FIELD(query);
+	READ_NODE_FIELD(into);
+	READ_ENUM_FIELD(relkind, ObjectType);
+	READ_BOOL_FIELD(is_select_into);
+	READ_BOOL_FIELD(if_not_exists);
 
 	READ_DONE();
 }
@@ -4362,6 +4390,46 @@ _readPartitionCmd(void)
 	READ_DONE();
 }
 
+static BlockDesc2 *
+_readBlockDesc2(void)
+{
+	READ_LOCALS(BlockDesc2);
+
+	READ_UINT_FIELD(blockid);
+	READ_UINT64_FIELD(newKey.tid);
+	READ_UINT64_FIELD(newKey.seq);
+	READ_UINT_FIELD(block_size);
+	READ_UINT_FIELD(block_tuple_num);
+
+	READ_DONE();
+}
+
+static CsQuery *
+_readCsQuery(void)
+{
+	READ_LOCALS(CsQuery);
+
+	READ_ENUM_FIELD(cmdType, CsType);
+	READ_STRING_FIELD(query_string);
+	READ_NODE_FIELD(data);
+
+	READ_DONE();
+}
+
+static NextValNode *
+_readNextValNode(void)
+{
+	READ_LOCALS(NextValNode);
+
+	READ_OID_FIELD(relid);
+	READ_LONG_FIELD(plast);
+	READ_LONG_FIELD(pcached);
+	READ_LONG_FIELD(pincrement);
+	READ_BOOL_FIELD(poverflow);
+	
+	READ_DONE();
+}
+
 #ifndef COMPILING_BINARY_FUNCS
 static GpPartitionDefinition *
 _readGpPartitionDefinition(void)
@@ -4433,6 +4501,18 @@ _readColumnReferenceStorageDirective(void)
 	READ_STRING_FIELD(column);
 	READ_BOOL_FIELD(deflt);
 	READ_NODE_FIELD(encoding);
+
+	READ_DONE();
+}
+
+static VisiNode *
+_readVisiNode(void)
+{
+	READ_LOCALS(VisiNode);
+
+	READ_OID_FIELD(relid);
+	READ_OID_FIELD(relfilenode);
+	READ_NODE_FIELD(visiInfo);
 
 	READ_DONE();
 }
@@ -4814,6 +4894,8 @@ parseNodeString(void)
 		return_value = _readCreateOpFamilyStmt();
 	else if (MATCHX("CREATEPLANGSTMT"))
 		return_value = _readCreatePLangStmt();
+	else if (MATCHX("CREATETABLEASSTMT"))
+		return_value = _readCreateTableAsStmt();
 	else if (MATCHX("CREATEPUBLICATIONSTMT"))
 		return_value = _readCreatePublicationStmt();
 	else if (MATCHX("ALTERPUBLICATIONSTMT"))
@@ -4916,6 +4998,14 @@ parseNodeString(void)
 		return_value = _readGpPartitionListSpec();
 	else if (MATCHX("COLUMNREFERENCESTORAGEDIRECTIVE"))
 		return_value = _readColumnReferenceStorageDirective();
+	else if (MATCHX("BLOCKDESC2"))
+		return_value = _readBlockDesc2();
+	else if (MATCHX("VISINODE"))
+		return_value = _readVisiNode();
+	else if (MATCHX("CSQUERY"))
+		return_value = _readCsQuery();
+	else if (MATCHX("NEXTVALNODE"))
+		return_value = _readNextValNode();
 	else
 	{
         ereport(ERROR,

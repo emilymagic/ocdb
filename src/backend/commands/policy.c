@@ -776,9 +776,6 @@ CreatePolicy(CreatePolicyStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackAddObject(PolicyRelationId, myself.objectId, GetUserId(), "CREATE", "POLICY");
 	}
 
 	return myself;

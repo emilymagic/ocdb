@@ -273,7 +273,7 @@
 #include "utils/syscache.h"
 #include "utils/tuplesort.h"
 #include "utils/datum.h"
-
+#include "utils/pickcat.h"
 #include "cdb/cdbexplain.h"
 #include "lib/stringinfo.h"             /* StringInfo */
 #include "optimizer/walkers.h"
@@ -3833,6 +3833,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				{
 					int			length = phasedata->gset_lengths[i];
 
+					/* nothing to do for empty grouping set */
+					if (length == 0)
+						continue;
+
+					/* if we already had one of this length, it'll do */
 					if (phasedata->eqfunctions[length - 1] != NULL)
 						continue;
 
@@ -4640,6 +4645,9 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 			pertrans->sortOperators[i] = sortcl->sortop;
 			pertrans->sortCollations[i] = exprCollation((Node *) tle->expr);
 			pertrans->sortNullsFirst[i] = sortcl->nulls_first;
+
+			PickSortColumn(pertrans->sortOperators[i]);
+			
 			i++;
 		}
 		Assert(i == numSortCols);
@@ -4674,6 +4682,11 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 
 	pertrans->sortstates = (Tuplesortstate **)
 		palloc0(sizeof(Tuplesortstate *) * numGroupingSets);
+
+	if (pertrans->transfn_fcinfo)
+		PickFunctionCall(pertrans->transfn_fcinfo->flinfo,
+							pertrans->transfn_fcinfo->nargs,
+							pertrans->transfn_fcinfo->args);
 }
 
 

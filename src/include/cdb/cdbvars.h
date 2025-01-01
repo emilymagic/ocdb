@@ -223,12 +223,6 @@ extern bool Gp_write_shared_snapshot;
 extern int gp_fts_transition_retries;
 extern int gp_fts_transition_timeout;
 
-/*
- * If number of subtransactions within a transaction exceed this limit,
- * then a warning is given to the user.
- */
-extern int32 gp_subtrans_warn_limit;
-
 extern const char *role_to_string(GpRoleValue role);
 
 extern int	gp_segment_connect_timeout; /* GUC var - timeout specifier for gang creation */
@@ -645,12 +639,6 @@ extern int gp_segworker_relative_priority;
 /*  Max size of dispatched plans; 0 if no limit */
 extern int gp_max_plan_size;
 
-/* Get statistics for partitioned parent from a child */
-extern bool 	gp_statistics_pullup_from_child_partition;
-
-/* Extract numdistinct from foreign key relationship */
-extern bool		gp_statistics_use_fkeys;
-
 /* Allow user to force tow stage agg */
 extern bool     gp_eager_two_phase_agg;
 
@@ -742,6 +730,7 @@ typedef struct GpId
  * Global variable declaration for the data for the single row of gp_id table
  */
 extern GpId GpIdentity;
+extern int myClusterId;
 
 /*
  * Maximum length of string representation of 'dbid' (same as max length of an int4)
@@ -750,6 +739,8 @@ extern GpId GpIdentity;
 
 #define UNINITIALIZED_GP_IDENTITY_VALUE (-10000)
 #define IS_QUERY_DISPATCHER() (GpIdentity.segindex == COORDINATOR_CONTENT_ID)
+#define IS_MASTER_QD() (IS_QUERY_DISPATCHER() && myClusterId != 0 && gp_session_id > 0)
+#define IS_CATALOG_SERVER() (myClusterId == 0)
 #define IS_HOT_STANDBY_QD() (EnableHotStandby && IS_QUERY_DISPATCHER() && RecoveryInProgress())
 
 #define IS_QUERY_EXECUTOR_BACKEND() (Gp_role == GP_ROLE_EXECUTE && gp_session_id > 0)
@@ -782,5 +773,7 @@ extern const char * lookup_autostats_mode_by_value(GpAutoStatsModeValue val);
  * for parallel retrieve cursor.
  */
 #define CDB_NOTIFY_ENDPOINT_ACK "ack_notify"
+
+#define CDB_NOTIFY_TILE "tile_notify"
 
 #endif   /* CDBVARS_H */

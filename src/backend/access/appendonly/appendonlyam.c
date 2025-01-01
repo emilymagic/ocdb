@@ -3221,13 +3221,8 @@ appendonly_insert(AppendOnlyInsertDesc aoInsertDesc,
 	 * Note: below this point, tup is the data we actually intend to store
 	 * into the relation; instup is the caller's original untoasted data.
 	 */
-	if (need_toast)
-		tup = toast_insert_or_update_memtup(relation, instup,
-											NULL, aoInsertDesc->mt_bind,
-											aoInsertDesc->toast_tuple_target,
-											0);
-	else
-		tup = instup;
+
+	tup = instup;
 
 	/*
 	 * get space to insert our next item (tuple)

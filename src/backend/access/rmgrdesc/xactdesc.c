@@ -20,7 +20,6 @@
 #include "storage/sinval.h"
 #include "storage/standbydefs.h"
 #include "utils/timestamp.h"
-#include "access/twophase_xlog.h"
 
 /*
  * Parse the WAL format of an xact commit and abort records into an easier to
@@ -43,7 +42,6 @@ ParseCommitRecord(uint8 info, xl_xact_commit *xlrec, xl_xact_parsed_commit *pars
 								 * present */
 
 	parsed->xact_time = xlrec->xact_time;
-	parsed->tablespace_oid_to_delete_on_commit = xlrec->tablespace_oid_to_delete_on_commit;
 
 	if (info & XLOG_XACT_HAS_INFO)
 	{
@@ -83,7 +81,7 @@ ParseCommitRecord(uint8 info, xl_xact_commit *xlrec, xl_xact_parsed_commit *pars
 		parsed->xnodes = xl_relfilenodes->xnodes;
 
 		data += MinSizeOfXactRelfilenodes;
-		data += xl_relfilenodes->nrels * sizeof(RelFileNodePendingDelete);
+		data += xl_relfilenodes->nrels * sizeof(RelFileNode);
 	}
 
 	if (parsed->xinfo & XACT_XINFO_HAS_INVALS)
@@ -95,17 +93,6 @@ ParseCommitRecord(uint8 info, xl_xact_commit *xlrec, xl_xact_parsed_commit *pars
 
 		data += MinSizeOfXactInvals;
 		data += xl_invals->nmsgs * sizeof(SharedInvalidationMessage);
-	}
-
-	if (parsed->xinfo & XACT_XINFO_HAS_DELDBS)
-	{
-		xl_xact_deldbs *xl_deldbs = (xl_xact_deldbs *) data;
-
-		parsed->ndeldbs = xl_deldbs->ndeldbs;
-		parsed->deldbs = xl_deldbs->deldbs;
-
-		data += MinSizeOfXactDelDbs;
-		data += xl_deldbs->ndeldbs * sizeof(DbDirNode);
 	}
 
 	if (parsed->xinfo & XACT_XINFO_HAS_TWOPHASE)
@@ -136,14 +123,6 @@ ParseCommitRecord(uint8 info, xl_xact_commit *xlrec, xl_xact_parsed_commit *pars
 		parsed->origin_timestamp = xl_origin.origin_timestamp;
 
 		data += sizeof(xl_xact_origin);
-	}
-
-	if (parsed->xinfo & XACT_XINFO_HAS_DISTRIB)
-	{
-		xl_xact_distrib *xl_distrib = (xl_xact_distrib *) data;
-
-		parsed->distribXid = xl_distrib->distrib_xid;
-		data += sizeof(xl_xact_distrib);
 	}
 }
 
@@ -158,7 +137,6 @@ ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_abort *parsed)
 								 * present */
 
 	parsed->xact_time = xlrec->xact_time;
-	parsed->tablespace_oid_to_delete_on_abort = xlrec->tablespace_oid_to_delete_on_abort;
 
 	if (info & XLOG_XACT_HAS_INFO)
 	{
@@ -198,18 +176,7 @@ ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_abort *parsed)
 		parsed->xnodes = xl_relfilenodes->xnodes;
 
 		data += MinSizeOfXactRelfilenodes;
-		data += xl_relfilenodes->nrels * sizeof(RelFileNodePendingDelete);
-	}
-
-	if (parsed->xinfo & XACT_XINFO_HAS_DELDBS)
-	{
-		xl_xact_deldbs *xl_deldbs = (xl_xact_deldbs *) data;
-
-		parsed->ndeldbs = xl_deldbs->ndeldbs;
-		parsed->deldbs = xl_deldbs->deldbs;
-
-		data += MinSizeOfXactDelDbs;
-		data += xl_deldbs->ndeldbs * sizeof(DbDirNode);
+		data += xl_relfilenodes->nrels * sizeof(RelFileNode);
 	}
 
 	if (parsed->xinfo & XACT_XINFO_HAS_TWOPHASE)
@@ -241,7 +208,6 @@ ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_abort *parsed)
 
 		data += sizeof(xl_xact_origin);
 	}
-
 }
 
 static void
@@ -263,11 +229,7 @@ xact_desc_commit(StringInfo buf, uint8 info, xl_xact_commit *xlrec, RepOriginId 
 		appendStringInfoString(buf, "; rels:");
 		for (i = 0; i < parsed.nrels; i++)
 		{
-			BackendId  backendId = parsed.xnodes[i].isTempRelation ?
-								  TempRelBackendId : InvalidBackendId;
-			char	   *path = relpathbackend(parsed.xnodes[i].node,
-											  backendId,
-											  MAIN_FORKNUM);
+			char	   *path = relpathperm(parsed.xnodes[i], MAIN_FORKNUM);
 
 			appendStringInfo(buf, " %s", path);
 			pfree(path);
@@ -285,20 +247,6 @@ xact_desc_commit(StringInfo buf, uint8 info, xl_xact_commit *xlrec, RepOriginId 
 								   buf, parsed.nmsgs, parsed.msgs, parsed.dbId, parsed.tsId,
 								   XactCompletionRelcacheInitFileInval(parsed.xinfo));
 	}
-	if (parsed.ndeldbs > 0)
-	{
-		appendStringInfoString(buf, "; deldbs:");
-		for (i = 0; i < parsed.ndeldbs; i++)
-		{
-			char *path =
-					 GetDatabasePath(parsed.deldbs[i].database, parsed.deldbs[i].tablespace);
-
-			appendStringInfo(buf, " %s", path);
-			pfree(path);
-		}
-	}
-	if (xlrec->tablespace_oid_to_delete_on_commit != InvalidOid)
-		appendStringInfo(buf, "; tablespace_oid_to_delete_on_commit: %u", xlrec->tablespace_oid_to_delete_on_commit);
 
 	if (XactCompletionForceSyncCommit(parsed.xinfo))
 		appendStringInfoString(buf, "; sync");
@@ -311,28 +259,6 @@ xact_desc_commit(StringInfo buf, uint8 info, xl_xact_commit *xlrec, RepOriginId 
 						 (uint32) parsed.origin_lsn,
 						 timestamptz_to_str(parsed.origin_timestamp));
 	}
-
-	if (parsed.distribXid != InvalidDistributedTransactionId)
-	{
-		appendStringInfo(buf, " gxid = "UINT64_FORMAT, parsed.distribXid);
-	}
-}
-
-static void
-xact_desc_distributed_commit(StringInfo buf, uint8 info, xl_xact_commit *xlrec, RepOriginId origin_id)
-{
-	xl_xact_parsed_commit parsed;
-
-	ParseCommitRecord(info, xlrec, &parsed);
-
-	appendStringInfoString(buf, timestamptz_to_str(xlrec->xact_time));
-	appendStringInfo(buf, " gxid = "UINT64_FORMAT, parsed.distribXid);
-}
-
-static void
-xact_desc_distributed_forget(StringInfo buf, xl_xact_distributed_forget *xlrec)
-{
-	appendStringInfo(buf, "gxid = "UINT64_FORMAT, xlrec->gxid);
 }
 
 static void
@@ -353,11 +279,7 @@ xact_desc_abort(StringInfo buf, uint8 info, xl_xact_abort *xlrec)
 		appendStringInfoString(buf, "; rels:");
 		for (i = 0; i < parsed.nrels; i++)
 		{
-			BackendId  backendId = parsed.xnodes[i].isTempRelation ?
-								  TempRelBackendId : InvalidBackendId;
-			char	   *path = relpathbackend(parsed.xnodes[i].node,
-											  backendId,
-											  MAIN_FORKNUM);
+			char	   *path = relpathperm(parsed.xnodes[i], MAIN_FORKNUM);
 
 			appendStringInfo(buf, " %s", path);
 			pfree(path);
@@ -370,20 +292,6 @@ xact_desc_abort(StringInfo buf, uint8 info, xl_xact_abort *xlrec)
 		for (i = 0; i < parsed.nsubxacts; i++)
 			appendStringInfo(buf, " %u", parsed.subxacts[i]);
 	}
-	if (parsed.ndeldbs > 0)
-	{
-		appendStringInfoString(buf, "; deldbs:");
-		for (i = 0; i < parsed.ndeldbs; i++)
-		{
-			char *path =
-					 GetDatabasePath(parsed.deldbs[i].database, parsed.deldbs[i].tablespace);
-
-			appendStringInfo(buf, " %s", path);
-			pfree(path);
-		}
-	}
-	if (xlrec->tablespace_oid_to_delete_on_abort != InvalidOid)
-		appendStringInfo(buf, "; tablespace_oid_to_delete_on_abort: %u", xlrec->tablespace_oid_to_delete_on_abort);
 }
 
 static void
@@ -395,28 +303,6 @@ xact_desc_assignment(StringInfo buf, xl_xact_assignment *xlrec)
 
 	for (i = 0; i < xlrec->nsubxacts; i++)
 		appendStringInfo(buf, " %u", xlrec->xsub[i]);
-}
-
-static void
-xact_desc_prepare(StringInfo buf, uint8 info, TwoPhaseFileHeader *tpfh)
-{
-	const char *gid;
-	Assert(info == XLOG_XACT_PREPARE);
-
-	appendStringInfo(buf, "at = %s", timestamptz_to_str(tpfh->prepared_at));
-
-	if (tpfh->gidlen > 0)
-	{
-		gid = (const char *)tpfh + MAXALIGN(sizeof(*tpfh));
-		Assert(strlen(gid) == (tpfh->gidlen -1));
-
-		appendStringInfo(buf, "; gid = %*s", tpfh->gidlen - 1, gid);
-	}
-
-	if (tpfh->tablespace_oid_to_delete_on_commit != InvalidOid)
-		appendStringInfo(buf, "; tablespace_oid_to_delete_on_commit = %u", tpfh->tablespace_oid_to_delete_on_commit);
-	if (tpfh->tablespace_oid_to_delete_on_abort != InvalidOid)
-		appendStringInfo(buf, "; tablespace_oid_to_delete_on_abort = %u", tpfh->tablespace_oid_to_delete_on_abort);
 }
 
 void
@@ -438,11 +324,6 @@ xact_desc(StringInfo buf, XLogReaderState *record)
 
 		xact_desc_abort(buf, XLogRecGetInfo(record), xlrec);
 	}
-	else if (info == XLOG_XACT_PREPARE)
-	{
-		TwoPhaseFileHeader *tpfh = (TwoPhaseFileHeader*) rec;
-		xact_desc_prepare(buf, XLogRecGetInfo(record), tpfh);
-	}
 	else if (info == XLOG_XACT_ASSIGNMENT)
 	{
 		xl_xact_assignment *xlrec = (xl_xact_assignment *) rec;
@@ -454,21 +335,6 @@ xact_desc(StringInfo buf, XLogReaderState *record)
 		 */
 		appendStringInfo(buf, "xtop %u: ", xlrec->xtop);
 		xact_desc_assignment(buf, xlrec);
-	}
-	else if (info == XLOG_XACT_DISTRIBUTED_COMMIT)
-	{
-		xl_xact_commit *xlrec = (xl_xact_commit *) rec;
-
-		appendStringInfo(buf, "distributed commit ");
-		xact_desc_distributed_commit(buf, XLogRecGetInfo(record), xlrec,
-						 XLogRecGetOrigin(record));
-	}
-	else if (info == XLOG_XACT_DISTRIBUTED_FORGET)
-	{
-		xl_xact_distributed_forget *xlrec = (xl_xact_distributed_forget *) rec;
-
-		appendStringInfo(buf, "distributed forget ");
-		xact_desc_distributed_forget(buf, xlrec);
 	}
 }
 
@@ -496,12 +362,6 @@ xact_identify(uint8 info)
 			break;
 		case XLOG_XACT_ASSIGNMENT:
 			id = "ASSIGNMENT";
-			break;
-		case XLOG_XACT_DISTRIBUTED_COMMIT:
-			id = "DISTRIBUTED_COMMIT";
-			break;
-		case XLOG_XACT_DISTRIBUTED_FORGET:
-			id = "DISTRIBUTED_FORGET";
 			break;
 	}
 
