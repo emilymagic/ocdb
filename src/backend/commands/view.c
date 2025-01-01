@@ -276,8 +276,7 @@ DefineVirtualRelation(RangeVar *relation, List *tlist, bool replace,
 		 * false).
 		 */
 		address = DefineRelation(createStmt, RELKIND_VIEW, InvalidOid, NULL,
-								 NULL,
-								 false, true, NULL);
+								 NULL);
 		Assert(address.objectId != InvalidOid);
 
 		/* Make the new view relation visible */
@@ -613,18 +612,6 @@ DefineView(ViewStmt *stmt, const char *queryString,
 	 */
 	address = DefineVirtualRelation(view, viewParse->targetList,
 									stmt->replace, stmt->options, viewParse);
-
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		ViewStmt *dispatchStmt = (ViewStmt *) copyObject(stmt);
-		dispatchStmt->query = (Node *) viewParse_orig;
-		CdbDispatchUtilityStatement((Node *) dispatchStmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									GetAssignedOidsForDispatch(),
-									NULL);
-	}
 
 	return address;
 }

@@ -27,8 +27,10 @@
 #include "rewrite/prs2lock.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
+#include "storage/smgr.h"
 #include "utils/relcache.h"
 #include "utils/reltrigger.h"
+#include "catalog/pg_proc.h"
 
 #include "catalog/pg_am.h"
 
@@ -58,8 +60,7 @@ typedef LockInfoData *LockInfo;
 typedef struct RelationData
 {
 	RelFileNode rd_node;		/* relation physical identifier */
-	/* use "struct" here to avoid needing to include smgr.h: */
-	struct SMgrRelationData *rd_smgr;	/* cached file handle, or NULL */
+	SMgrRelation rd_smgr;		/* cached file handle, or NULL */
 	int			rd_refcnt;		/* reference count */
 	BackendId	rd_backend;		/* owning backend id, if temporary relation */
 	bool		rd_islocaltemp; /* rel is a temp rel of this session */
@@ -226,6 +227,11 @@ typedef struct RelationData
 
 	/* use "struct" here to avoid needing to include pgstat.h: */
 	struct PgStat_TableStatus *pgstat_info; /* statistics collection area */
+
+	struct TileDmlDescData *tileDmlDesc; /* for tile: insert, update, delete, fetch */
+	struct TileFetchDescData *tileFetchDesc; /* for tile: insert, update, delete, fetch */
+
+	struct CacheNode *cdbCache;
 } RelationData;
 
 
@@ -420,6 +426,14 @@ typedef struct ViewOptions
 
 #define InvalidRelation ((Relation) NULL)
 
+
+/*
+ * We do need the RelationIs* macros because the table access method API is
+ * not mature enough and/or the append-optimized design is distinct enough.
+ */
+#define RelationIsTile(relation) \
+	((relation)->rd_amhandler == TILE_TABLE_AM_HANDLER_OID)
+
 /*
  * CAUTION: this macro is a violation of the absraction that table AM and
  * index AM interfaces provide.  Use of this macro is discouraged.  If
@@ -561,17 +575,42 @@ typedef struct ViewOptions
 	(RELKIND_HAS_STORAGE((relation)->rd_rel->relkind) && \
 	 ((relation)->rd_rel->relfilenode == InvalidOid))
 
+#ifndef FRONTEND
+/*
+ * RelationGetSmgr
+ *		Returns smgr file handle for a relation, opening it if needed.
+ *
+ * Very little code is authorized to touch rel->rd_smgr directly.  Instead
+ * use this function to fetch its value.
+ *
+ * Note: since a relcache flush can cause the file handle to be closed again,
+ * it's unwise to hold onto the pointer returned by this function for any
+ * long period.  Recommended practice is to just re-execute RelationGetSmgr
+ * each time you need to access the SMgrRelation.  It's quite cheap in
+ * comparison to whatever an smgr function is going to do.
+ */
+static inline SMgrRelation
+RelationGetSmgr(Relation rel)
+{
+	if (unlikely(rel->rd_smgr == NULL))
+		smgrsetowner(&(rel->rd_smgr), smgropen(rel->rd_node, rel->rd_backend));
+	return rel->rd_smgr;
+}
+#endif							/* !FRONTEND */
+
 /*
  * RelationOpenSmgr
  *		Open the relation at the smgr level, if not already done.
+ *
+ * XXX this is now deprecated, and should not be used in new code.
+ * Instead, call RelationGetSmgr in place of fetching rd_smgr directly.
  */
 #define RelationOpenSmgr(relation) \
 	do { \
 		if ((relation)->rd_smgr == NULL) \
 			smgrsetowner(&((relation)->rd_smgr), \
 						 smgropen((relation)->rd_node, \
-								  (relation)->rd_backend, \
-								  RelationStorageIsAO(relation)?SMGR_AO:SMGR_MD)); \
+								  (relation)->rd_backend)); \
 	} while (0)
 
 /*
@@ -594,7 +633,8 @@ typedef struct ViewOptions
  *		Fetch relation's current insertion target block.
  *
  * Returns InvalidBlockNumber if there is no current target block.  Note
- * that the target block status is discarded on any smgr-level invalidation.
+ * that the target block status is discarded on any smgr-level invalidation,
+ * so there's no need to re-open the smgr handle if it's not currently open.
  */
 #define RelationGetTargetBlock(relation) \
 	( (relation)->rd_smgr != NULL ? (relation)->rd_smgr->smgr_targblock : InvalidBlockNumber )
@@ -605,8 +645,7 @@ typedef struct ViewOptions
  */
 #define RelationSetTargetBlock(relation, targblock) \
 	do { \
-		RelationOpenSmgr(relation); \
-		(relation)->rd_smgr->smgr_targblock = (targblock); \
+		RelationGetSmgr(relation)->smgr_targblock = (targblock); \
 	} while (0)
 
 /*
@@ -619,20 +658,9 @@ typedef struct ViewOptions
 /*
  * RelationUsesLocalBuffers
  *		True if relation's pages are stored in local buffers.
- *
- * In GPDB, we do not use local buffers for temp tables because segmates need
- * to share temp table contents.  Currently, there is no other reason to use
- * local buffers.
  */
-#define RelationUsesLocalBuffers(relation) false
-
-/*
- * Greenplum: a separate implementation of the SMGR API is used for
- * append-optimized relations.  This implementation is intended for relations
- * that do not use shared/local buffers.
- */
-#define RelationUsesBufferManager(relation) \
-	((relation)->rd_smgr->smgr_which == SMGR_MD)
+#define RelationUsesLocalBuffers(relation) \
+	((relation)->rd_rel->relpersistence == RELPERSISTENCE_TEMP)
 
 /*
  * RelationUsesTempNamespace

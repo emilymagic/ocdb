@@ -47,6 +47,8 @@
 #include "access/xact.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_publication.h"
+#include "utils/pickcat.h"
+#include "utils/dispatchcat.h"
 #include "commands/matview.h"
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
@@ -56,6 +58,7 @@
 #include "jit/jit.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
+#include "optimizer/optimizer.h"
 #include "parser/parsetree.h"
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
@@ -93,6 +96,7 @@
 #include "executor/nodeSubplan.h"
 #include "foreign/fdwapi.h"
 #include "libpq/pqformat.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbexplain.h"             /* cdbexplain_sendExecStats() */
@@ -101,8 +105,6 @@
 #include "cdb/cdbvars.h"
 #include "cdb/ml_ipc.h"
 #include "cdb/cdbmotion.h"
-#include "cdb/cdbtm.h"
-#include "cdb/cdboidsync.h"
 #include "cdb/cdbllize.h"
 #include "cdb/memquota.h"
 #include "cdb/cdbtargeteddispatch.h"
@@ -230,7 +232,6 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	MemoryContext oldcontext;
 	GpExecIdentity exec_identity;
 	bool		shouldDispatch;
-	bool		needDtx;
 	List 		*toplevelOidCache = NIL;
 
 	/* sanity checks: queryDesc must not be started already */
@@ -238,9 +239,9 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	Assert(queryDesc->estate == NULL);
 	Assert(queryDesc->plannedstmt != NULL);
 
-	Assert(queryDesc->plannedstmt->intoPolicy == NULL ||
-		GpPolicyIsPartitioned(queryDesc->plannedstmt->intoPolicy) ||
-		GpPolicyIsReplicated(queryDesc->plannedstmt->intoPolicy));
+//	Assert(queryDesc->plannedstmt->intoPolicy == NULL ||
+//		GpPolicyIsPartitioned(queryDesc->plannedstmt->intoPolicy) ||
+//		GpPolicyIsReplicated(queryDesc->plannedstmt->intoPolicy) );
 
 	/* GPDB hook for collecting query info */
 	if (query_info_collect_hook)
@@ -586,18 +587,6 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		if (shouldDispatch)
 		{
 			/*
-			 * MPP-2869: preprocess_initplans() may
-			 * dispatch. (interacted with MPP-2859, which caused an
-			 * initPlan to do a write which should have happened in
-			 * main body of query) We need to call
-			 * ExecutorSaysTransactionDoesWrites() before any dispatch
-			 * work for this query.
-			 */
-			needDtx = ExecutorSaysTransactionDoesWrites();
-			if (needDtx)
-				setupDtxTransaction();
-
-			/*
 			 * Aviod dispatching OIDs for InitPlan.
 			 *
 			 * CTAS will first define relation in QD, and generate the OIDs,
@@ -648,7 +637,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			{
 				CdbDispatchPlan(queryDesc,
 								estate->es_param_exec_vals,
-								needDtx, true);
+								false, true);
 			}
 
 			if (toplevelOidCache != NIL)
@@ -1161,8 +1150,8 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	 * Assert is needed because ExecutorFinish is new as of 9.1, and callers
 	 * might forget to call it.
 	 */
-	Assert(estate->es_finished ||
-		   (estate->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY));
+//	Assert(estate->es_finished ||
+//		   (estate->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY));
 
 	/*
 	 * Switch into per-query memory context to run ExecEndPlan
@@ -1556,10 +1545,7 @@ ExecCheckXactReadOnly(PlannedStmt *plannedstmt)
 	if (plannedstmt->intoClause != NULL)
 	{
 		Assert(plannedstmt->intoClause->rel);
-		if (plannedstmt->intoClause->rel->relpersistence == RELPERSISTENCE_TEMP)
-			ExecutorMarkTransactionDoesWrites();
-		else
-			PreventCommandIfReadOnly(CreateCommandTag((Node *) plannedstmt));
+		PreventCommandIfReadOnly(CreateCommandTag((Node *) plannedstmt));
 	}
 
 	/*
@@ -1596,7 +1582,6 @@ ExecCheckXactReadOnly(PlannedStmt *plannedstmt)
 
 		if (isTempNamespace(get_rel_namespace(rte->relid)))
 		{
-			ExecutorMarkTransactionDoesWrites();
 			continue;
 		}
 
@@ -2009,7 +1994,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		queryDesc->dest = CreateCopyDestReceiver();
 		((DR_copy*)queryDesc->dest)->queryDesc = queryDesc;
 	}
-	else if (queryDesc->plannedstmt->refreshClause != NULL && Gp_role == GP_ROLE_EXECUTE)
+	else if (queryDesc->plannedstmt->refreshClause != NULL)
 		transientrel_init(queryDesc);
 	if (DEBUG1 >= log_min_messages)
 			{
@@ -2082,12 +2067,6 @@ CheckValidResultRel(ResultRelInfo *resultRelInfo, CmdType operation)
 			 * ... not found" error.  Until this is fixed, INSTEAD OF triggers
 			 * and DML on views need to be disabled.
 			 */
-			ereport(ERROR,
-					(errcode(ERRCODE_GP_FEATURE_NOT_YET),
-					 errmsg("cannot change view \"%s\"",
-							RelationGetRelationName(resultRel)),
-					 errhint("changing views is not supported in Greenplum")));
-
 			switch (operation)
 			{
 				case CMD_INSERT:
@@ -2353,6 +2332,8 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 	resultRelInfo->ri_RootResultRelInfo = partition_root_rri;
 	resultRelInfo->ri_PartitionInfo = NULL; /* may be set later */
 	resultRelInfo->ri_CopyMultiInsertBuffer = NULL;
+
+	PickModifyRelation(resultRelInfo);
 }
 
 /*

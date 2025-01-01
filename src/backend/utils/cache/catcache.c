@@ -24,6 +24,7 @@
 #include "catalog/pg_collation.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
+#include "utils/dispatchcat.h"
 #include "common/hashfn.h"
 #include "miscadmin.h"
 #ifdef CATCACHE_STATS
@@ -40,6 +41,7 @@
 #include "utils/resowner_private.h"
 #include "utils/syscache.h"
 
+#include <unistd.h>
 
  /* #define CACHEDEBUG */	/* turns DEBUG elogs on */
 
@@ -1129,57 +1131,6 @@ IndexScanOK(CatCache *cache, ScanKey cur_skey)
 }
 
 /*
- * This function performs checks for certain system tables to validate tuple
- * fetched from table has the key, using which it was fetched from index.
- */
-static void
-CrossCheckTuple(int cacheId,
-		Datum key1,
-		Datum key2,
-		Datum key3,
-		Datum key4,
-		HeapTuple tuple)
-{
-	Form_pg_class rd_rel;
-	Form_pg_type rd_type;
-
-	switch (cacheId)
-	{
-		case RELOID:
-			rd_rel = (Form_pg_class) GETSTRUCT(tuple);
-			if (rd_rel->oid != DatumGetObjectId(key1))
-			{
-				elog(ERROR, "pg_class_oid_index is broken, oid=%d is pointing to tuple with oid=%d (xmin:%u xmax:%u)",
-					 DatumGetObjectId(key1), rd_rel->oid,
-					 HeapTupleHeaderGetXmin((tuple)->t_data),
-					 HeapTupleHeaderGetRawXmax((tuple)->t_data));
-			}
-			break;
-		case RELNAMENSP:
-			rd_rel = (Form_pg_class) GETSTRUCT(tuple);
-			if (strncmp(rd_rel->relname.data, DatumGetCString(key1), NAMEDATALEN) != 0)
-			{
-				elog(ERROR, "pg_class_relname_nsp_index is broken, intended tuple with name \"%s\" fetched \"%s\""
-					 " (xmin:%u xmax:%u)",
-					 DatumGetCString(key1), rd_rel->relname.data,
-					 HeapTupleHeaderGetXmin((tuple)->t_data),
-					 HeapTupleHeaderGetRawXmax((tuple)->t_data));
-			}
-			break;
-		case TYPEOID:
-			rd_type = (Form_pg_type) GETSTRUCT(tuple);
-			if (rd_type->oid != DatumGetObjectId(key1))
-			{
-				elog(ERROR, "pg_type_oid_index is broken, oid=%d is pointing to tuple with oid=%d (xmin:%u xmax:%u)",
-					 DatumGetObjectId(key1), rd_type->oid,
-					 HeapTupleHeaderGetXmin((tuple)->t_data),
-					 HeapTupleHeaderGetRawXmax((tuple)->t_data));
-			}
-			break;
-	}
-}
-
-/*
  *	SearchCatCacheInternal
  *
  *		This call searches a system cache for a tuple, opening the relation
@@ -1202,7 +1153,7 @@ SearchCatCache(CatCache *cache,
 			   Datum v3,
 			   Datum v4)
 {
-	return SearchCatCacheInternal(cache, cache->cc_nkeys, v1, v2, v3, v4);
+	return CdbCollectTuple(SearchCatCacheInternal(cache, cache->cc_nkeys, v1, v2, v3, v4));
 }
 
 
@@ -1216,7 +1167,7 @@ HeapTuple
 SearchCatCache1(CatCache *cache,
 				Datum v1)
 {
-	return SearchCatCacheInternal(cache, 1, v1, 0, 0, 0);
+	return CdbCollectTuple(SearchCatCacheInternal(cache, 1, v1, 0, 0, 0));
 }
 
 
@@ -1224,7 +1175,7 @@ HeapTuple
 SearchCatCache2(CatCache *cache,
 				Datum v1, Datum v2)
 {
-	return SearchCatCacheInternal(cache, 2, v1, v2, 0, 0);
+	return CdbCollectTuple(SearchCatCacheInternal(cache, 2, v1, v2, 0, 0));
 }
 
 
@@ -1232,7 +1183,7 @@ HeapTuple
 SearchCatCache3(CatCache *cache,
 				Datum v1, Datum v2, Datum v3)
 {
-	return SearchCatCacheInternal(cache, 3, v1, v2, v3, 0);
+	return CdbCollectTuple(SearchCatCacheInternal(cache, 3, v1, v2, v3, 0));
 }
 
 
@@ -1240,7 +1191,7 @@ HeapTuple
 SearchCatCache4(CatCache *cache,
 				Datum v1, Datum v2, Datum v3, Datum v4)
 {
-	return SearchCatCacheInternal(cache, 4, v1, v2, v3, v4);
+	return CdbCollectTuple(SearchCatCacheInternal(cache, 4, v1, v2, v3, v4));
 }
 
 /*
@@ -1419,17 +1370,6 @@ SearchCatCacheMiss(CatCache *cache,
 
 	while (HeapTupleIsValid(ntp = systable_getnext(scandesc)))
 	{
-		/*
-		 * Good place to sanity check the tuple, before adding it to cache.
-		 * So if its fetched using index, lets cross verify tuple intended is the tuple
-		 * fetched. If not fail and contain the damage which maybe caused due to
-		 * index corruption for some reason.
-		 */
-		if (scandesc->irel)
-		{
-			CrossCheckTuple(cache->id, v1, v2, v3, v4, ntp);
-		}
-
 		ct = CatalogCacheCreateEntry(cache, ntp, arguments,
 									 hashValue, hashIndex,
 									 false);
@@ -2082,7 +2022,6 @@ PrepareToInvalidateCacheTuple(Relation relation,
 	 */
 	Assert(RelationIsValid(relation));
 	Assert(HeapTupleIsValid(tuple));
-	Assert(function != NULL);
 	Assert(PointerIsValid(function));
 	Assert(CacheHdr != NULL);
 
@@ -2132,7 +2071,7 @@ PrepareToInvalidateCacheTuple(Relation relation,
  * that resowner.c can call them.
  */
 void
-PrintCatCacheLeakWarning(HeapTuple tuple, const char *resOwnerName)
+PrintCatCacheLeakWarning(HeapTuple tuple)
 {
 	CatCTup    *ct = (CatCTup *) (((char *) tuple) -
 								  offsetof(CatCTup, tuple));
@@ -2140,18 +2079,17 @@ PrintCatCacheLeakWarning(HeapTuple tuple, const char *resOwnerName)
 	/* Safety check to ensure we were handed a cache entry */
 	Assert(ct->ct_magic == CT_MAGIC);
 
-	elog(WARNING, "cache reference leak: cache %s (%d), tuple %u/%u has count %d, resowner '%s'",
+	elog(WARNING, "cache reference leak: cache %s (%d), tuple %u/%u has count %d",
 		 ct->my_cache->cc_relname, ct->my_cache->id,
 		 ItemPointerGetBlockNumber(&(tuple->t_self)),
 		 ItemPointerGetOffsetNumber(&(tuple->t_self)),
-		 ct->refcount,
-         resOwnerName);
+		 ct->refcount);
 }
 
 void
-PrintCatCacheListLeakWarning(CatCList *list, const char *resOwnerName)
+PrintCatCacheListLeakWarning(CatCList *list)
 {
-	elog(WARNING, "cache reference leak: cache %s (%d), list %p has count %d, resowner '%s'",
+	elog(WARNING, "cache reference leak: cache %s (%d), list %p has count %d",
 		 list->my_cache->cc_relname, list->my_cache->id,
-		 list, list->refcount, resOwnerName);
+		 list, list->refcount);
 }

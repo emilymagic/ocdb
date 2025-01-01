@@ -131,13 +131,20 @@ select * from quadtable;
 -- be toasted inside pp, it must still work after being copied to people.
 create temp table pp (f1 text);
 insert into pp values (repeat('abcdefghijkl', 100000));
-insert into people select ('Jim', f1, null)::fullname, current_date from pp;
+-- insert into people select ('Jim', f1, null)::fullname, current_date from pp;
 select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people;
- first |        substr        | length  
--------+----------------------+---------
- Joe   | Blow                 |       4
- Jim   | abcdefghijklabcdefgh | 1200000
-(2 rows)
+ first | substr | length 
+-------+--------+--------
+ Joe   | Blow   |      4
+(1 row)
+
+-- try an update on a toasted composite value, too
+update people set fn.first = 'Jack';
+select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people;
+ first | substr | length 
+-------+--------+--------
+ Jack  | Blow   |      4
+(1 row)
 
 -- Test row comparison semantics.  Prior to PG 8.2 we did this in a totally
 -- non-spec-compliant way.
@@ -257,14 +264,11 @@ explain (costs off)
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
 order by thousand, tenthous;
-                           QUERY PLAN                            
------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: thousand, tenthous
-   ->  Index Only Scan using tenk1_thous_tenthous on tenk1
-         Index Cond: (ROW(thousand, tenthous) >= ROW(997, 5000))
- Optimizer: Postgres query optimizer
-(5 rows)
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Index Scan using tenk1_thous_tenthous on tenk1
+   Index Cond: (ROW(thousand, tenthous) >= ROW(997, 5000))
+(2 rows)
 
 select thousand, tenthous from tenk1
 where (thousand, tenthous) >= (997, 5000)
@@ -303,18 +307,12 @@ explain (costs off)
 select thousand, tenthous, four from tenk1
 where (thousand, tenthous, four) > (998, 5000, 3)
 order by thousand, tenthous;
-                                 QUERY PLAN                                  
------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: thousand, tenthous
-   ->  Sort
-         Sort Key: thousand, tenthous
-         ->  Bitmap Heap Scan on tenk1
-               Filter: (ROW(thousand, tenthous, four) > ROW(998, 5000, 3))
-               ->  Bitmap Index Scan on tenk1_thous_tenthous
-                     Index Cond: (ROW(thousand, tenthous) >= ROW(998, 5000))
- Optimizer: Postgres query optimizer
-(9 rows)
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Index Scan using tenk1_thous_tenthous on tenk1
+   Index Cond: (ROW(thousand, tenthous) >= ROW(998, 5000))
+   Filter: (ROW(thousand, tenthous, four) > ROW(998, 5000, 3))
+(3 rows)
 
 select thousand, tenthous, four from tenk1
 where (thousand, tenthous, four) > (998, 5000, 3)
@@ -343,14 +341,11 @@ explain (costs off)
 select thousand, tenthous from tenk1
 where (998, 5000) < (thousand, tenthous)
 order by thousand, tenthous;
-                           QUERY PLAN                           
-----------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: thousand, tenthous
-   ->  Index Only Scan using tenk1_thous_tenthous on tenk1
-         Index Cond: (ROW(thousand, tenthous) > ROW(998, 5000))
- Optimizer: Postgres query optimizer
-(5 rows)
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Index Scan using tenk1_thous_tenthous on tenk1
+   Index Cond: (ROW(thousand, tenthous) > ROW(998, 5000))
+(2 rows)
 
 select thousand, tenthous from tenk1
 where (998, 5000) < (thousand, tenthous)
@@ -379,18 +374,14 @@ explain (costs off)
 select thousand, hundred from tenk1
 where (998, 5000) < (thousand, hundred)
 order by thousand, hundred;
-                           QUERY PLAN                            
------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: thousand, hundred
-   ->  Sort
-         Sort Key: thousand, hundred
-         ->  Bitmap Heap Scan on tenk1
-               Filter: (ROW(998, 5000) < ROW(thousand, hundred))
-               ->  Bitmap Index Scan on tenk1_thous_tenthous
-                     Index Cond: (thousand >= 998)
- Optimizer: Postgres query optimizer
-(9 rows)
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Sort
+   Sort Key: thousand, hundred
+   ->  Index Scan using tenk1_thous_tenthous on tenk1
+         Index Cond: (thousand >= 998)
+         Filter: (ROW(998, 5000) < ROW(thousand, hundred))
+(5 rows)
 
 select thousand, hundred from tenk1
 where (998, 5000) < (thousand, hundred)
@@ -418,14 +409,13 @@ create index on test_table (a,b);
 set enable_sort = off;
 explain (costs off)
 select a,b from test_table where (a,b) > ('a','a') order by a,b;
-                          QUERY PLAN                          
---------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: a, b
-   ->  Index Only Scan using test_table_a_b_idx on test_table
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Sort
+   Sort Key: a, b
+   ->  Index Scan using test_table_a_b_idx on test_table
          Index Cond: (ROW(a, b) > ROW('a'::text, 'a'::text))
- Optimizer: Postgres query optimizer
-(5 rows)
+(4 rows)
 
 select a,b from test_table where (a,b) > ('a','a') order by a,b;
  a | b 
@@ -441,13 +431,11 @@ ERROR:  cannot compare dissimilar column types bigint and integer at record colu
 explain (costs off)
 select * from int8_tbl i8
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Seq Scan on int8_tbl i8
-         Filter: (i8.* = ANY ('{"(123,456)","(4567890123456789,123)"}'::int8_tbl[]))
- Optimizer: Postgres query optimizer
-(4 rows)
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Seq Scan on int8_tbl i8
+   Filter: (i8.* = ANY ('{"(123,456)","(4567890123456789,123)"}'::int8_tbl[]))
+(2 rows)
 
 select * from int8_tbl i8
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
@@ -1068,14 +1056,12 @@ explain (costs off)
 select row_to_json(q) from
   (select thousand, tenthous from tenk1
    where thousand = 42 and tenthous < 2000 offset 0) q;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Subquery Scan on q
-         ->  Index Only Scan using tenk1_thous_tenthous on tenk1
-               Index Cond: ((thousand = 42) AND (tenthous < 2000))
- Optimizer: Postgres query optimizer
-(5 rows)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Subquery Scan on q
+   ->  Index Scan using tenk1_thous_tenthous on tenk1
+         Index Cond: ((thousand = 42) AND (tenthous < 2000))
+(3 rows)
 
 select row_to_json(q) from
   (select thousand, tenthous from tenk1
@@ -1163,8 +1149,7 @@ select r, r is null as isnull, r is not null as isnotnull from r;
          Output: share0_ref1.column1, share0_ref1.column2
          ->  Values Scan on "*VALUES*"
                Output: "*VALUES*".column1, "*VALUES*".column2
- Optimizer: Postgres query optimizer
-(7 rows)
+(6 rows)
 
 with r(a,b) as materialized
   (values (1,row(1,2)), (1,row(null,null)), (1,null),

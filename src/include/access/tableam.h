@@ -22,6 +22,7 @@
 #include "c.h"
 #include "utils/guc.h"
 #include "utils/rel.h"
+#include "utils/snapmgr.h"
 #include "utils/snapshot.h"
 
 
@@ -142,10 +143,8 @@ typedef struct TM_FailureData
 
 
 /* Typedef for callback function for table_index_build_scan */
-/* GPDB: This takes an ItemPointer, rather than HeapTuple, because this is also
- * used with AO/AOCO tables */
 typedef void (*IndexBuildCallback) (Relation index,
-									ItemPointer tupleid,
+									HeapTuple htup,
 									Datum *values,
 									bool *isnull,
 									bool tupleIsAlive,
@@ -206,6 +205,7 @@ typedef struct TableAmRoutine
 	 */
 	const TupleTableSlotOps *(*slot_callbacks) (Relation rel);
 
+	void (*scan_prepare_dispatch) (Relation rel, Snapshot snapshot);
 
 	/* ------------------------------------------------------------------------
 	 * Table scan callbacks.
@@ -684,6 +684,7 @@ typedef struct TableAmRoutine
 	 */
 	bool		(*relation_needs_toast_table) (Relation rel);
 
+
 	/* ------------------------------------------------------------------------
 	 * Planner related functions.
 	 * ------------------------------------------------------------------------
@@ -848,6 +849,13 @@ extern TupleTableSlot *table_slot_create(Relation rel, List **reglist);
  * ----------------------------------------------------------------------------
  */
 
+static inline void
+table_scan_prepare_dispatch(Relation rel, Snapshot snapshot)
+{
+	if (rel->rd_tableam && rel->rd_tableam->scan_prepare_dispatch)
+		rel->rd_tableam->scan_prepare_dispatch(rel, snapshot);
+}
+
 /*
  * Start a scan of `rel`. Returned tuples pass a visibility test of
  * `snapshot`, and if nkeys != 0, the results are filtered by those scan keys.
@@ -999,7 +1007,11 @@ table_beginscan_analyze(Relation rel)
 {
 	uint32		flags = SO_TYPE_ANALYZE;
 
-	return rel->rd_tableam->scan_begin(rel, NULL, 0, NULL, NULL, flags);
+	Snapshot snapshot = palloc(sizeof(SnapshotData));
+
+	InitDirtySnapshot(*snapshot);
+
+	return rel->rd_tableam->scan_begin(rel, snapshot, 0, NULL, NULL, flags);
 }
 
 /*
@@ -2072,6 +2084,7 @@ extern void table_block_parallelscan_startblock_init(Relation rel,
 
 extern const TableAmRoutine *GetTableAmRoutine(Oid amhandler);
 extern const TableAmRoutine *GetHeapamTableAmRoutine(void);
+extern const TableAmRoutine *GetTileamTableAmRoutine(void);
 extern bool check_default_table_access_method(char **newval, void **extra,
 											  GucSource source);
 

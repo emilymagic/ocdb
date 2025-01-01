@@ -264,14 +264,12 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 										   shared_relation,
 										   mapped_relation,
 										   ONCOMMIT_NOOP,
-										   NULL, /* CDB POLICY */
 										   reloptions,
 										   false,
 										   true,
 										   true,
 										   OIDOldToast,
-										   NULL,
-										   /* valid_opts */ false);
+										   NULL);
 	Assert(toast_relid != InvalidOid);
 
 	/* make the toast relation visible, else table_open will fail */

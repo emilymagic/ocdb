@@ -237,6 +237,9 @@ plpgsql_call_handler(PG_FUNCTION_ARGS)
 	Datum		retval;
 	int			rc;
 
+	if (!IS_CATALOG_SERVER())
+		return NULL;
+
 	nonatomic = fcinfo->context &&
 		IsA(fcinfo->context, CallContext) &&
 		!castNode(CallContext, fcinfo->context)->atomic;

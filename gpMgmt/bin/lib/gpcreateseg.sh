@@ -94,6 +94,7 @@ CREATE_QES_PRIMARY () {
     LOG_MSG "[INFO][$INST_COUNT]:-Processing segment $GP_HOSTADDRESS"
     # build initdb command
     cmd="$EXPORT_LIB_PATH;$INITDB"
+    cmd="$cmd -J segment"
     cmd="$cmd -E $ENCODING"
     cmd="$cmd -D $GP_DIR"
     cmd="$cmd --locale=$LOCALE_SETTING"
@@ -125,6 +126,9 @@ CREATE_QES_PRIMARY () {
     PARA_EXIT $RETVAL "Update gp_contentid"
     SED_PG_CONF ${GP_DIR}/$PG_INTERNAL_CONF "$DBID_TXT" "gp_dbid=${GP_DBID}" 0 $GP_HOSTADDRESS
     PARA_EXIT $RETVAL "Update gp_dbid"
+    SED_PG_CONF ${GP_DIR}/$PG_INTERNAL_CONF "cluster_id" "cluster_id=1" 0 $GP_HOSTADDRESS
+    PARA_EXIT $RETVAL "Update cluster_id"
+
     
     if [ x"" != x"$PG_CONF_ADD_FILE" ]; then
         LOG_MSG "[INFO][$INST_COUNT]:-Processing additional configuration parameters"

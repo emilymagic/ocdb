@@ -1183,6 +1183,7 @@ CREATE_QD_DB () {
 
 		# build initdb command
 		cmd="$INITDB"
+		cmd="$cmd -J segment"
 		cmd="$cmd -E $ENCODING"
 		cmd="$cmd -D $GP_DIR"
 		cmd="$cmd $LC_ALL_SETTINGS"
@@ -1198,6 +1199,11 @@ CREATE_QD_DB () {
 		if [ $RETVAL -ne 0 ]; then
 		    ERROR_EXIT "[FATAL]:- Command $cmd failed with error status $RETVAL, see log file $LOG_FILE for more detail"
 		fi
+
+		# load configure files
+#    cmd="$DOWNLOADCONF"
+#    cmd="$cmd $GP_DIR"
+#    $cmd
 
 		BACKOUT_COMMAND "if [ -d $GP_DIR ]; then $RM -Rf $GP_DIR; fi"
 		BACKOUT_COMMAND "$ECHO Removing Coordinator data directory files"
@@ -1224,6 +1230,10 @@ CREATE_QD_DB () {
 		LOG_MSG "[INFO]:-Setting Coordinator instance db id"
 		SED_PG_CONF ${GP_DIR}/$PG_INTERNAL_CONF "$DBID_TXT" "gp_dbid=$GP_DBID" 0
 		ERROR_CHK $? "set gp_dbid=$GP_DBID in ${GP_DIR}/$PG_INTERNAL_CONF" 1
+
+    LOG_MSG "[INFO]:-Setting Cluster id"
+    SED_PG_CONF ${GP_DIR}/$PG_INTERNAL_CONF "cluster_id" "cluster_id=$CLUSTER_ID" 0
+    ERROR_CHK $? "set cluster_id=$CLUSTER_ID in ${GP_DIR}/$PG_INTERNAL_CONF" 1
 
 		if [  x"" != x"$PG_CONF_ADD_FILE" ]; then
 				LOG_MSG "[INFO]:-Processing additional configuration parameters"
@@ -1314,6 +1324,9 @@ LOAD_QE_SYSTEM_DATA () {
 
 CREATE_SEGMENT () {
 		LOG_MSG "[INFO]:-Start Function $FUNCNAME"
+
+		. $CLUSTER_CONFIG
+
 		local PREFERRED_ROLE=$1
 		#
 		# PARALLEL BUILD OF SEGMENTS
@@ -1378,6 +1391,24 @@ CREATE_SEGMENT () {
 `$ECHO ${STANDBY_IP_ADDRESS[@]}|$TR ' ' '~'` &
 			PARALLEL_COUNT $BATCH_LIMIT $BATCH_DEFAULT
 		done
+
+    LOG_MSG "DATA_DIRECTORY ${DATA_DIRECTORY[@]}"
+    CONTENT_COUNT=0
+		for SEG_DIR in "${DATA_DIRECTORY[@]}"
+		do
+		  # Copy rel cache file from master to segment
+      LOG_MSG "cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/global_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      LOG_MSG "cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/local_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+
+      cmd="cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/global_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      $cmd >> $LOG_FILE 2>&1
+      cmd="cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/local_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      $cmd >> $LOG_FILE 2>&1
+
+      ((CONTENT_COUNT=$CONTENT_COUNT+1))
+    done
+
+
 		PARALLEL_SUMMARY_STATUS_REPORT $PARALLEL_STATUS_FILE
 		if [ $REPORT_FAIL -ne 0 ];then
 			$CAT $PARALLEL_STATUS_FILE >> $LOG_FILE
@@ -1990,7 +2021,7 @@ fi
 STOP_QD_PRODUCTION
 START_QD_PRODUCTION
 
-CREATE_GPEXTENSIONS
+#CREATE_GPEXTENSIONS
 IMPORT_COLLATION
 
 if [ x"" != x"$DATABASE_NAME" ]; then

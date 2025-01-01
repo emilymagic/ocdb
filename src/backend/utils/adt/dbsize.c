@@ -529,7 +529,7 @@ calculate_ao_relation_physical_size(Relation rel, ForkNumber forknum, bool inclu
  * logical size based on segment eofs.
  */
 static int64
-calculate_relation_size(Relation rel, ForkNumber forknum, bool include_ao_aux, bool ao_physical_size)
+calculate_relation_size(Relation rel, ForkNumber forknum)
 {
 	int64		totalsize = 0;
 	char	   *relationpath;
@@ -541,13 +541,8 @@ calculate_relation_size(Relation rel, ForkNumber forknum, bool include_ao_aux, b
    * file storage layout and restrict to Main fork only.  This will also return
    * the size of the attendant AO/AOCO auxiliary relations.
    */
-	if (RelationStorageIsAO(rel))
-	{
-		if (ao_physical_size)
-			return calculate_ao_relation_physical_size(rel, forknum, include_ao_aux);
-		else
-			return table_relation_size(rel, forknum);
-	}
+
+	return table_relation_size(rel, forknum);
 
 	relationpath = relpathbackend(rel->rd_node, rel->rd_backend, forknum);
 
@@ -589,40 +584,8 @@ Datum
 pg_relation_size(PG_FUNCTION_ARGS)
 {
 	Oid			relOid = PG_GETARG_OID(0);
-	ForkNumber	forkNumber;
-	text		*forkName;
 	Relation	rel;
 	int64		size = 0;
-	bool		include_ao_aux;
-	bool		physical_ao_size;
-	bool        with_bool_ao_args = false;
-
-	if (get_fn_expr_argtype(fcinfo->flinfo, 1) == BOOLOID)
-	{
-		/*
-		 * For Greenplum, it does not make sense to provide a requested
-		 * forkname for AO tables as they do not have other forks.  Instead we
-		 * accept a boolean argument for whether or not to include the AO
-		 * auxiliary tables in reporting the size of the AO relation.
-		 *
-		 * The expected behavior of retrieving relation size is to report the
-		 * physical size, however, several internal usages of this function
-		 * expect the logical size for AO tables.  To maintain the ability to use 
-		 * this function for those purposes, we allow an alternative signature to
-		 * indicate that the caller wants the logical size.
-		 */
-		include_ao_aux = PG_GETARG_BOOL(1);
-		physical_ao_size = PG_GETARG_BOOL(2);
-		forkName = cstring_to_text("main");
-		with_bool_ao_args = true;
-	}
-	else {
-		include_ao_aux = false;
-		physical_ao_size = true;
-		forkName = PG_GETARG_TEXT_PP(1);
-	}
-
-	ERROR_ON_ENTRY_DB();
 
 	rel = try_relation_open(relOid, AccessShareLock, false);
 
@@ -657,24 +620,8 @@ pg_relation_size(PG_FUNCTION_ARGS)
 
 	}
 
-	forkNumber = forkname_to_number(text_to_cstring(forkName));
 
-	size = calculate_relation_size(rel, forkNumber, include_ao_aux, physical_ao_size);
-
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		char	   *sql;
-
-		if (with_bool_ao_args)
-			sql = psprintf("select pg_catalog.pg_relation_size(%u, '%s', '%s')", relOid,
-						   include_ao_aux ? "true" : "false",
-						   physical_ao_size ? "true" : "false");
-		else
-			sql = psprintf("select pg_catalog.pg_relation_size(%u, '%s')", relOid,
-						   forkNames[forkNumber]);
-
-		size += get_size_from_segDBs(sql);
-	}
+	size = calculate_relation_size(rel, 0);
 
 	relation_close(rel, AccessShareLock);
 
@@ -699,9 +646,7 @@ calculate_toast_table_size(Oid toastrelid)
 	/* toast heap size, including FSM and VM size */
 	for (forkNum = 0; forkNum <= MAX_FORKNUM; forkNum++)
 		size += calculate_relation_size(toastRel,
-										forkNum,
-										/* include_ao_aux */ false,
-										/* physical_ao_size */ false);
+										forkNum);
 
 	/* toast index size, including FSM and VM size */
 	indexlist = RelationGetIndexList(toastRel);
@@ -715,9 +660,7 @@ calculate_toast_table_size(Oid toastrelid)
 									AccessShareLock);
 		for (forkNum = 0; forkNum <= MAX_FORKNUM; forkNum++)
 			size += calculate_relation_size(toastIdxRel,
-											forkNum,
-											/* include_ao_aux */ false,
-											/* physical_ao_size */ false);
+											forkNum);
 
 		relation_close(toastIdxRel, AccessShareLock);
 	}
@@ -752,9 +695,7 @@ calculate_table_size(Relation rel)
 	{
 		for (forkNum = 0; forkNum <= MAX_FORKNUM; forkNum++)
 			size += calculate_relation_size(rel,
-											forkNum,
-											/* include_ao_aux */ true,
-											/* physical_ao_size */ true);
+											forkNum);
 	}
 
 	/*
@@ -796,9 +737,7 @@ calculate_indexes_size(Relation rel)
 			{
 				for (forkNum = 0; forkNum <= MAX_FORKNUM; forkNum++)
 					size += calculate_relation_size(idxRel,
-													forkNum,
-													/* include_ao_aux */ false,
-													/* physical_ao_size */ false);
+													forkNum);
 
 				relation_close(idxRel, AccessShareLock);
 			}

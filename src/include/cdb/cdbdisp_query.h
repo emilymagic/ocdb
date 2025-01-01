@@ -15,8 +15,9 @@
 #ifndef CDBDISP_QUERY_H
 #define CDBDISP_QUERY_H
 
+#include "nodes/params.h"
+#include "nodes/pg_list.h"
 #include "lib/stringinfo.h" /* StringInfo */
-#include "cdb/cdbtm.h"
 
 #define DF_NONE 0x0
 
@@ -108,7 +109,9 @@ extern void CdbDispatchUtilityStatement(struct Node *stmt,
 										int flags,
 										List *oid_assignments,
 										struct CdbPgResults* cdb_pgresults);
-
+extern void CdbDispatchUtilityStatement2(struct Node *stmt, int flags,
+										List *oid_assignments,
+										struct CdbPgResults* cdb_pgresults);
 extern void CdbDispatchCopyStart(struct CdbCopy *cdbCopy, Node *stmt, int flags);
 extern void CdbDispatchCopyEnd(struct CdbCopy *cdbCopy);
 

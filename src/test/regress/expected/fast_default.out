@@ -295,20 +295,15 @@ SELECT c_bigint, c_text FROM T WHERE c_bigint = -1 LIMIT 1;
 
 EXPLAIN (VERBOSE TRUE, COSTS FALSE)
 SELECT c_bigint, c_text FROM T WHERE c_bigint = -1 LIMIT 1;
-                        QUERY PLAN                        
-----------------------------------------------------------
+                  QUERY PLAN                  
+----------------------------------------------
  Limit
    Output: c_bigint, c_text
-   ->  Gather Motion 3:1  (slice1; segments: 3)
+   ->  Seq Scan on fast_default.t
          Output: c_bigint, c_text
-         ->  Limit
-               Output: c_bigint, c_text
-               ->  Seq Scan on fast_default.t
-                     Output: c_bigint, c_text
-                     Filter: (t.c_bigint = '-1'::integer)
- Optimizer: Postgres query optimizer
- Settings: optimizer = 'off', seq_page_cost = '1'
-(11 rows)
+         Filter: (t.c_bigint = '-1'::integer)
+ Settings: seq_page_cost = '1.001'
+(6 rows)
 
 SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1;
  c_bigint | c_text 
@@ -317,20 +312,15 @@ SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1;
 (1 row)
 
 EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                 QUERY PLAN                 
+--------------------------------------------
  Limit
    Output: c_bigint, c_text
-   ->  Gather Motion 3:1  (slice1; segments: 3)
+   ->  Seq Scan on fast_default.t
          Output: c_bigint, c_text
-         ->  Limit
-               Output: c_bigint, c_text
-               ->  Seq Scan on fast_default.t
-                     Output: c_bigint, c_text
-                     Filter: (t.c_text = 'hello'::text)
- Optimizer: Postgres query optimizer
- Settings: optimizer = 'off', seq_page_cost = '1'
-(11 rows)
+         Filter: (t.c_text = 'hello'::text)
+ Settings: seq_page_cost = '1.001'
+(6 rows)
 
 -- COALESCE
 SELECT COALESCE(c_bigint, pk), COALESCE(c_text, pk::text)
@@ -375,23 +365,17 @@ SELECT * FROM T ORDER BY c_bigint, c_text, pk LIMIT 10;
 
 EXPLAIN (VERBOSE TRUE, COSTS FALSE)
 SELECT * FROM T ORDER BY c_bigint, c_text, pk LIMIT 10;
-                        QUERY PLAN                        
-----------------------------------------------------------
+                  QUERY PLAN                  
+----------------------------------------------
  Limit
    Output: pk, c_bigint, c_text
-   ->  Gather Motion 3:1  (slice1; segments: 3)
+   ->  Sort
          Output: pk, c_bigint, c_text
-         Merge Key: c_bigint, c_text, pk
-         ->  Limit
+         Sort Key: t.c_bigint, t.c_text, t.pk
+         ->  Seq Scan on fast_default.t
                Output: pk, c_bigint, c_text
-               ->  Sort
-                     Output: pk, c_bigint, c_text
-                     Sort Key: t.c_bigint, t.c_text, t.pk
-                     ->  Seq Scan on fast_default.t
-                           Output: pk, c_bigint, c_text
- Optimizer: Postgres query optimizer
- Settings: optimizer = 'off', seq_page_cost = '1'
-(14 rows)
+ Settings: seq_page_cost = '1.001'
+(8 rows)
 
 -- LIMIT
 SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10;
@@ -411,24 +395,18 @@ SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10;
 
 EXPLAIN (VERBOSE TRUE, COSTS FALSE)
 SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10;
-                           QUERY PLAN                           
-----------------------------------------------------------------
+                     QUERY PLAN                     
+----------------------------------------------------
  Limit
    Output: pk, c_bigint, c_text
-   ->  Gather Motion 3:1  (slice1; segments: 3)
+   ->  Sort
          Output: pk, c_bigint, c_text
-         Merge Key: c_bigint, c_text, pk
-         ->  Limit
+         Sort Key: t.c_bigint, t.c_text, t.pk
+         ->  Seq Scan on fast_default.t
                Output: pk, c_bigint, c_text
-               ->  Sort
-                     Output: pk, c_bigint, c_text
-                     Sort Key: t.c_bigint, t.c_text, t.pk
-                     ->  Seq Scan on fast_default.t
-                           Output: pk, c_bigint, c_text
-                           Filter: (t.c_bigint > '-1'::integer)
- Optimizer: Postgres query optimizer
- Settings: optimizer = 'off', seq_page_cost = '1'
-(15 rows)
+               Filter: (t.c_bigint > '-1'::integer)
+ Settings: seq_page_cost = '1.001'
+(9 rows)
 
 --  DELETE with RETURNING
 DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *;
@@ -449,18 +427,15 @@ DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *;
 
 EXPLAIN (VERBOSE TRUE, COSTS FALSE)
 DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *;
-                      QUERY PLAN                       
--------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
+                   QUERY PLAN                    
+-------------------------------------------------
+ Delete on fast_default.t
    Output: pk, c_bigint, c_text
-   ->  Delete on fast_default.t
-         Output: pk, c_bigint, c_text
-         ->  Seq Scan on fast_default.t
-               Output: ctid, gp_segment_id
-               Filter: ((t.pk >= 10) AND (t.pk <= 20))
- Optimizer: Postgres query optimizer
- Settings: optimizer = 'off', seq_page_cost = '1'
-(9 rows)
+   ->  Seq Scan on fast_default.t
+         Output: ctid, gp_segment_id
+         Filter: ((t.pk >= 10) AND (t.pk <= 20))
+ Settings: seq_page_cost = '1.001'
+(6 rows)
 
 -- UPDATE
 UPDATE T SET c_text = '"' || c_text || '"'  WHERE pk < 10;

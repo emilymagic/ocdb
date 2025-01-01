@@ -40,12 +40,7 @@ bool		ResGroupActivated = false;
 void
 ResManagerShmemInit(void)
 {
-	if (IsResQueueEnabled() && Gp_role == GP_ROLE_DISPATCH)
-	{
-		InitResScheduler();
-		InitResPortalIncrementHash();
-	}
-	else if (IsResGroupEnabled() && !IsUnderPostmaster)
+	if (IsResGroupEnabled() && !IsUnderPostmaster)
 	{
 		ResGroupControlInit();
 	}
@@ -54,16 +49,7 @@ ResManagerShmemInit(void)
 void
 InitResManager(void)
 {
-	if (IsResQueueEnabled() && Gp_role == GP_ROLE_DISPATCH && !am_walsender)
-	{
-		gp_resmanager_memory_policy = (ResManagerMemoryPolicy *) &gp_resqueue_memory_policy;
-		gp_log_resmanager_memory = &gp_log_resqueue_memory;
-		gp_resmanager_print_operator_memory_limits = &gp_resqueue_print_operator_memory_limits;
-		gp_resmanager_memory_policy_auto_fixed_mem = &gp_resqueue_memory_policy_auto_fixed_mem;
-
-		InitResQueues();
-	}
-	else if  (IsResGroupEnabled() &&
+	if  (IsResGroupEnabled() &&
 			 (Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_EXECUTE) &&
 			 IsUnderPostmaster &&
 			 !amAuxiliaryBgWorker() &&

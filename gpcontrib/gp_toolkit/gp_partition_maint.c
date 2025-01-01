@@ -52,7 +52,7 @@ pg_partition_rank(PG_FUNCTION_ARGS)
 
 	parentrelid = get_partition_parent(relid);
 	parentrel = relation_open(parentrelid, AccessShareLock);
-	parentpartdesc = RelationRetrievePartitionDesc(parentrel);
+	parentpartdesc = parentrel->rd_partdesc;
 
 	/* Child oids are already sorted by range bounds in ascending order. */
 	for (int i = 0; i < parentpartdesc->nparts; i++)
@@ -83,7 +83,7 @@ pg_partition_lowest_child(PG_FUNCTION_ARGS)
 
 	rel = relation_open(relid, AccessShareLock);
 	partkey = RelationRetrievePartitionKey(rel);
-	partdesc = RelationRetrievePartitionDesc(rel);
+	partdesc = rel->rd_partdesc;
 	if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE &&
 		partkey->strategy == PARTITION_STRATEGY_RANGE &&
 		partdesc->nparts > 0)
@@ -120,7 +120,7 @@ pg_partition_highest_child(PG_FUNCTION_ARGS)
 
 	rel = relation_open(relid, AccessShareLock);
 	partkey = RelationRetrievePartitionKey(rel);
-	partdesc = RelationRetrievePartitionDesc(rel);
+	partdesc = rel->rd_partdesc;
 	if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE &&
 		partkey->strategy == PARTITION_STRATEGY_RANGE &&
 		partdesc->nparts > 0)
@@ -314,7 +314,7 @@ add_partition_children(List **queue, Relation parent, int level)
 	 * Building the partition descriptor guarantees that its children are sorted
 	 * in order of their partition boundaries.
 	 */
-	pdesc = RelationRetrievePartitionDesc(parent);
+	pdesc = parent->rd_partdesc;
 
 	for (int i = 0; i < pdesc->nparts; i++)
 	{

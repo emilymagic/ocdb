@@ -133,6 +133,22 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 	 */
 	relation = table_open(relationObjectId, NoLock);
 
+	/*
+	 * Relations without a table AM can be used in a query only if they are of
+	 * special-cased relkinds.  This check prevents us from crashing later if,
+	 * for example, a view's ON SELECT rule has gone missing.  Note that
+	 * table_open() already rejected indexes and composite types.
+	 */
+	if (!relation->rd_tableam)
+	{
+		if (!(relation->rd_rel->relkind == RELKIND_FOREIGN_TABLE ||
+			  relation->rd_rel->relkind == RELKIND_PARTITIONED_TABLE))
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("cannot open relation \"%s\"",
+							RelationGetRelationName(relation))));
+	}
+
 	/* Temporary and unlogged relations are inaccessible during recovery. */
 	if (!RelationNeedsWAL(relation) && RecoveryInProgress())
 		ereport(ERROR,
@@ -161,15 +177,8 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 	 * inheritance tree.  That will be computed in set_append_rel_size().
 	 */
 	if (!inhparent)
-	{
-		cdb_estimate_rel_size(
-			rel,
-			relation,
-			rel->attr_widths - rel->min_attr,
-			&rel->pages,
-			&rel->tuples,
-			&rel->allvisfrac);
-	}
+		estimate_rel_size(relation, rel->attr_widths - rel->min_attr,
+						  &rel->pages, &rel->tuples, &rel->allvisfrac);
 
 	/* Retrieve the parallel_workers reloption, or -1 if not set. */
 	rel->rel_parallel_workers = RelationGetParallelWorkers(relation, -1);
@@ -189,16 +198,6 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 		List	   *indexoidlist;
 		LOCKMODE	lmode;
 		ListCell   *l;
-
-		/*
-		 * GPDB needs to get AO relation version from pg_appendonly catalog to
-		 * determine whether enabling IndexOnlyScan on AO or not.
-		 * GPDB supports index-only scan on AO starting from AORelationVersion_GP7.
-		 */
-		bool enable_ios_ao = false;
-		if (RelationIsAppendOptimized(relation) &&
-			AORelationVersion_Validate(relation, AORelationVersion_GP7))
-			enable_ios_ao = true;
 
 		indexoidlist = RelationGetIndexList(relation);
 
@@ -284,12 +283,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			for (i = 0; i < ncolumns; i++)
 			{
 				info->indexkeys[i] = index->indkey.values[i];
-
-				/* GPDB: This AO table might not have met the requirement for IOScan. */
-				if (RelationIsAppendOptimized(relation) && !enable_ios_ao)
-					info->canreturn[i] = false;
-				else
-					info->canreturn[i] = index_can_return(indexRelation, i + 1);
+				info->canreturn[i] = index_can_return(indexRelation, i + 1);
 			}
 
 			for (i = 0; i < nkeycolumns; i++)
@@ -431,18 +425,20 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			 * a table, except we can be sure that the index is not larger
 			 * than the table.
 			 */
-			double		allvisfrac; /* dummy */
-
-			cdb_estimate_rel_size(rel,
-                                  indexRelation,
-                                  NULL,
-                                  &info->pages,
-                                  &info->tuples,
-                                  &allvisfrac);
-
-			if (!info->indpred ||
-				info->tuples > rel->tuples)
+			if (info->indpred == NIL)
+			{
+				info->pages = RelationGetNumberOfBlocks(indexRelation);
 				info->tuples = rel->tuples;
+			}
+			else
+			{
+				double		allvisfrac; /* dummy */
+
+				estimate_rel_size(indexRelation, NULL,
+								  &info->pages, &info->tuples, &allvisfrac);
+				if (info->tuples > rel->tuples)
+					info->tuples = rel->tuples;
+			}
 
 			if (info->relam == BTREE_AM_OID)
 			{

@@ -430,13 +430,6 @@ typedef struct Append
 
 	/* Info for run-time subplan pruning; NULL if we're not doing that */
 	struct PartitionPruneInfo *part_prune_info;
-
-	/*
-	 * Info for run-time join pruning, using Partition Selector nodes.
-	 * These param IDs contain additional Bitmapsets containing selected
-	 * partitions.
-	 */
-	List	   *join_prune_paramids;
 } Append;
 
 /* ----------------

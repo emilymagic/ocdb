@@ -39,6 +39,7 @@
 
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/tileam.h"
 #include "access/tableam.h"
 #include "access/tupconvert.h"
 #include "access/xact.h"
@@ -60,13 +61,18 @@
 
 #include "access/transam.h"
 #include "catalog/aocatalog.h"
+#include "catalog/partition.h"
 #include "cdb/cdbaocsam.h"
 #include "cdb/cdbappendonlyam.h"
 #include "cdb/cdbhash.h"
 #include "cdb/cdbvars.h"
+#include "nodes/makefuncs.h"
+#include "optimizer/optimizer.h"
 #include "parser/parsetree.h"
+#include "rewrite/rewriteManip.h"
 #include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
+#include "utils/syscache.h"
 
 
 static bool ExecOnConflictUpdate(ModifyTableState *mtstate,
@@ -868,13 +874,13 @@ ExecDelete(ModifyTableState *mtstate,
 	 * incorrectly (e.g. insert data on incorrect segment through
 	 * utility mode) or there is bug in code, etc.
 	 */
-	if (segid != GpIdentity.segindex)
-		elog(ERROR,
-			 "distribution key of the tuple (%u, %u) doesn't belong to "
-			 "current segment (actually from seg%d)",
-			 BlockIdGetBlockNumber(&(tupleid->ip_blkid)),
-			 tupleid->ip_posid,
-			 segid);
+//	if (segid != GpIdentity.segindex)
+//		elog(ERROR,
+//			 "distribution key of the tuple (%u, %u) doesn't belong to "
+//			 "current segment (actually from seg%d)",
+//			 BlockIdGetBlockNumber(&(tupleid->ip_blkid)),
+//			 tupleid->ip_posid,
+//			 segid);
 
 	/*
 	 * get information on the (current) result relation
@@ -1188,7 +1194,7 @@ ldelete:;
 							 mtstate->mt_transition_capture);
 
 		/*
-		 * We've already captured the NEW TABLE row, so make sure any AR
+		 * We've already captured the OLD TABLE row, so make sure any AR
 		 * DELETE trigger fired below doesn't capture it again.
 		 */
 		ar_delete_trig_tcs = NULL;
@@ -1307,13 +1313,13 @@ ExecUpdate(ModifyTableState *mtstate,
 	 * incorrectly (e.g. insert data on incorrect segment through
 	 * utility mode) or there is bug in code, etc.
 	 */
-	if (segid != GpIdentity.segindex)
-		elog(ERROR,
-			 "distribution key of the tuple (%u, %u) doesn't belong to "
-			 "current segment (actually from seg%d)",
-			 BlockIdGetBlockNumber(&(tupleid->ip_blkid)),
-			 tupleid->ip_posid,
-			 segid);
+//	if (segid != GpIdentity.segindex)
+//		elog(ERROR,
+//			 "distribution key of the tuple (%u, %u) doesn't belong to "
+//			 "current segment (actually from seg%d)",
+//			 BlockIdGetBlockNumber(&(tupleid->ip_blkid)),
+//			 tupleid->ip_posid,
+//			 segid);
 
 	ExecMaterializeSlot(slot);
 
@@ -1380,6 +1386,15 @@ ExecUpdate(ModifyTableState *mtstate,
 		bool		update_indexes;
 
 		/*
+		 * If we generate a new candidate tuple after EvalPlanQual testing, we
+		 * must loop back here to try again.  (We don't need to redo triggers,
+		 * however.  If there are any BEFORE triggers then trigger.c will have
+		 * done table_tuple_lock to lock the correct tuple, so there's no need
+		 * to do them again.)
+		 */
+lreplace:
+
+		/*
 		 * Constraints and GENERATED expressions might reference the tableoid
 		 * column, so (re-)initialize tts_tableOid before evaluating them.
 		 */
@@ -1391,17 +1406,6 @@ ExecUpdate(ModifyTableState *mtstate,
 		if (resultRelationDesc->rd_att->constr &&
 			resultRelationDesc->rd_att->constr->has_generated_stored)
 			ExecComputeStoredGenerated(estate, slot);
-
-		/*
-		 * Check any RLS UPDATE WITH CHECK policies
-		 *
-		 * If we generate a new candidate tuple after EvalPlanQual testing, we
-		 * must loop back here and recheck any RLS policies and constraints.
-		 * (We don't need to redo triggers, however.  If there are any BEFORE
-		 * triggers then trigger.c will have done table_tuple_lock to lock the
-		 * correct tuple, so there's no need to do them again.)
-		 */
-lreplace:;
 
 		/* ensure slot is independent, consider e.g. EPQ */
 		ExecMaterializeSlot(slot);
@@ -1417,6 +1421,7 @@ lreplace:;
 			resultRelInfo->ri_PartitionCheck &&
 			!ExecPartitionCheck(resultRelInfo, slot, estate, false);
 
+		/* Check any RLS UPDATE WITH CHECK policies */
 		if (!partition_constraint_failed &&
 			resultRelInfo->ri_WithCheckOptions != NIL)
 		{
@@ -2269,6 +2274,11 @@ ExecPrepareTupleRouting(ModifyTableState *mtstate,
 	partrel = ExecFindPartition(mtstate, targetRelInfo, proute, slot, estate);
 	partrouteinfo = partrel->ri_PartitionInfo;
 	Assert(partrouteinfo != NULL);
+
+	if (RelationIsTile(partrel->ri_RelationDesc))
+	{
+		tile_access_initialization(partrel->ri_RelationDesc);
+	}
 
 	/*
 	 * Make it look like we are inserting into the partition.

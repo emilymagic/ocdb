@@ -25,10 +25,6 @@
 #include "storage/predicate.h"
 #include "storage/smgr.h"
 
-#include "cdb/cdbappendonlyam.h"
-#include "cdb/cdbaocsam.h"
-
-
 /* Minimum tree height for application of fastpath optimization */
 #define BTREE_FASTPATH_MIN_LEVEL	2
 
