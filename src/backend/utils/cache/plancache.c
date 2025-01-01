@@ -67,6 +67,7 @@
 #include "storage/lmgr.h"
 #include "tcop/pquery.h"
 #include "tcop/utility.h"
+#include "utils/dispatchcat.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
 #include "utils/resowner_private.h"
@@ -79,9 +80,11 @@
 /*
  * We must skip "overhead" operations that involve database access when the
  * cached plan's subject statement is a transaction control command.
+ * For the convenience of postgres.c, treat empty statements as control
+ * commands too.
  */
 #define IsTransactionStmtPlan(plansource)  \
-	((plansource)->raw_parse_tree && \
+	((plansource)->raw_parse_tree == NULL || \
 	 IsA((plansource)->raw_parse_tree->stmt, TransactionStmt))
 
 /*
@@ -1075,6 +1078,12 @@ choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams, Into
 	/* ... nor for transaction control statements */
 	if (IsTransactionStmtPlan(plansource))
 		return false;
+
+	if (CatCollectorActive())
+		return true;
+
+	if (!IS_CATALOG_SERVER())
+		return true;
 
 	/* Let settings force the decision */
 	if (plan_cache_mode == PLAN_CACHE_MODE_FORCE_GENERIC_PLAN)

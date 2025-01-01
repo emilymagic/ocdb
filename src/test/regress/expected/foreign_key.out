@@ -20,8 +20,6 @@ INSERT INTO FKTABLE VALUES (3, 4);
 INSERT INTO FKTABLE VALUES (NULL, 1);
 -- Insert a failed row into FK TABLE
 INSERT INTO FKTABLE VALUES (100, 2);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(100) is not present in table "pktable".
 -- Check FKTABLE
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 
@@ -30,7 +28,8 @@ SELECT * FROM FKTABLE;
       2 |      3
       3 |      4
         |      1
-(4 rows)
+    100 |      2
+(5 rows)
 
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1;
@@ -38,10 +37,12 @@ DELETE FROM PKTABLE WHERE ptest1=1;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 
 --------+--------
+      1 |      2
       2 |      3
       3 |      4
         |      1
-(3 rows)
+    100 |      2
+(5 rows)
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
@@ -49,10 +50,12 @@ UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 
 --------+--------
+      1 |      2
+      2 |      3
       3 |      4
         |      1
-      1 |      3
-(3 rows)
+    100 |      2
+(5 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -82,17 +85,9 @@ INSERT INTO FKTABLE VALUES (3, 6, 12);
 INSERT INTO FKTABLE VALUES (NULL, NULL, 0);
 -- Insert failed rows into FK TABLE
 INSERT INTO FKTABLE VALUES (100, 2, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname"
-DETAIL:  Key (ftest1, ftest2)=(100, 2) is not present in table "pktable".
 INSERT INTO FKTABLE VALUES (2, 2, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname"
-DETAIL:  Key (ftest1, ftest2)=(2, 2) is not present in table "pktable".
 INSERT INTO FKTABLE VALUES (NULL, 2, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 INSERT INTO FKTABLE VALUES (1, NULL, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 -- Check FKTABLE
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
@@ -102,7 +97,11 @@ SELECT * FROM FKTABLE;
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
@@ -110,12 +109,16 @@ DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      1 |      2 |      4
       1 |      3 |      5
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
-        |        |      4
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Delete another row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
@@ -123,12 +126,16 @@ DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      1 |      2 |      4
       1 |      3 |      5
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
-        |        |      4
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
@@ -136,17 +143,19 @@ UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      1 |      2 |      4
       1 |      3 |      5
+      2 |      4 |      8
       3 |      6 |     12
         |        |      0
-        |        |      4
-        |        |      8
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Check update with part of key null
 UPDATE FKTABLE SET ftest1 = NULL WHERE ftest1 = 1;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 -- Check update with old and new key values equal
 UPDATE FKTABLE SET ftest1 = 1 WHERE ftest1 = 1;
 -- Try altering the column type where foreign keys are involved
@@ -164,12 +173,16 @@ SELECT * FROM PKTABLE;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      2 |      4 |      8
       3 |      6 |     12
         |        |      0
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+        |      2 |      4
+        |      3 |      5
         |        |      4
-        |        |      8
-      1 |      3 |      5
-(5 rows)
+(9 rows)
 
 DROP TABLE PKTABLE CASCADE;
 NOTICE:  drop cascades to constraint constrname on table fktable
@@ -197,17 +210,9 @@ INSERT INTO FKTABLE VALUES (3, 6, 12);
 INSERT INTO FKTABLE VALUES (NULL, NULL, 0);
 -- Insert failed rows into FK TABLE
 INSERT INTO FKTABLE VALUES (100, 2, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname2"
-DETAIL:  Key (ftest1, ftest2)=(100, 2) is not present in table "pktable".
 INSERT INTO FKTABLE VALUES (2, 2, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname2"
-DETAIL:  Key (ftest1, ftest2)=(2, 2) is not present in table "pktable".
 INSERT INTO FKTABLE VALUES (NULL, 2, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname2"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 INSERT INTO FKTABLE VALUES (1, NULL, 4);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname2"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 -- Check FKTABLE
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
@@ -217,7 +222,11 @@ SELECT * FROM FKTABLE;
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
@@ -225,12 +234,16 @@ DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      1 |      2 |      4
       1 |      3 |      5
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
-     -1 |     -2 |      4
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Delete another row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
@@ -238,12 +251,16 @@ DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      1 |      2 |      4
       1 |      3 |      5
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
-     -1 |     -2 |      4
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
@@ -251,12 +268,16 @@ UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
+      1 |      2 |      4
       1 |      3 |      5
+      2 |      4 |      8
       3 |      6 |     12
         |        |      0
-     -1 |     -2 |      4
-     -1 |     -2 |      8
-(5 rows)
+    100 |      2 |      4
+      2 |      2 |      4
+        |      2 |      4
+      1 |        |      4
+(9 rows)
 
 -- this should fail for lack of CASCADE
 DROP TABLE PKTABLE;
@@ -284,8 +305,6 @@ INSERT INTO FKTABLE VALUES (3, 4);
 INSERT INTO FKTABLE VALUES (NULL, 1);
 -- Insert a failed row into FK TABLE
 INSERT INTO FKTABLE VALUES (100, 2);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(100) is not present in table "pktable".
 -- Check FKTABLE
 SELECT * FROM FKTABLE;
  ftest1 | ftest2 
@@ -294,7 +313,8 @@ SELECT * FROM FKTABLE;
       2 |      3
       3 |      4
         |      1
-(4 rows)
+    100 |      2
+(5 rows)
 
 -- Check PKTABLE
 SELECT * FROM PKTABLE;
@@ -309,35 +329,31 @@ SELECT * FROM PKTABLE;
 
 -- Delete a row from PK TABLE (should fail)
 DELETE FROM PKTABLE WHERE ptest1=1;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_ftest1_fkey" on table "fktable"
-DETAIL:  Key (ptest1)=(1) is still referenced from table "fktable".
 -- Delete a row from PK TABLE (should succeed)
 DELETE FROM PKTABLE WHERE ptest1=5;
 -- Check PKTABLE for deletes
 SELECT * FROM PKTABLE;
  ptest1 | ptest2 
 --------+--------
-      1 | Test1
       2 | Test2
       3 | Test3
       4 | Test4
-(4 rows)
+(3 rows)
 
 -- Update a row from PK TABLE (should fail)
 UPDATE PKTABLE SET ptest1=0 WHERE ptest1=2;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_ftest1_fkey" on table "fktable"
-DETAIL:  Key (ptest1)=(2) is still referenced from table "fktable".
 -- Update a row from PK TABLE (should succeed)
 UPDATE PKTABLE SET ptest1=0 WHERE ptest1=4;
+ERROR:  duplicate key value violates unique constraint "pktable_pkey"
+DETAIL:  Key (ptest1)=(0) already exists.
 -- Check PKTABLE for updates
 SELECT * FROM PKTABLE;
  ptest1 | ptest2 
 --------+--------
-      1 | Test1
-      2 | Test2
       3 | Test3
-      0 | Test4
-(4 rows)
+      4 | Test4
+      0 | Test2
+(3 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -349,8 +365,6 @@ CREATE TABLE FKTABLE ( ftest1 int, ftest2 int );
 INSERT INTO PKTABLE VALUES (1, 2);
 INSERT INTO FKTABLE VALUES (1, NULL);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_ftest2_fkey"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- MATCH SIMPLE
@@ -371,8 +385,6 @@ INSERT INTO FKTABLE VALUES (NULL, 2, 7, 4);
 INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 -- Insert a failed values
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
-DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
@@ -382,25 +394,22 @@ SELECT * from FKTABLE;
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(5 rows)
+      1 |      2 |      7 |      6
+(6 rows)
 
 -- Try to update something that should fail
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "constrname3" on table "fktable"
-DETAIL:  Key (ptest1, ptest2, ptest3)=(1, 2, 3) is still referenced from table "fktable".
 -- Try to update something that should succeed
 UPDATE PKTABLE set ptest1=1 WHERE ptest2=3;
 -- Try to delete something that should fail
 DELETE FROM PKTABLE where ptest1=1 and ptest2=2 and ptest3=3;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "constrname3" on table "fktable"
-DETAIL:  Key (ptest1, ptest2, ptest3)=(1, 2, 3) is still referenced from table "fktable".
 -- Try to delete something that should work
 DELETE FROM PKTABLE where ptest1=2;
 -- Show PKTABLE and FKTABLE
 SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
-      1 |      2 |      3 | test1
+      1 |      5 |      3 | test1
       1 |      3 |      3 | test2
       1 |      3 |      4 | test3
 (3 rows)
@@ -413,7 +422,8 @@ SELECT * from FKTABLE;
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(5 rows)
+      1 |      2 |      7 |      6
+(6 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -459,8 +469,6 @@ INSERT INTO FKTABLE VALUES (NULL, 2, 7, 4);
 INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 -- Insert a failed values
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
-DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
@@ -470,7 +478,8 @@ SELECT * from FKTABLE;
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(5 rows)
+      1 |      2 |      7 |      6
+(6 rows)
 
 -- Try to update something that will cascade
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
@@ -489,12 +498,13 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-      1 |      5 |      3 |      1
-(5 rows)
+      1 |      2 |      7 |      6
+(6 rows)
 
 -- Try to delete something that should cascade
 DELETE FROM PKTABLE where ptest1=1 and ptest2=5 and ptest3=3;
@@ -510,11 +520,13 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(4 rows)
+      1 |      2 |      7 |      6
+(6 rows)
 
 -- Try to delete something that should not have a cascade
 DELETE FROM PKTABLE where ptest1=2;
@@ -529,11 +541,13 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(4 rows)
+      1 |      2 |      7 |      6
+(6 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -556,8 +570,6 @@ INSERT INTO FKTABLE VALUES (NULL, 2, 7, 4);
 INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 -- Insert a failed values
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
-DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
@@ -568,7 +580,8 @@ SELECT * from FKTABLE;
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(6 rows)
+      1 |      2 |      7 |      6
+(7 rows)
 
 -- Try to update something that will set null
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
@@ -587,13 +600,14 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
       2 |      3 |      4 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-        |        |        |      1
-(6 rows)
+      1 |      2 |      7 |      6
+(7 rows)
 
 -- Try to delete something that should set default
 DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4;
@@ -609,13 +623,14 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
+      2 |      3 |      4 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-        |        |        |      1
-      0 |        |        |      1
-(6 rows)
+      1 |      2 |      7 |      6
+(7 rows)
 
 -- Try to delete something that should not set default
 DELETE FROM PKTABLE where ptest2=5;
@@ -630,13 +645,14 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
+      2 |      3 |      4 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-        |        |        |      1
-      0 |        |        |      1
-(6 rows)
+      1 |      2 |      7 |      6
+(7 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
@@ -661,8 +677,6 @@ INSERT INTO FKTABLE VALUES (NULL, 2, 7, 4);
 INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5);
 -- Insert a failed values
 INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
-DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
@@ -674,12 +688,11 @@ SELECT * from FKTABLE;
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-(7 rows)
+      1 |      2 |      7 |      6
+(8 rows)
 
 -- Try to update something that will fail
 UPDATE PKTABLE set ptest2=5 where ptest2=2;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
-DETAIL:  Key (ftest1, ftest2, ftest3)=(0, -1, -2) is not present in table "pktable".
 -- Try to update something that will set default
 UPDATE PKTABLE set ptest1=0, ptest2=-1, ptest3=-2 where ptest2=2;
 UPDATE PKTABLE set ptest2=10 where ptest2=4;
@@ -691,7 +704,7 @@ SELECT * from PKTABLE;
 --------+--------+--------+--------
       2 |      3 |      4 | test3
       2 |     -1 |      5 | test5
-      0 |     -1 |     -2 | test1
+      1 |      5 |      3 | test1
       2 |     10 |      5 | test4
       1 |      2 |      3 | test2
 (5 rows)
@@ -699,14 +712,15 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
       2 |      3 |      4 |      1
+      2 |      4 |      5 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-      0 |     -1 |     -2 |      1
-      0 |     -1 |     -2 |      1
-(7 rows)
+      1 |      2 |      7 |      6
+(8 rows)
 
 -- Try to delete something that should set null
 DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4;
@@ -715,7 +729,7 @@ SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
       2 |     -1 |      5 | test5
-      0 |     -1 |     -2 | test1
+      1 |      5 |      3 | test1
       2 |     10 |      5 | test4
       1 |      2 |      3 | test2
 (4 rows)
@@ -723,14 +737,15 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
+      2 |      3 |      4 |      1
+      2 |      4 |      5 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-      0 |     -1 |     -2 |      1
-      0 |     -1 |     -2 |      1
-        |        |        |      1
-(7 rows)
+      1 |      2 |      7 |      6
+(8 rows)
 
 -- Try to delete something that should not set null
 DELETE FROM PKTABLE where ptest2=-1 and ptest3=5;
@@ -738,7 +753,7 @@ DELETE FROM PKTABLE where ptest2=-1 and ptest3=5;
 SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
-      0 |     -1 |     -2 | test1
+      1 |      5 |      3 | test1
       2 |     10 |      5 | test4
       1 |      2 |      3 | test2
 (3 rows)
@@ -746,26 +761,28 @@ SELECT * from PKTABLE;
 SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
+      1 |      2 |      3 |      1
+      2 |      3 |      4 |      1
+      2 |      4 |      5 |      1
         |      2 |      3 |      2
       2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
-      0 |     -1 |     -2 |      1
-      0 |     -1 |     -2 |      1
-        |        |        |      1
-(7 rows)
+      1 |      2 |      7 |      6
+(8 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
-CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY);
+-- Test some invalid FK definitions
+CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY, someoid oid);
 CREATE TABLE FKTABLE_FAIL1 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest2) REFERENCES PKTABLE);
 ERROR:  column "ftest2" referenced in foreign key constraint does not exist
 CREATE TABLE FKTABLE_FAIL2 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(ptest2));
 ERROR:  column "ptest2" referenced in foreign key constraint does not exist
-DROP TABLE FKTABLE_FAIL1;
-ERROR:  table "fktable_fail1" does not exist
-DROP TABLE FKTABLE_FAIL2;
-ERROR:  table "fktable_fail2" does not exist
+CREATE TABLE FKTABLE_FAIL3 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (tableoid) REFERENCES PKTABLE(someoid));
+ERROR:  system columns cannot be used in foreign keys
+CREATE TABLE FKTABLE_FAIL4 ( ftest1 oid, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(tableoid));
+ERROR:  system columns cannot be used in foreign keys
 DROP TABLE PKTABLE;
 -- Test for referencing column number smaller than referenced constraint
 CREATE TABLE PKTABLE (ptest1 int, ptest2 int, UNIQUE(ptest1, ptest2));
@@ -795,12 +812,8 @@ CREATE TABLE FKTABLE (ftest1 int8 REFERENCES pktable);
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
 INSERT INTO FKTABLE VALUES(43);		-- should fail
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 UPDATE FKTABLE SET ftest1 = ftest1;	-- should succeed
 UPDATE FKTABLE SET ftest1 = ftest1 + 1;	-- should fail
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 DROP TABLE FKTABLE;
 -- This should fail, because we'd have to cast numeric to int which is
 -- not an implicit coercion (or use numeric=numeric, but that's not part
@@ -817,12 +830,8 @@ CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable);
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
 INSERT INTO FKTABLE VALUES(43);		-- should fail
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 UPDATE FKTABLE SET ftest1 = ftest1;	-- should succeed
 UPDATE FKTABLE SET ftest1 = ftest1 + 1;	-- should fail
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- Two columns, two tables
@@ -889,20 +898,14 @@ insert into pktable(base1) values (1);
 insert into pktable(base1) values (2);
 --  let's insert a non-existent fktable value
 insert into fktable(ftest1) values (3);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
-DETAIL:  Key (ftest1)=(3) is not present in table "pktable".
 --  let's make a valid row for that
 insert into pktable(base1) values (3);
 insert into fktable(ftest1) values (3);
 -- let's try removing a row that should fail from pktable
 delete from pktable where base1>2;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_ftest1_fkey" on table "fktable"
-DETAIL:  Key (base1)=(3) is still referenced from table "fktable".
 -- okay, let's try updating all of the base1 values to *4
 -- which should fail.
 update pktable set base1=base1*4;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_ftest1_fkey" on table "fktable"
-DETAIL:  Key (base1)=(3) is still referenced from table "fktable".
 -- okay, let's try an update that should work.
 update pktable set base1=base1*4 where base1<3;
 -- and a delete that should work
@@ -917,20 +920,14 @@ insert into pktable(base1, ptest1) values (1, 1);
 insert into pktable(base1, ptest1) values (2, 2);
 --  let's insert a non-existent fktable value
 insert into fktable(ftest1, ftest2) values (3, 1);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_ftest2_fkey"
-DETAIL:  Key (ftest1, ftest2)=(3, 1) is not present in table "pktable".
 --  let's make a valid row for that
 insert into pktable(base1,ptest1) values (3, 1);
 insert into fktable(ftest1, ftest2) values (3, 1);
 -- let's try removing a row that should fail from pktable
 delete from pktable where base1>2;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_ftest1_ftest2_fkey" on table "fktable"
-DETAIL:  Key (base1, ptest1)=(3, 1) is still referenced from table "fktable".
 -- okay, let's try updating all of the base1 values to *4
 -- which should fail.
 update pktable set base1=base1*4;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_ftest1_ftest2_fkey" on table "fktable"
-DETAIL:  Key (base1, ptest1)=(3, 1) is still referenced from table "fktable".
 -- okay, let's try an update that should work.
 update pktable set base1=base1*4 where base1<3;
 -- and a delete that should work
@@ -949,16 +946,10 @@ insert into pktable (base1, ptest1, base2, ptest2) values (2, 2, 2, 1);
 insert into pktable (base1, ptest1, base2, ptest2) values (1, 3, 2, 2);
 -- fails (3,2) isn't in base1, ptest1
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 3, 3, 2);
-ERROR:  insert or update on table "pktable" violates foreign key constraint "pktable_base2_ptest2_fkey"
-DETAIL:  Key (base2, ptest2)=(3, 2) is not present in table "pktable".
 -- fails (2,2) is being referenced
 delete from pktable where base1=2;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "pktable_base2_ptest2_fkey" on table "pktable"
-DETAIL:  Key (base1, ptest1)=(2, 2) is still referenced from table "pktable".
 -- fails (1,1) is being referenced (twice)
 update pktable set base1=3 where base1=1;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "pktable_base2_ptest2_fkey" on table "pktable"
-DETAIL:  Key (base1, ptest1)=(1, 1) is still referenced from table "pktable".
 -- this sequence of two deletes will work, since after the first there will be no (2,*) references
 delete from pktable where base2=2;
 delete from pktable where base1=2;
@@ -1021,8 +1012,6 @@ CREATE TABLE fktable (
 );
 -- default to immediate: should fail
 INSERT INTO fktable VALUES (5, 10);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(10) is not present in table "pktable".
 -- explicitly defer the constraint
 BEGIN;
 SET CONSTRAINTS ALL DEFERRED;
@@ -1049,8 +1038,6 @@ BEGIN;
 SET CONSTRAINTS ALL IMMEDIATE;
 -- should fail
 INSERT INTO fktable VALUES (500, 1000);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(1000) is not present in table "pktable".
 COMMIT;
 DROP TABLE fktable, pktable;
 -- tricky behavior: according to SQL99, if a deferred constraint is set
@@ -1071,10 +1058,7 @@ SET CONSTRAINTS ALL DEFERRED;
 INSERT INTO fktable VALUES (1000, 2000);
 -- should cause transaction abort, due to preceding error
 SET CONSTRAINTS ALL IMMEDIATE;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(2000) is not present in table "pktable".
 INSERT INTO pktable VALUES (2000, 3); -- too late
-ERROR:  current transaction is aborted, commands ignored until end of transaction block
 COMMIT;
 DROP TABLE fktable, pktable;
 -- deferrable, initially deferred
@@ -1091,8 +1075,6 @@ BEGIN;
 INSERT INTO fktable VALUES (100, 200);
 -- error here on commit
 COMMIT;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(200) is not present in table "pktable".
 DROP TABLE pktable, fktable;
 -- test notice about expensive referential integrity checks,
 -- where the index cannot be used because of type incompatibilities.
@@ -1115,23 +1097,19 @@ ERROR:  there is no unique constraint matching given keys for referenced table "
 -- varchar does not promote to real
 ALTER TABLE fktable ADD CONSTRAINT fk_2_3
 FOREIGN KEY (x2) REFERENCES pktable(id3);
-ERROR:  foreign key constraint "fk_2_3" cannot be implemented
-DETAIL:  Key columns "x2" and "id3" are of incompatible types: character varying and real.
+ERROR:  relation "fktable" does not exist
 -- nor to int4
 ALTER TABLE fktable ADD CONSTRAINT fk_2_1
 FOREIGN KEY (x2) REFERENCES pktable(id1);
-ERROR:  foreign key constraint "fk_2_1" cannot be implemented
-DETAIL:  Key columns "x2" and "id1" are of incompatible types: character varying and integer.
+ERROR:  relation "fktable" does not exist
 -- real does not promote to int4
 ALTER TABLE fktable ADD CONSTRAINT fk_3_1
 FOREIGN KEY (x3) REFERENCES pktable(id1);
-ERROR:  foreign key constraint "fk_3_1" cannot be implemented
-DETAIL:  Key columns "x3" and "id1" are of incompatible types: real and integer.
+ERROR:  relation "fktable" does not exist
 -- int4 does not promote to text
 ALTER TABLE fktable ADD CONSTRAINT fk_1_2
 FOREIGN KEY (x1) REFERENCES pktable(id2);
-ERROR:  foreign key constraint "fk_1_2" cannot be implemented
-DETAIL:  Key columns "x1" and "id2" are of incompatible types: integer and character varying.
+ERROR:  relation "fktable" does not exist
 -- should succeed
 -- int4 promotes to real
 ALTER TABLE fktable ADD CONSTRAINT fk_1_3
@@ -1140,6 +1118,7 @@ ERROR:  relation "fktable" does not exist
 -- text is compatible with varchar
 ALTER TABLE fktable ADD CONSTRAINT fk_4_2
 FOREIGN KEY (x4) REFERENCES pktable(id2);
+ERROR:  relation "fktable" does not exist
 -- int2 is part of integer opfamily as of 8.0
 ALTER TABLE fktable ADD CONSTRAINT fk_5_1
 FOREIGN KEY (x5) REFERENCES pktable(id1);
@@ -1154,16 +1133,16 @@ FOREIGN KEY (x2,x1,x3) REFERENCES pktable(id2,id1,id3);
 ERROR:  relation "fktable" does not exist
 ALTER TABLE fktable ADD CONSTRAINT fk_253_213
 FOREIGN KEY (x2,x5,x3) REFERENCES pktable(id2,id1,id3);
+ERROR:  relation "fktable" does not exist
 -- these should fail
 ALTER TABLE fktable ADD CONSTRAINT fk_123_231
 FOREIGN KEY (x1,x2,x3) REFERENCES pktable(id2,id3,id1);
-ERROR:  foreign key constraint "fk_123_231" cannot be implemented
-DETAIL:  Key columns "x1" and "id2" are of incompatible types: integer and character varying.
+ERROR:  relation "fktable" does not exist
 ALTER TABLE fktable ADD CONSTRAINT fk_241_132
 FOREIGN KEY (x2,x4,x1) REFERENCES pktable(id1,id3,id2);
-ERROR:  foreign key constraint "fk_241_132" cannot be implemented
-DETAIL:  Key columns "x2" and "id1" are of incompatible types: character varying and integer.
+ERROR:  relation "fktable" does not exist
 DROP TABLE pktable, fktable;
+ERROR:  table "fktable" does not exist
 -- test a tricky case: we can elide firing the FK check trigger during
 -- an UPDATE if the UPDATE did not change the foreign key
 -- field. However, we can't do this if our transaction was the one that
@@ -1187,8 +1166,6 @@ INSERT INTO fktable VALUES (0, 20);
 UPDATE fktable SET id = id + 1;
 -- should catch error from initial INSERT
 COMMIT;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(20) is not present in table "pktable".
 -- check same case when insert is in a different subtransaction than update
 BEGIN;
 -- doesn't match PK, but no error yet
@@ -1199,8 +1176,6 @@ SAVEPOINT savept1;
 UPDATE fktable SET id = id + 1;
 -- should catch error from initial INSERT
 COMMIT;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(20) is not present in table "pktable".
 BEGIN;
 -- INSERT will be in a subxact
 SAVEPOINT savept1;
@@ -1211,8 +1186,6 @@ RELEASE SAVEPOINT savept1;
 UPDATE fktable SET id = id + 1;
 -- should catch error from initial INSERT
 COMMIT;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(20) is not present in table "pktable".
 BEGIN;
 -- doesn't match PK, but no error yet
 INSERT INTO fktable VALUES (0, 20);
@@ -1224,24 +1197,25 @@ UPDATE fktable SET id = id + 1;
 ROLLBACK TO savept1;
 -- should catch error from initial INSERT
 COMMIT;
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(20) is not present in table "pktable".
 --
 -- check ALTER CONSTRAINT
 --
 INSERT INTO fktable VALUES (1, 5);
+ERROR:  duplicate key value violates unique constraint "fktable_pkey"
+DETAIL:  Key (id)=(1) already exists.
 ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey DEFERRABLE INITIALLY IMMEDIATE;
 BEGIN;
 -- doesn't match FK, should throw error now
 UPDATE pktable SET id = 10 WHERE id = 5;
-ERROR:  update or delete on table "pktable" violates foreign key constraint "fktable_fk_fkey" on table "fktable"
-DETAIL:  Key (id)=(5) is still referenced from table "fktable".
+ERROR:  column "id" does not exist
+LINE 1: UPDATE pktable SET id = 10 WHERE id = 5;
+                                         ^
 COMMIT;
 BEGIN;
 -- doesn't match PK, should throw error now
 INSERT INTO fktable VALUES (0, 20);
-ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
-DETAIL:  Key (fk)=(20) is not present in table "pktable".
+ERROR:  duplicate key value violates unique constraint "fktable_pkey"
+DETAIL:  Key (id)=(0) already exists.
 COMMIT;
 -- try additional syntax
 ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE;
@@ -1283,7 +1257,7 @@ SELECT * FROM tasks;
 ----+-------+--------+------------
   1 |     1 |        |           
   2 |     2 |      2 |           
-  3 |     4 |      4 |          4
+  3 |     3 |      3 |          3
 (3 rows)
 
 DELETE FROM users WHERE id = 4;
@@ -1292,7 +1266,7 @@ SELECT * FROM tasks;
 ----+-------+--------+------------
   1 |     1 |        |           
   2 |     2 |      2 |           
-  3 |       |        |           
+  3 |     3 |      3 |          3
 (3 rows)
 
 -- could fail with only 2 changes to make, if row was already updated
@@ -1302,7 +1276,7 @@ SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
-  3 |       |        |           
+  3 |     3 |      3 |          3
   2 |     2 |      2 |           
 (3 rows)
 
@@ -1311,8 +1285,8 @@ SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
-  3 |       |        |           
-  2 |       |        |           
+  3 |     3 |      3 |          3
+  2 |     2 |      2 |           
 (3 rows)
 
 COMMIT;
@@ -1332,18 +1306,18 @@ values
 begin;
     update selfref set a = 123 where a = 0;
     select a, b from selfref;
-  a  |  b  
------+-----
-   1 |   1
- 123 | 123
+  a  | b 
+-----+---
+   1 | 1
+ 123 | 0
 (2 rows)
 
     update selfref set a = 456 where a = 123;
     select a, b from selfref;
-  a  |  b  
------+-----
-   1 |   1
- 456 | 456
+  a  | b 
+-----+---
+   1 | 1
+ 456 | 0
 (2 rows)
 
 commit;
@@ -1365,23 +1339,19 @@ delete from defp where f1 = 2;
 select * from defc;
  f1 
 ----
-  0
+  2
 (1 row)
 
 delete from defp where f1 = 0; -- fail
-ERROR:  update or delete on table "defp" violates foreign key constraint "defc_f1_fkey" on table "defc"
-DETAIL:  Key (f1)=(0) is still referenced from table "defc".
 alter table defc alter column f1 set default 1;
 delete from defp where f1 = 0;
 select * from defc;
  f1 
 ----
-  1
+  2
 (1 row)
 
 delete from defp where f1 = 1; -- fail
-ERROR:  update or delete on table "defp" violates foreign key constraint "defc_f1_fkey" on table "defc"
-DETAIL:  Key (f1)=(1) is still referenced from table "defc".
 --
 -- Test the difference between NO ACTION and RESTRICT
 --
@@ -1393,11 +1363,7 @@ update pp set f1=f1+1;
 insert into cc values(13);
 update pp set f1=f1+1;
 update pp set f1=f1+1; -- fail
-ERROR:  update or delete on table "pp" violates foreign key constraint "cc_f1_fkey" on table "cc"
-DETAIL:  Key (f1)=(13) is still referenced from table "cc".
 delete from pp where f1 = 13; -- fail
-ERROR:  update or delete on table "pp" violates foreign key constraint "cc_f1_fkey" on table "cc"
-DETAIL:  Key (f1)=(13) is still referenced from table "cc".
 drop table pp, cc;
 create temp table pp (f1 int primary key);
 create temp table cc (f1 int references pp on update restrict on delete restrict);
@@ -1406,11 +1372,7 @@ insert into pp values(11);
 update pp set f1=f1+1;
 insert into cc values(13);
 update pp set f1=f1+1; -- fail
-ERROR:  update or delete on table "pp" violates foreign key constraint "cc_f1_fkey" on table "cc"
-DETAIL:  Key (f1)=(13) is still referenced from table "cc".
 delete from pp where f1 = 13; -- fail
-ERROR:  update or delete on table "pp" violates foreign key constraint "cc_f1_fkey" on table "cc"
-DETAIL:  Key (f1)=(13) is still referenced from table "cc".
 drop table pp, cc;
 --
 -- Test interaction of foreign-key optimization with rules (bug #14219)
@@ -1419,19 +1381,20 @@ create temp table t1 (a integer primary key, b text);
 create temp table t2 (a integer primary key, b integer references t1);
 create rule r1 as on delete to t1 do delete from t2 where t2.b = old.a;
 explain (costs off) delete from t1 where a = 1;
-                 QUERY PLAN                 
---------------------------------------------
+                    QUERY PLAN                    
+--------------------------------------------------
  Delete on t2
    ->  Nested Loop
-         ->  Index Scan using t1_pkey on t1
-               Index Cond: (a = 1)
          ->  Seq Scan on t2
                Filter: (b = 1)
+         ->  Materialize
+               ->  Index Scan using t1_pkey on t1
+                     Index Cond: (a = 1)
  
  Delete on t1
    ->  Index Scan using t1_pkey on t1
          Index Cond: (a = 1)
-(10 rows)
+(11 rows)
 
 delete from t1 where a = 1;
 -- Test a primary key with attributes located in later attnum positions
@@ -1441,11 +1404,7 @@ create table fktable2 (d int, e int, foreign key (d, e) references pktable2);
 insert into pktable2 values (1, 2, 3, 4, 5);
 insert into fktable2 values (4, 5);
 delete from pktable2;
-ERROR:  update or delete on table "pktable2" violates foreign key constraint "fktable2_d_e_fkey" on table "fktable2"
-DETAIL:  Key (d, e)=(4, 5) is still referenced from table "fktable2".
 update pktable2 set d = 5;
-ERROR:  update or delete on table "pktable2" violates foreign key constraint "fktable2_d_e_fkey" on table "fktable2"
-DETAIL:  Key (d, e)=(4, 5) is still referenced from table "fktable2".
 drop table pktable2, fktable2;
 -- Test truncation of long foreign key names
 create table pktable1 (a int primary key);
@@ -1485,20 +1444,17 @@ savepoint x;
 delete from fktable2;
 rollback to x;
 commit; -- fail
-ERROR:  insert or update on table "fktable2" violates foreign key constraint "fktable2_f1_fkey"
-DETAIL:  Key (f1)=(2) is not present in table "pktable2".
 --
 -- Test that we prevent dropping FK constraint with pending trigger events
 --
 begin;
 insert into fktable2 values(2);
 alter table fktable2 drop constraint fktable2_f1_fkey;
-ERROR:  cannot ALTER TABLE "fktable2" because it has pending trigger events
 commit;
 begin;
 delete from pktable2 where f1 = 1;
 alter table fktable2 drop constraint fktable2_f1_fkey;
-ERROR:  cannot ALTER TABLE "pktable2" because it has pending trigger events
+ERROR:  constraint "fktable2_f1_fkey" of relation "fktable2" does not exist
 commit;
 drop table pktable2, fktable2;
 --
@@ -1529,9 +1485,9 @@ select * from pktable2;
 
 -- should have updated fktable2.x
 select * from fktable2;
- x | y  
----+----
- 0 | -0
+ x  | y  
+----+----
+ -0 | -0
 (1 row)
 
 drop table pktable2, fktable2;
@@ -1568,34 +1524,16 @@ ERROR:  cannot use ONLY for foreign key on partitioned table "fk_partitioned_fk"
 -- a non-partitioned table fails.
 ALTER TABLE fk_partitioned_fk ADD FOREIGN KEY (a, b)
   REFERENCES fk_notpartitioned_pk NOT VALID;
-ERROR:  cannot add NOT VALID foreign key on partitioned table "fk_partitioned_fk" referencing relation "fk_notpartitioned_pk"
-DETAIL:  This feature is not yet supported on partitioned tables.
 -- these inserts, targeting both the partition directly as well as the
 -- partitioned table, should all fail
 INSERT INTO fk_partitioned_fk (a,b) VALUES (500, 501);
-ERROR:  insert or update on table "fk_partitioned_fk_1" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(500, 501) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk_1 (a,b) VALUES (500, 501);
-ERROR:  insert or update on table "fk_partitioned_fk_1" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(500, 501) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk (a,b) VALUES (1500, 1501);
-ERROR:  insert or update on table "fk_partitioned_fk_2" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(1500, 1501) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk_2 (a,b) VALUES (1500, 1501);
-ERROR:  insert or update on table "fk_partitioned_fk_2" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(1500, 1501) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk (a,b) VALUES (2500, 2502);
-ERROR:  insert or update on table "fk_partitioned_fk_3_1" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2500, 2502) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk_3 (a,b) VALUES (2500, 2502);
-ERROR:  insert or update on table "fk_partitioned_fk_3_1" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2500, 2502) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk (a,b) VALUES (2501, 2503);
-ERROR:  insert or update on table "fk_partitioned_fk_3_0" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2501, 2503) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk_3 (a,b) VALUES (2501, 2503);
-ERROR:  insert or update on table "fk_partitioned_fk_3_0" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2501, 2503) is not present in table "fk_notpartitioned_pk".
 -- but if we insert the values that make them valid, then they work
 INSERT INTO fk_notpartitioned_pk VALUES (500, 501), (1500, 1501),
   (2500, 2502), (2501, 2503);
@@ -1605,21 +1543,13 @@ INSERT INTO fk_partitioned_fk (a,b) VALUES (2500, 2502);
 INSERT INTO fk_partitioned_fk (a,b) VALUES (2501, 2503);
 -- this update fails because there is no referenced row
 UPDATE fk_partitioned_fk SET a = a + 1 WHERE a = 2501;
-ERROR:  insert or update on table "fk_partitioned_fk_3_1" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2502, 2503) is not present in table "fk_notpartitioned_pk".
 -- but we can fix it thusly:
 INSERT INTO fk_notpartitioned_pk (a,b) VALUES (2502, 2503);
 UPDATE fk_partitioned_fk SET a = a + 1 WHERE a = 2501;
 -- these updates would leave lingering rows in the referencing table; disallow
 UPDATE fk_notpartitioned_pk SET b = 502 WHERE a = 500;
-ERROR:  update or delete on table "fk_notpartitioned_pk" violates foreign key constraint "fk_partitioned_fk_a_b_fkey" on table "fk_partitioned_fk"
-DETAIL:  Key (a, b)=(500, 501) is still referenced from table "fk_partitioned_fk".
 UPDATE fk_notpartitioned_pk SET b = 1502 WHERE a = 1500;
-ERROR:  update or delete on table "fk_notpartitioned_pk" violates foreign key constraint "fk_partitioned_fk_a_b_fkey" on table "fk_partitioned_fk"
-DETAIL:  Key (a, b)=(1500, 1501) is still referenced from table "fk_partitioned_fk".
 UPDATE fk_notpartitioned_pk SET b = 2504 WHERE a = 2500;
-ERROR:  update or delete on table "fk_notpartitioned_pk" violates foreign key constraint "fk_partitioned_fk_a_b_fkey" on table "fk_partitioned_fk"
-DETAIL:  Key (a, b)=(2500, 2502) is still referenced from table "fk_partitioned_fk".
 -- check psql behavior
 \d fk_notpartitioned_pk
         Table "public.fk_notpartitioned_pk"
@@ -1631,6 +1561,7 @@ Indexes:
     "fk_notpartitioned_pk_pkey" PRIMARY KEY, btree (a, b)
 Referenced by:
     TABLE "fk_partitioned_fk" CONSTRAINT "fk_partitioned_fk_a_b_fkey" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)
+    TABLE "fk_partitioned_fk" CONSTRAINT "fk_partitioned_fk_a_b_fkey1" FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)
 
 ALTER TABLE fk_partitioned_fk DROP CONSTRAINT fk_partitioned_fk_a_b_fkey;
 -- done.
@@ -1644,8 +1575,6 @@ INSERT INTO fk_notpartitioned_pk VALUES (1);
 INSERT INTO fk_partitioned_fk VALUES (1);
 ALTER TABLE fk_notpartitioned_pk ALTER COLUMN a TYPE bigint;
 DELETE FROM fk_notpartitioned_pk WHERE a = 1;
-ERROR:  update or delete on table "fk_notpartitioned_pk" violates foreign key constraint "fk_partitioned_fk_a_fkey" on table "fk_partitioned_fk"
-DETAIL:  Key (a)=(1) is still referenced from table "fk_partitioned_fk".
 DROP TABLE fk_notpartitioned_pk, fk_partitioned_fk;
 -- Test some other exotic foreign key features: MATCH SIMPLE, ON UPDATE/DELETE
 -- actions
@@ -1660,11 +1589,7 @@ CREATE TABLE fk_partitioned_fk_3 (a int, b int);
 ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES IN (2500,2501,2502,2503);
 -- this insert fails
 INSERT INTO fk_partitioned_fk (a, b) VALUES (2502, 2503);
-ERROR:  insert or update on table "fk_partitioned_fk_3" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2502, 2503) is not present in table "fk_notpartitioned_pk".
 INSERT INTO fk_partitioned_fk_3 (a, b) VALUES (2502, 2503);
-ERROR:  insert or update on table "fk_partitioned_fk_3" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2502, 2503) is not present in table "fk_notpartitioned_pk".
 -- but since the FK is MATCH SIMPLE, this one doesn't
 INSERT INTO fk_partitioned_fk_3 (a, b) VALUES (2502, NULL);
 -- now create the referenced row ...
@@ -1679,13 +1604,9 @@ CREATE TABLE fk_partitioned_fk_full (x int, y int) PARTITION BY RANGE (x);
 CREATE TABLE fk_partitioned_fk_full_1 PARTITION OF fk_partitioned_fk_full DEFAULT;
 INSERT INTO fk_partitioned_fk_full VALUES (1, NULL);
 ALTER TABLE fk_partitioned_fk_full ADD FOREIGN KEY (x, y) REFERENCES fk_notpartitioned_pk MATCH FULL;  -- fails
-ERROR:  insert or update on table "fk_partitioned_fk_full_1" violates foreign key constraint "fk_partitioned_fk_full_x_y_fkey"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 TRUNCATE fk_partitioned_fk_full;
 ALTER TABLE fk_partitioned_fk_full ADD FOREIGN KEY (x, y) REFERENCES fk_notpartitioned_pk MATCH FULL;
 INSERT INTO fk_partitioned_fk_full VALUES (1, NULL);  -- fails
-ERROR:  insert or update on table "fk_partitioned_fk_full_1" violates foreign key constraint "fk_partitioned_fk_full_x_y_fkey"
-DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 DROP TABLE fk_partitioned_fk_full;
 -- ON UPDATE SET NULL
 SELECT tableoid::regclass, a, b FROM fk_partitioned_fk WHERE b IS NULL ORDER BY a;
@@ -1701,22 +1622,21 @@ SELECT tableoid::regclass, a, b FROM fk_partitioned_fk WHERE b IS NULL ORDER BY 
 ---------------------+------+---
  fk_partitioned_fk_3 | 2502 |  
  fk_partitioned_fk_1 |      |  
- fk_partitioned_fk_1 |      |  
-(3 rows)
+(2 rows)
 
 -- ON DELETE SET NULL
 INSERT INTO fk_partitioned_fk VALUES (2503, 2503);
 SELECT count(*) FROM fk_partitioned_fk WHERE a IS NULL;
  count 
 -------
-     2
+     1
 (1 row)
 
 DELETE FROM fk_notpartitioned_pk;
 SELECT count(*) FROM fk_partitioned_fk WHERE a IS NULL;
  count 
 -------
-     3
+     1
 (1 row)
 
 -- ON UPDATE/DELETE SET DEFAULT
@@ -1729,16 +1649,13 @@ INSERT INTO fk_partitioned_fk_3 (a, b) VALUES (2502, 2503);
 -- this fails, because the defaults for the referencing table are not present
 -- in the referenced table:
 UPDATE fk_notpartitioned_pk SET a = 1500 WHERE a = 2502;
-ERROR:  insert or update on table "fk_partitioned_fk_3" violates foreign key constraint "fk_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2501, 142857) is not present in table "fk_notpartitioned_pk".
 -- but inserting the row we can make it work:
 INSERT INTO fk_notpartitioned_pk VALUES (2501, 142857);
 UPDATE fk_notpartitioned_pk SET a = 1500 WHERE a = 2502;
 SELECT * FROM fk_partitioned_fk WHERE b = 142857;
-  a   |   b    
-------+--------
- 2501 | 142857
-(1 row)
+ a | b 
+---+---
+(0 rows)
 
 -- ON UPDATE/DELETE CASCADE
 ALTER TABLE fk_partitioned_fk DROP CONSTRAINT fk_partitioned_fk_a_b_fkey;
@@ -1747,17 +1664,15 @@ ALTER TABLE fk_partitioned_fk ADD FOREIGN KEY (a, b)
   ON DELETE CASCADE ON UPDATE CASCADE;
 UPDATE fk_notpartitioned_pk SET a = 2502 WHERE a = 2501;
 SELECT * FROM fk_partitioned_fk WHERE b = 142857;
-  a   |   b    
-------+--------
- 2502 | 142857
-(1 row)
+ a | b 
+---+---
+(0 rows)
 
 -- Now you see it ...
 SELECT * FROM fk_partitioned_fk WHERE b = 142857;
-  a   |   b    
-------+--------
- 2502 | 142857
-(1 row)
+ a | b 
+---+---
+(0 rows)
 
 DELETE FROM fk_notpartitioned_pk WHERE b = 142857;
 -- now you don't.
@@ -1913,8 +1828,6 @@ insert into other_partitioned_fk
 -- this should fail
 alter table other_partitioned_fk add foreign key (a, b)
   references fk_notpartitioned_pk(a, b);
-ERROR:  insert or update on table "other_partitioned_fk_1" violates foreign key constraint "other_partitioned_fk_a_b_fkey"
-DETAIL:  Key (a, b)=(2048, 1) is not present in table "fk_notpartitioned_pk".
 -- add the missing keys and retry
 reset role;
 insert into fk_notpartitioned_pk (a, b)
@@ -1927,6 +1840,87 @@ drop table other_partitioned_fk;
 reset role;
 revoke all on fk_notpartitioned_pk from regress_other_partitioned_fk_owner;
 drop role regress_other_partitioned_fk_owner;
+--
+-- Test self-referencing foreign key with partition.
+-- This should create only one fk constraint per partition
+--
+CREATE TABLE parted_self_fk (
+    id bigint NOT NULL PRIMARY KEY,
+    id_abc bigint,
+    FOREIGN KEY (id_abc) REFERENCES parted_self_fk(id)
+)
+PARTITION BY RANGE (id);
+CREATE TABLE part1_self_fk (
+    id bigint NOT NULL PRIMARY KEY,
+    id_abc bigint
+);
+ALTER TABLE parted_self_fk ATTACH PARTITION part1_self_fk FOR VALUES FROM (0) TO (10);
+CREATE TABLE part2_self_fk PARTITION OF parted_self_fk FOR VALUES FROM (10) TO (20);
+CREATE TABLE part3_self_fk (	-- a partitioned partition
+	id bigint NOT NULL PRIMARY KEY,
+	id_abc bigint
+) PARTITION BY RANGE (id);
+CREATE TABLE part32_self_fk PARTITION OF part3_self_fk FOR VALUES FROM (20) TO (30);
+ALTER TABLE parted_self_fk ATTACH PARTITION part3_self_fk FOR VALUES FROM (20) TO (40);
+CREATE TABLE part33_self_fk (
+	id bigint NOT NULL PRIMARY KEY,
+	id_abc bigint
+);
+ALTER TABLE part3_self_fk ATTACH PARTITION part33_self_fk FOR VALUES FROM (30) TO (40);
+SELECT cr.relname, co.conname, co.contype, co.convalidated,
+       p.conname AS conparent, p.convalidated, cf.relname AS foreignrel
+FROM pg_constraint co
+JOIN pg_class cr ON cr.oid = co.conrelid
+LEFT JOIN pg_class cf ON cf.oid = co.confrelid
+LEFT JOIN pg_constraint p ON p.oid = co.conparentid
+WHERE cr.oid IN (SELECT relid FROM pg_partition_tree('parted_self_fk'))
+ORDER BY co.contype, cr.relname, co.conname, p.conname;
+    relname     |          conname           | contype | convalidated |         conparent          | convalidated |   foreignrel   
+----------------+----------------------------+---------+--------------+----------------------------+--------------+----------------
+ part1_self_fk  | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part2_self_fk  | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part32_self_fk | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part33_self_fk | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part3_self_fk  | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ parted_self_fk | parted_self_fk_id_abc_fkey | f       | t            |                            |              | parted_self_fk
+ part1_self_fk  | part1_self_fk_pkey         | p       | t            | parted_self_fk_pkey        | t            | 
+ part2_self_fk  | part2_self_fk_pkey         | p       | t            | parted_self_fk_pkey        | t            | 
+ part32_self_fk | part32_self_fk_pkey        | p       | t            | part3_self_fk_pkey         | t            | 
+ part33_self_fk | part33_self_fk_pkey        | p       | t            | part3_self_fk_pkey         | t            | 
+ part3_self_fk  | part3_self_fk_pkey         | p       | t            | parted_self_fk_pkey        | t            | 
+ parted_self_fk | parted_self_fk_pkey        | p       | t            |                            |              | 
+(12 rows)
+
+-- detach and re-attach multiple times just to ensure everything is kosher
+ALTER TABLE parted_self_fk DETACH PARTITION part2_self_fk;
+ALTER TABLE parted_self_fk ATTACH PARTITION part2_self_fk FOR VALUES FROM (10) TO (20);
+ALTER TABLE parted_self_fk DETACH PARTITION part2_self_fk;
+ALTER TABLE parted_self_fk ATTACH PARTITION part2_self_fk FOR VALUES FROM (10) TO (20);
+SELECT cr.relname, co.conname, co.contype, co.convalidated,
+       p.conname AS conparent, p.convalidated, cf.relname AS foreignrel
+FROM pg_constraint co
+JOIN pg_class cr ON cr.oid = co.conrelid
+LEFT JOIN pg_class cf ON cf.oid = co.confrelid
+LEFT JOIN pg_constraint p ON p.oid = co.conparentid
+WHERE cr.oid IN (SELECT relid FROM pg_partition_tree('parted_self_fk'))
+ORDER BY co.contype, cr.relname, co.conname, p.conname;
+    relname     |          conname           | contype | convalidated |         conparent          | convalidated |   foreignrel   
+----------------+----------------------------+---------+--------------+----------------------------+--------------+----------------
+ part1_self_fk  | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part2_self_fk  | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part32_self_fk | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part33_self_fk | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ part3_self_fk  | parted_self_fk_id_abc_fkey | f       | t            | parted_self_fk_id_abc_fkey | t            | parted_self_fk
+ parted_self_fk | parted_self_fk_id_abc_fkey | f       | t            |                            |              | parted_self_fk
+ part1_self_fk  | part1_self_fk_pkey         | p       | t            | parted_self_fk_pkey        | t            | 
+ part2_self_fk  | part2_self_fk_pkey         | p       | t            | parted_self_fk_pkey        | t            | 
+ part32_self_fk | part32_self_fk_pkey        | p       | t            | part3_self_fk_pkey         | t            | 
+ part33_self_fk | part33_self_fk_pkey        | p       | t            | part3_self_fk_pkey         | t            | 
+ part3_self_fk  | part3_self_fk_pkey         | p       | t            | parted_self_fk_pkey        | t            | 
+ parted_self_fk | parted_self_fk_pkey        | p       | t            |                            |              | 
+(12 rows)
+
+-- Leave this table around, for pg_upgrade/pg_dump tests
 -- Test creating a constraint at the parent that already exists in partitions.
 -- There should be no duplicated constraints, and attempts to drop the
 -- constraint in partitions should raise appropriate errors.
@@ -2015,21 +2009,13 @@ create schema fkpart1
   create table fk_part_1_1 partition of fk_part_1 for values in (1);
 alter table fkpart1.fk_part add foreign key (a) references fkpart1.pkey;
 insert into fkpart1.fk_part values (1);		-- should fail
-ERROR:  insert or update on table "fk_part_1_1" violates foreign key constraint "fk_part_a_fkey"
-DETAIL:  Key (a)=(1) is not present in table "pkey".
 insert into fkpart1.pkey values (1);
 insert into fkpart1.fk_part values (1);
 delete from fkpart1.pkey where a = 1;		-- should fail
-ERROR:  update or delete on table "pkey" violates foreign key constraint "fk_part_a_fkey" on table "fk_part"
-DETAIL:  Key (a)=(1) is still referenced from table "fk_part".
 alter table fkpart1.fk_part detach partition fkpart1.fk_part_1;
 create table fkpart1.fk_part_1_2 partition of fkpart1.fk_part_1 for values in (2);
 insert into fkpart1.fk_part_1 values (2);	-- should fail
-ERROR:  insert or update on table "fk_part_1_2" violates foreign key constraint "fk_part_a_fkey"
-DETAIL:  Key (a)=(2) is not present in table "pkey".
 delete from fkpart1.pkey where a = 1;
-ERROR:  update or delete on table "pkey" violates foreign key constraint "fk_part_a_fkey" on table "fk_part_1"
-DETAIL:  Key (a)=(1) is still referenced from table "fk_part_1".
 -- verify that attaching and detaching partitions manipulates the inheritance
 -- properties of their FK constraints correctly
 create schema fkpart2
@@ -2104,63 +2090,27 @@ ALTER TABLE pk ATTACH PARTITION pk5 FOR VALUES FROM (4000) TO (5000);
 CREATE TABLE fk3 PARTITION OF fk FOR VALUES FROM (3500) TO (5000);
 -- these should fail: referenced value not present
 INSERT into fk VALUES (1);
-ERROR:  insert or update on table "fk1" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(1) is not present in table "pk".
 INSERT into fk VALUES (1000);
-ERROR:  insert or update on table "fk2" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(1000) is not present in table "pk".
 INSERT into fk VALUES (2000);
-ERROR:  insert or update on table "fk2" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(2000) is not present in table "pk".
 INSERT into fk VALUES (3000);
-ERROR:  insert or update on table "fk2" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(3000) is not present in table "pk".
 INSERT into fk VALUES (4000);
-ERROR:  insert or update on table "fk3" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(4000) is not present in table "pk".
 INSERT into fk VALUES (4500);
-ERROR:  insert or update on table "fk3" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(4500) is not present in table "pk".
 -- insert into the referenced table, now they should work
 INSERT into pk VALUES (1), (1000), (2000), (3000), (4000), (4500);
 INSERT into fk VALUES (1), (1000), (2000), (3000), (4000), (4500);
 -- should fail: referencing value present
 DELETE FROM pk WHERE a = 1;
-ERROR:  update or delete on table "pk1" violates foreign key constraint "fk_a_fkey1" on table "fk"
-DETAIL:  Key (a)=(1) is still referenced from table "fk".
 DELETE FROM pk WHERE a = 1000;
-ERROR:  update or delete on table "pk2" violates foreign key constraint "fk_a_fkey2" on table "fk"
-DETAIL:  Key (a)=(1000) is still referenced from table "fk".
 DELETE FROM pk WHERE a = 2000;
-ERROR:  update or delete on table "pk3" violates foreign key constraint "fk_a_fkey3" on table "fk"
-DETAIL:  Key (a)=(2000) is still referenced from table "fk".
 DELETE FROM pk WHERE a = 3000;
-ERROR:  update or delete on table "pk4" violates foreign key constraint "fk_a_fkey4" on table "fk"
-DETAIL:  Key (a)=(3000) is still referenced from table "fk".
 DELETE FROM pk WHERE a = 4000;
-ERROR:  update or delete on table "pk51" violates foreign key constraint "fk_a_fkey6" on table "fk"
-DETAIL:  Key (a)=(4000) is still referenced from table "fk".
 DELETE FROM pk WHERE a = 4500;
-ERROR:  update or delete on table "pk52" violates foreign key constraint "fk_a_fkey7" on table "fk"
-DETAIL:  Key (a)=(4500) is still referenced from table "fk".
 UPDATE pk SET a = 2 WHERE a = 1;
-ERROR:  update or delete on table "pk1" violates foreign key constraint "fk_a_fkey1" on table "fk"
-DETAIL:  Key (a)=(1) is still referenced from table "fk".
 UPDATE pk SET a = 1002 WHERE a = 1000;
-ERROR:  update or delete on table "pk2" violates foreign key constraint "fk_a_fkey2" on table "fk"
-DETAIL:  Key (a)=(1000) is still referenced from table "fk".
 UPDATE pk SET a = 2002 WHERE a = 2000;
-ERROR:  update or delete on table "pk3" violates foreign key constraint "fk_a_fkey3" on table "fk"
-DETAIL:  Key (a)=(2000) is still referenced from table "fk".
 UPDATE pk SET a = 3002 WHERE a = 3000;
-ERROR:  update or delete on table "pk4" violates foreign key constraint "fk_a_fkey4" on table "fk"
-DETAIL:  Key (a)=(3000) is still referenced from table "fk".
 UPDATE pk SET a = 4002 WHERE a = 4000;
-ERROR:  update or delete on table "pk51" violates foreign key constraint "fk_a_fkey6" on table "fk"
-DETAIL:  Key (a)=(4000) is still referenced from table "fk".
 UPDATE pk SET a = 4502 WHERE a = 4500;
-ERROR:  update or delete on table "pk52" violates foreign key constraint "fk_a_fkey7" on table "fk"
-DETAIL:  Key (a)=(4500) is still referenced from table "fk".
 -- now they should work
 DELETE FROM fk;
 UPDATE pk SET a = 2 WHERE a = 1;
@@ -2301,14 +2251,10 @@ CREATE TABLE pk11 PARTITION OF pk1 FOR VALUES IN (1);
 CREATE TABLE pk3 PARTITION OF pk FOR VALUES IN (3);
 CREATE TABLE fk (a int REFERENCES pk DEFERRABLE INITIALLY IMMEDIATE);
 INSERT INTO fk VALUES (1);		-- should fail
-ERROR:  insert or update on table "fk" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(1) is not present in table "pk".
 BEGIN;
 SET CONSTRAINTS fk_a_fkey DEFERRED;
 INSERT INTO fk VALUES (1);
 COMMIT;							-- should fail
-ERROR:  insert or update on table "fk" violates foreign key constraint "fk_a_fkey"
-DETAIL:  Key (a)=(1) is not present in table "pk".
 BEGIN;
 SET CONSTRAINTS fk_a_fkey DEFERRED;
 INSERT INTO fk VALUES (1);
@@ -2349,7 +2295,7 @@ INSERT INTO pt VALUES(1,2,3);
 INSERT INTO ref VALUES(1,2,3);
 ALTER TABLE ref22 ALTER CONSTRAINT ref_f1_f2_fkey
   DEFERRABLE INITIALLY IMMEDIATE;	-- fails
-ERROR:  cannot alter constraint "ref_f1_f2_fkey" on relation "ref22"
+ERROR:  cannot alter constraint "ref_f1_f2_fkey" on relation "ref22" (tablecmds.c:9595)
 DETAIL:  Constraint "ref_f1_f2_fkey" is derived from constraint "ref_f1_f2_fkey" of relation "ref".
 HINT:  You may alter the constraint it derives from, instead.
 ALTER TABLE ref ALTER CONSTRAINT ref_f1_f2_fkey
@@ -2385,7 +2331,7 @@ CREATE TABLE ref(f1 int, f2 int, f3 int);
 ALTER TABLE ref ADD FOREIGN KEY(f1,f2) REFERENCES pt;
 ALTER TABLE ref ALTER CONSTRAINT ref_f1_f2_fkey1
   DEFERRABLE INITIALLY DEFERRED;	-- fails
-ERROR:  cannot alter constraint "ref_f1_f2_fkey1" on relation "ref"
+ERROR:  cannot alter constraint "ref_f1_f2_fkey1" on relation "ref" (tablecmds.c:9595)
 DETAIL:  Constraint "ref_f1_f2_fkey1" is derived from constraint "ref_f1_f2_fkey" of relation "ref".
 HINT:  You may alter the constraint it derives from, instead.
 ALTER TABLE ref ALTER CONSTRAINT ref_f1_f2_fkey
@@ -2418,16 +2364,17 @@ INSERT INTO pk VALUES (1);
 INSERT INTO fk VALUES (1);
 UPDATE pk SET a = 20;
 SELECT tableoid::regclass, * FROM fk;
- tableoid | a  
-----------+----
- fk12     | 20
+ tableoid | a 
+----------+---
+ fk11     | 1
 (1 row)
 
 DELETE FROM pk WHERE a = 20;
 SELECT tableoid::regclass, * FROM fk;
  tableoid | a 
 ----------+---
-(0 rows)
+ fk11     | 1
+(1 row)
 
 DROP TABLE fk;
 TRUNCATE TABLE pk;
@@ -2442,10 +2389,10 @@ INSERT INTO fk VALUES (20), (50);
 UPDATE pk SET a = 21 WHERE a = 20;
 DELETE FROM pk WHERE a = 50;
 SELECT tableoid::regclass, * FROM fk;
- tableoid | a 
-----------+---
- fk_d     |  
- fk_d     |  
+ tableoid | a  
+----------+----
+ fk12     | 20
+ fk12     | 50
 (2 rows)
 
 DROP TABLE fk;
@@ -2473,8 +2420,8 @@ UPDATE pk SET a = 90 WHERE a = 30 RETURNING *;
 SELECT tableoid::regclass, * FROM fk;
  tableoid | id | a  
 ----------+----+----
- fk12     |  1 | 50
- fk12     |  2 | 50
+ fk12     |  1 | 20
+ fk12     |  2 | 30
 (2 rows)
 
 DROP TABLE fk;
@@ -2488,11 +2435,7 @@ ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE RESTRICT ON DELETE RE
 CREATE TABLE fk_d PARTITION OF fk DEFAULT;
 INSERT INTO fk VALUES (20), (30);
 DELETE FROM pk WHERE a = 20;
-ERROR:  update or delete on table "pk11" violates foreign key constraint "fk_a_fkey2" on table "fk"
-DETAIL:  Key (a)=(20) is still referenced from table "fk".
 UPDATE pk SET a = 90 WHERE a = 30;
-ERROR:  update or delete on table "pk11" violates foreign key constraint "fk_a_fkey2" on table "fk"
-DETAIL:  Key (a)=(30) is still referenced from table "fk".
 SELECT tableoid::regclass, * FROM fk;
  tableoid | a  
 ----------+----
@@ -2522,7 +2465,6 @@ INSERT INTO fkpart8.tbl1 VALUES(1);
 BEGIN;
 INSERT INTO fkpart8.tbl2 VALUES(1);
 ALTER TABLE fkpart8.tbl2 DROP CONSTRAINT tbl2_f1_fkey;
-ERROR:  cannot ALTER TABLE "tbl2_p1" because it has pending trigger events
 COMMIT;
 DROP SCHEMA fkpart8 CASCADE;
 NOTICE:  drop cascades to 2 other objects
@@ -2548,7 +2490,8 @@ SELECT * FROM fkpart9.pk;
 SELECT * FROM fkpart9.fk;
  fk_a 
 ------
-(0 rows)
+   35
+(1 row)
 
 DROP SCHEMA fkpart9 CASCADE;
 NOTICE:  drop cascades to 2 other objects

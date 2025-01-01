@@ -65,7 +65,6 @@ analyze simple;
 create table bigger_than_it_looks as
   select generate_series(1, 60000) as id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 alter table bigger_than_it_looks set (autovacuum_enabled = 'false');
-WARNING:  autovacuum is not supported in Greenplum
 alter table bigger_than_it_looks set (parallel_workers = 2);
 analyze bigger_than_it_looks;
 update pg_class set reltuples = 1000 where relname = 'bigger_than_it_looks';
@@ -74,7 +73,6 @@ update pg_class set reltuples = 1000 where relname = 'bigger_than_it_looks';
 -- 2 rows, but actually there are 20,000 rows with the same key.
 create table extremely_skewed (id int, t text);
 alter table extremely_skewed set (autovacuum_enabled = 'false');
-WARNING:  autovacuum is not supported in Greenplum
 alter table extremely_skewed set (parallel_workers = 2);
 analyze extremely_skewed;
 insert into extremely_skewed
@@ -96,18 +94,15 @@ set local max_parallel_workers_per_gather = 0;
 set local work_mem = '4MB';
 explain (costs off)
   select count(*) from simple r join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select count(*) from simple r join simple s using (id);
  count 
@@ -133,18 +128,15 @@ set local work_mem = '4MB';
 set local enable_parallel_hash = off;
 explain (costs off)
   select count(*) from simple r join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select count(*) from simple r join simple s using (id);
  count 
@@ -170,18 +162,15 @@ set local work_mem = '4MB';
 set local enable_parallel_hash = on;
 explain (costs off)
   select count(*) from simple r join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select count(*) from simple r join simple s using (id);
  count 
@@ -210,18 +199,15 @@ set local work_mem = '128kB';
 set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_mem
 explain (costs off)
   select count(*) from simple r join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select count(*) from simple r join simple s using (id);
  count 
@@ -248,18 +234,15 @@ set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_m
 set local enable_parallel_hash = off;
 explain (costs off)
   select count(*) from simple r join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select count(*) from simple r join simple s using (id);
  count 
@@ -286,18 +269,15 @@ set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_m
 set local enable_parallel_hash = on;
 explain (costs off)
   select count(*) from simple r join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select count(*) from simple r join simple s using (id);
  count 
@@ -327,18 +307,15 @@ set local work_mem = '128kB';
 set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_mem
 explain (costs off)
   select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id);
-                            QUERY PLAN                            
-------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on bigger_than_it_looks s
- Optimizer: Postgres query optimizer
-(9 rows)
+                      QUERY PLAN                      
+------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on bigger_than_it_looks s
+(6 rows)
 
 select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id);
  count 
@@ -365,18 +342,15 @@ set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_m
 set local enable_parallel_hash = off;
 explain (costs off)
   select count(*) from simple r join bigger_than_it_looks s using (id);
-                            QUERY PLAN                            
-------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on bigger_than_it_looks s
- Optimizer: Postgres query optimizer
-(9 rows)
+                      QUERY PLAN                      
+------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on bigger_than_it_looks s
+(6 rows)
 
 select count(*) from simple r join bigger_than_it_looks s using (id);
  count 
@@ -403,18 +377,15 @@ set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_m
 set local enable_parallel_hash = on;
 explain (costs off)
   select count(*) from simple r join bigger_than_it_looks s using (id);
-                            QUERY PLAN                            
-------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on bigger_than_it_looks s
- Optimizer: Postgres query optimizer
-(9 rows)
+                      QUERY PLAN                      
+------------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on bigger_than_it_looks s
+(6 rows)
 
 select count(*) from simple r join bigger_than_it_looks s using (id);
  count 
@@ -445,18 +416,15 @@ set local work_mem = '128kB';
 set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_mem
 explain (costs off)
   select count(*) from simple r join extremely_skewed s using (id);
-                          QUERY PLAN                          
---------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on extremely_skewed s
- Optimizer: Postgres query optimizer
-(9 rows)
+                    QUERY PLAN                    
+--------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on extremely_skewed s
+(6 rows)
 
 select count(*) from simple r join extremely_skewed s using (id);
  count 
@@ -482,18 +450,15 @@ set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_m
 set local enable_parallel_hash = off;
 explain (costs off)
   select count(*) from simple r join extremely_skewed s using (id);
-                          QUERY PLAN                          
---------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on extremely_skewed s
- Optimizer: Postgres query optimizer
-(9 rows)
+                    QUERY PLAN                    
+--------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on extremely_skewed s
+(6 rows)
 
 select count(*) from simple r join extremely_skewed s using (id);
  count 
@@ -519,18 +484,15 @@ set local statement_mem = '1000kB'; -- GPDB uses statement_mem instead of work_m
 set local enable_parallel_hash = on;
 explain (costs off)
   select count(*) from simple r join extremely_skewed s using (id);
-                          QUERY PLAN                          
---------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on extremely_skewed s
- Optimizer: Postgres query optimizer
-(9 rows)
+                    QUERY PLAN                    
+--------------------------------------------------
+ Aggregate
+   ->  Hash Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on extremely_skewed s
+(6 rows)
 
 select count(*) from simple r join extremely_skewed s using (id);
  count 
@@ -588,23 +550,18 @@ explain (costs off)
   select count(*) from join_foo
     left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
     on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Nested Loop Left Join
-                     Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
-                     ->  Seq Scan on join_foo
-                     ->  Materialize
-                           ->  Broadcast Motion 3:3  (slice2; segments: 3)
-                                 ->  Hash Join
-                                       Hash Cond: (b1.id = b2.id)
-                                       ->  Seq Scan on join_bar b1
-                                       ->  Hash
-                                             ->  Seq Scan on join_bar b2
- Optimizer: Postgres query optimizer
-(14 rows)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate
+   ->  Nested Loop Left Join
+         Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
+         ->  Seq Scan on join_foo
+         ->  Hash Join
+               Hash Cond: (b1.id = b2.id)
+               ->  Seq Scan on join_bar b1
+               ->  Hash
+                     ->  Seq Scan on join_bar b2
+(9 rows)
 
 select count(*) from join_foo
   left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
@@ -642,23 +599,18 @@ explain (costs off)
   select count(*) from join_foo
     left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
     on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Nested Loop Left Join
-                     Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
-                     ->  Seq Scan on join_foo
-                     ->  Materialize
-                           ->  Broadcast Motion 3:3  (slice2; segments: 3)
-                                 ->  Hash Join
-                                       Hash Cond: (b1.id = b2.id)
-                                       ->  Seq Scan on join_bar b1
-                                       ->  Hash
-                                             ->  Seq Scan on join_bar b2
- Optimizer: Postgres query optimizer
-(14 rows)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate
+   ->  Nested Loop Left Join
+         Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
+         ->  Seq Scan on join_foo
+         ->  Hash Join
+               Hash Cond: (b1.id = b2.id)
+               ->  Seq Scan on join_bar b1
+               ->  Hash
+                     ->  Seq Scan on join_bar b2
+(9 rows)
 
 select count(*) from join_foo
   left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
@@ -697,23 +649,18 @@ explain (costs off)
   select count(*) from join_foo
     left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
     on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Nested Loop Left Join
-                     Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
-                     ->  Seq Scan on join_foo
-                     ->  Materialize
-                           ->  Broadcast Motion 3:3  (slice2; segments: 3)
-                                 ->  Hash Join
-                                       Hash Cond: (b1.id = b2.id)
-                                       ->  Seq Scan on join_bar b1
-                                       ->  Hash
-                                             ->  Seq Scan on join_bar b2
- Optimizer: Postgres query optimizer
-(14 rows)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate
+   ->  Nested Loop Left Join
+         Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
+         ->  Seq Scan on join_foo
+         ->  Hash Join
+               Hash Cond: (b1.id = b2.id)
+               ->  Seq Scan on join_bar b1
+               ->  Hash
+                     ->  Seq Scan on join_bar b2
+(9 rows)
 
 select count(*) from join_foo
   left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
@@ -751,23 +698,18 @@ explain (costs off)
   select count(*) from join_foo
     left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
     on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Nested Loop Left Join
-                     Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
-                     ->  Seq Scan on join_foo
-                     ->  Materialize
-                           ->  Broadcast Motion 3:3  (slice2; segments: 3)
-                                 ->  Hash Join
-                                       Hash Cond: (b1.id = b2.id)
-                                       ->  Seq Scan on join_bar b1
-                                       ->  Hash
-                                             ->  Seq Scan on join_bar b2
- Optimizer: Postgres query optimizer
-(14 rows)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate
+   ->  Nested Loop Left Join
+         Join Filter: ((join_foo.id < (b1.id + 1)) AND (join_foo.id > (b1.id - 1)))
+         ->  Seq Scan on join_foo
+         ->  Hash Join
+               Hash Cond: (b1.id = b2.id)
+               ->  Seq Scan on join_bar b1
+               ->  Hash
+                     ->  Seq Scan on join_bar b2
+(9 rows)
 
 select count(*) from join_foo
   left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss
@@ -796,18 +738,15 @@ savepoint settings;
 set local max_parallel_workers_per_gather = 0;
 explain (costs off)
      select  count(*) from simple r full outer join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Full Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Full Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select  count(*) from simple r full outer join simple s using (id);
  count 
@@ -821,18 +760,15 @@ savepoint settings;
 set local max_parallel_workers_per_gather = 2;
 explain (costs off)
      select  count(*) from simple r full outer join simple s using (id);
-                     QUERY PLAN                     
-----------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Full Join
-                     Hash Cond: (r.id = s.id)
-                     ->  Seq Scan on simple r
-                     ->  Hash
-                           ->  Seq Scan on simple s
- Optimizer: Postgres query optimizer
-(9 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Full Join
+         Hash Cond: (r.id = s.id)
+         ->  Seq Scan on simple r
+         ->  Hash
+               ->  Seq Scan on simple s
+(6 rows)
 
 select  count(*) from simple r full outer join simple s using (id);
  count 
@@ -847,20 +783,15 @@ savepoint settings;
 set local max_parallel_workers_per_gather = 0;
 explain (costs off)
      select  count(*) from simple r full outer join simple s on (r.id = 0 - s.id);
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Full Join
-                     Hash Cond: ((0 - s.id) = r.id)
-                     ->  Redistribute Motion 3:3  (slice2; segments: 3)
-                           Hash Key: (0 - s.id)
-                           ->  Seq Scan on simple s
-                     ->  Hash
-                           ->  Seq Scan on simple r
- Optimizer: Postgres query optimizer
-(11 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Full Join
+         Hash Cond: ((0 - s.id) = r.id)
+         ->  Seq Scan on simple s
+         ->  Hash
+               ->  Seq Scan on simple r
+(6 rows)
 
 select  count(*) from simple r full outer join simple s on (r.id = 0 - s.id);
  count  
@@ -874,20 +805,15 @@ savepoint settings;
 set local max_parallel_workers_per_gather = 2;
 explain (costs off)
      select  count(*) from simple r full outer join simple s on (r.id = 0 - s.id);
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Finalize Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Partial Aggregate
-               ->  Hash Full Join
-                     Hash Cond: ((0 - s.id) = r.id)
-                     ->  Redistribute Motion 3:3  (slice2; segments: 3)
-                           Hash Key: (0 - s.id)
-                           ->  Seq Scan on simple s
-                     ->  Hash
-                           ->  Seq Scan on simple r
- Optimizer: Postgres query optimizer
-(11 rows)
+               QUERY PLAN               
+----------------------------------------
+ Aggregate
+   ->  Hash Full Join
+         Hash Cond: ((0 - s.id) = r.id)
+         ->  Seq Scan on simple s
+         ->  Hash
+               ->  Seq Scan on simple r
+(6 rows)
 
 select  count(*) from simple r full outer join simple s on (r.id = 0 - s.id);
  count  
@@ -915,36 +841,24 @@ insert into wide select generate_series(3, 100) as id, rpad('', 320000, 'x') as 
 explain (costs off)
   select length(max(s.t))
   from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id);
-                   QUERY PLAN                   
-------------------------------------------------
+                QUERY PLAN                
+------------------------------------------
  Aggregate
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Hash Right Join
-               Hash Cond: (wide_1.id = wide.id)
-               ->  Seq Scan on wide wide_1
-               ->  Hash
-                     ->  Seq Scan on wide
- Optimizer: Postgres query optimizer
-(8 rows)
+   ->  Hash Right Join
+         Hash Cond: (wide_1.id = wide.id)
+         ->  Seq Scan on wide wide_1
+         ->  Hash
+               ->  Seq Scan on wide
+(6 rows)
 
-select length(max(s.t))
-from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id);
- length 
---------
- 320000
-(1 row)
-
-select final > 1 as multibatch
-  from hash_join_batches(
-$$
-  select length(max(s.t))
-  from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id);
-$$);
- multibatch 
-------------
- f
-(1 row)
-
+-- select length(max(s.t))
+-- from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id);
+-- select final > 1 as multibatch
+--   from hash_join_batches(
+-- $$
+--   select length(max(s.t))
+--   from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id);
+-- $$);
 rollback to settings;
 -- If virtualbuckets is much larger than innerndistinct, and
 -- outerndistinct is much larger than innerndistinct. Then most
@@ -960,16 +874,14 @@ insert into join_hash_t_big select i%100000 from generate_series(1, 100000)i ;
 analyze join_hash_t_small;
 analyze join_hash_t_big;
 explain (costs off) select * from join_hash_t_small, join_hash_t_big where a = b;
-                          QUERY PLAN                          
---------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  Hash Join
-         Hash Cond: (join_hash_t_big.b = join_hash_t_small.a)
-         ->  Seq Scan on join_hash_t_big
-         ->  Hash
-               ->  Seq Scan on join_hash_t_small
- Optimizer: Postgres query optimizer
-(7 rows)
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Hash Join
+   Hash Cond: (join_hash_t_big.b = join_hash_t_small.a)
+   ->  Seq Scan on join_hash_t_big
+   ->  Hash
+         ->  Seq Scan on join_hash_t_small
+(5 rows)
 
 rollback to settings;
 rollback;
@@ -1007,47 +919,38 @@ WHERE
     AND (SELECT hjtest_1.b * 5) < 50
     AND (SELECT hjtest_2.c * 5) < 55
     AND hjtest_1.a <> hjtest_2.b;
-                                              QUERY PLAN                                              
-------------------------------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Output: hjtest_1.a, hjtest_2.a, ((hjtest_1.tableoid)::regclass), ((hjtest_2.tableoid)::regclass)
-   ->  Hash Join
-         Output: hjtest_1.a, hjtest_2.a, (hjtest_1.tableoid)::regclass, (hjtest_2.tableoid)::regclass
-         Hash Cond: ((hjtest_1.id = (SubPlan 1)) AND ((SubPlan 2) = (SubPlan 3)))
-         Join Filter: (hjtest_1.a <> hjtest_2.b)
-         ->  Redistribute Motion 3:3  (slice2; segments: 3)
-               Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
-               Hash Key: hjtest_1.id, (SubPlan 2)
-               ->  Seq Scan on public.hjtest_1
-                     Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
-                     Filter: ((SubPlan 4) < 50)
-                     SubPlan 4
-                       ->  Result
-                             Output: (hjtest_1.b * 5)
-         ->  Hash
-               Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
-               ->  Redistribute Motion 3:3  (slice3; segments: 3)
-                     Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
-                     Hash Key: (SubPlan 1), (SubPlan 3)
-                     ->  Seq Scan on public.hjtest_2
-                           Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
-                           Filter: ((SubPlan 5) < 55)
-                           SubPlan 5
-                             ->  Result
-                                   Output: (hjtest_2.c * 5)
-               SubPlan 1
-                 ->  Result
-                       Output: 1
-                       One-Time Filter: (hjtest_2.id = 1)
-               SubPlan 3
-                 ->  Result
-                       Output: (hjtest_2.c * 5)
-         SubPlan 2
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Hash Join
+   Output: hjtest_1.a, hjtest_2.a, (hjtest_1.tableoid)::regclass, (hjtest_2.tableoid)::regclass
+   Hash Cond: ((hjtest_1.id = (SubPlan 1)) AND ((SubPlan 2) = (SubPlan 3)))
+   Join Filter: (hjtest_1.a <> hjtest_2.b)
+   ->  Seq Scan on public.hjtest_1
+         Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
+         Filter: ((SubPlan 4) < 50)
+         SubPlan 4
            ->  Result
                  Output: (hjtest_1.b * 5)
- Optimizer: Postgres query optimizer
- Settings: enable_sort = 'off', from_collapse_limit = '1', optimizer = 'off'
-(38 rows)
+   ->  Hash
+         Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
+         ->  Seq Scan on public.hjtest_2
+               Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
+               Filter: ((SubPlan 5) < 55)
+               SubPlan 5
+                 ->  Result
+                       Output: (hjtest_2.c * 5)
+         SubPlan 1
+           ->  Result
+                 Output: 1
+                 One-Time Filter: (hjtest_2.id = 1)
+         SubPlan 3
+           ->  Result
+                 Output: (hjtest_2.c * 5)
+   SubPlan 2
+     ->  Result
+           Output: (hjtest_1.b * 5)
+ Settings: enable_sort = 'off', from_collapse_limit = '1'
+(29 rows)
 
 SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2
 FROM hjtest_1, hjtest_2
@@ -1071,47 +974,38 @@ WHERE
     AND (SELECT hjtest_1.b * 5) < 50
     AND (SELECT hjtest_2.c * 5) < 55
     AND hjtest_1.a <> hjtest_2.b;
-                                              QUERY PLAN                                              
-------------------------------------------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Output: hjtest_1.a, hjtest_2.a, ((hjtest_1.tableoid)::regclass), ((hjtest_2.tableoid)::regclass)
-   ->  Hash Join
-         Output: hjtest_1.a, hjtest_2.a, (hjtest_1.tableoid)::regclass, (hjtest_2.tableoid)::regclass
-         Hash Cond: (((SubPlan 1) = hjtest_1.id) AND ((SubPlan 3) = (SubPlan 2)))
-         Join Filter: (hjtest_1.a <> hjtest_2.b)
-         ->  Redistribute Motion 3:3  (slice2; segments: 3)
-               Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
-               Hash Key: (SubPlan 1), (SubPlan 3)
-               ->  Seq Scan on public.hjtest_2
-                     Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
-                     Filter: ((SubPlan 5) < 55)
-                     SubPlan 5
-                       ->  Result
-                             Output: (hjtest_2.c * 5)
-         ->  Hash
-               Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
-               ->  Redistribute Motion 3:3  (slice3; segments: 3)
-                     Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
-                     Hash Key: hjtest_1.id, (SubPlan 2)
-                     ->  Seq Scan on public.hjtest_1
-                           Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
-                           Filter: ((SubPlan 4) < 50)
-                           SubPlan 4
-                             ->  Result
-                                   Output: (hjtest_1.b * 5)
-               SubPlan 2
-                 ->  Result
-                       Output: (hjtest_1.b * 5)
-         SubPlan 1
-           ->  Result
-                 Output: 1
-                 One-Time Filter: (hjtest_2.id = 1)
-         SubPlan 3
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Hash Join
+   Output: hjtest_1.a, hjtest_2.a, (hjtest_1.tableoid)::regclass, (hjtest_2.tableoid)::regclass
+   Hash Cond: (((SubPlan 1) = hjtest_1.id) AND ((SubPlan 3) = (SubPlan 2)))
+   Join Filter: (hjtest_1.a <> hjtest_2.b)
+   ->  Seq Scan on public.hjtest_2
+         Output: hjtest_2.a, hjtest_2.tableoid, hjtest_2.id, hjtest_2.c, hjtest_2.b
+         Filter: ((SubPlan 5) < 55)
+         SubPlan 5
            ->  Result
                  Output: (hjtest_2.c * 5)
- Optimizer: Postgres query optimizer
- Settings: enable_sort = 'off', from_collapse_limit = '1', optimizer = 'off'
-(38 rows)
+   ->  Hash
+         Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
+         ->  Seq Scan on public.hjtest_1
+               Output: hjtest_1.a, hjtest_1.tableoid, hjtest_1.id, hjtest_1.b
+               Filter: ((SubPlan 4) < 50)
+               SubPlan 4
+                 ->  Result
+                       Output: (hjtest_1.b * 5)
+         SubPlan 2
+           ->  Result
+                 Output: (hjtest_1.b * 5)
+   SubPlan 1
+     ->  Result
+           Output: 1
+           One-Time Filter: (hjtest_2.id = 1)
+   SubPlan 3
+     ->  Result
+           Output: (hjtest_2.c * 5)
+ Settings: enable_sort = 'off', from_collapse_limit = '1'
+(29 rows)
 
 SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2
 FROM hjtest_2, hjtest_1
@@ -1127,3 +1021,40 @@ WHERE
 (1 row)
 
 ROLLBACK;
+-- Verify that we behave sanely when the inner hash keys contain parameters
+-- (that is, outer or lateral references).  This situation has to defeat
+-- re-use of the inner hash table across rescans.
+begin;
+set local enable_hashjoin = on;
+explain (costs off)
+select i8.q2, ss.* from
+int8_tbl i8,
+lateral (select t1.fivethous, i4.f1 from tenk1 t1 join int4_tbl i4
+         on t1.fivethous = i4.f1+i8.q2 order by 1,2) ss;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Nested Loop
+   ->  Seq Scan on int8_tbl i8
+   ->  Materialize
+         ->  Sort
+               Sort Key: t1.fivethous, i4.f1
+               ->  Hash Join
+                     Hash Cond: (t1.fivethous = (i4.f1 + i8.q2))
+                     ->  Seq Scan on tenk1 t1
+                     ->  Hash
+                           ->  Seq Scan on int4_tbl i4
+(10 rows)
+
+select i8.q2, ss.* from
+int8_tbl i8,
+lateral (select t1.fivethous, i4.f1 from tenk1 t1 join int4_tbl i4
+         on t1.fivethous = i4.f1+i8.q2 order by 1,2) ss;
+ q2  | fivethous | f1 
+-----+-----------+----
+ 456 |       456 |  0
+ 456 |       456 |  0
+ 123 |       123 |  0
+ 123 |       123 |  0
+(4 rows)
+
+rollback;

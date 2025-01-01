@@ -21,7 +21,6 @@
 #include "commands/createas.h"
 #include "commands/defrem.h"
 #include "commands/prepare.h"
-#include "commands/queue.h"
 #include "executor/execUtils.h"
 #include "executor/hashjoin.h"
 #include "executor/nodeHash.h"
@@ -137,7 +136,9 @@ static void show_instrumentation_count(const char *qlabel, int which,
 									   PlanState *planstate, ExplainState *es);
 static void show_foreignscan_info(ForeignScanState *fsstate, ExplainState *es);
 static void show_eval_params(Bitmapset *bms_params, ExplainState *es);
+#if 0
 static void show_join_pruning_info(List *join_prune_ids, ExplainState *es);
+#endif
 static const char *explain_get_index_name(Oid indexId);
 static void show_buffer_usage(ExplainState *es, const BufferUsage *usage);
 static void ExplainIndexScanDetails(Oid indexid, ScanDirection indexorderdir,
@@ -686,9 +687,9 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	if (into)
 		eflags |= GetIntoRelEFlags(into);
 
-	check_and_unassign_from_resgroup(queryDesc->plannedstmt);
-	queryDesc->plannedstmt->query_mem =
-		ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);
+//	check_and_unassign_from_resgroup(queryDesc->plannedstmt);
+//	queryDesc->plannedstmt->query_mem =
+//		ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);
 
 	/* call ExecutorStart to prepare the plan for execution */
 	ExecutorStart(queryDesc, eflags);
@@ -977,12 +978,6 @@ ExplainPrintPlan(ExplainState *es, QueryDesc *queryDesc)
 		ps = outerPlanState(ps);
 	ExplainNode(ps, NIL, NULL, NULL, es);
 
-	/*
-	 * If requested, include information about GUC parameters with values that
-	 * don't match the built-in defaults.
-	 */
-	if (queryDesc->plannedstmt->planGen == PLANGEN_PLANNER)
-		ExplainPropertyStringInfo("Optimizer", es, "Postgres-based planner");
 #ifdef USE_ORCA
 	else
 		ExplainPropertyStringInfo("Optimizer", es, "GPORCA");
@@ -2669,9 +2664,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_AssertOp:
 			show_upper_qual(plan->qual, "Assert Cond", planstate, ancestors, es);
 			break;
-		case T_Append:
-			show_join_pruning_info(((Append *) plan)->join_prune_paramids, es);
-			break;
 		default:
 			break;
 	}
@@ -3777,6 +3769,7 @@ show_eval_params(Bitmapset *bms_params, ExplainState *es)
 		ExplainPropertyList("Params Evaluated", params, es);
 }
 
+#if 0
 static void
 show_join_pruning_info(List *join_prune_ids, ExplainState *es)
 {
@@ -3797,6 +3790,7 @@ show_join_pruning_info(List *join_prune_ids, ExplainState *es)
 
 	ExplainPropertyList("Partition Selectors", params, es);
 }
+#endif
 
 /*
  * Fetch the name of an index in an EXPLAIN

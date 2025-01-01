@@ -32,6 +32,7 @@
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbpathlocus.h"	/* me */
+#include "utils/dispatchcat.h"
 
 static List *cdb_build_distribution_keys(PlannerInfo *root,
 										 Index rti,
@@ -305,7 +306,7 @@ cdbpathlocus_from_policy(struct PlannerInfo *root, Index rti, GpPolicy *policy)
 {
 	CdbPathLocus result;
 
-	if (Gp_role != GP_ROLE_DISPATCH)
+	if (Gp_role != GP_ROLE_DISPATCH || isInTrigger)
 	{
 		CdbPathLocus_MakeEntry(&result);
 		return result;

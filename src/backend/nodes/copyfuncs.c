@@ -166,6 +166,7 @@ _copyQueryDispatchDesc(const QueryDispatchDesc *from)
 	COPY_SCALAR_FIELD(useChangedAOOpts);
 	COPY_SCALAR_FIELD(secContext);
 	COPY_NODE_FIELD(paramInfo);
+	COPY_NODE_FIELD(catalogNode);
 
 	return newnode;
 }
@@ -377,7 +378,6 @@ _copyAppend(const Append *from)
 	COPY_NODE_FIELD(appendplans);
 	COPY_SCALAR_FIELD(first_partial_plan);
 	COPY_NODE_FIELD(part_prune_info);
-	COPY_NODE_FIELD(join_prune_paramids);
 
 	return newnode;
 }
@@ -2186,6 +2186,7 @@ _copySubPlan(const SubPlan *from)
 	COPY_NODE_FIELD(extParam);
 	COPY_SCALAR_FIELD(startup_cost);
 	COPY_SCALAR_FIELD(per_call_cost);
+	COPY_SCALAR_FIELD(subLinkId);
 
 	return newnode;
 }

@@ -38,7 +38,6 @@ CREATE TABLE collate_test_like (
 --------+---------+-----------+----------+---------
  a      | integer |           |          | 
  b      | text    | C         | not null | 
-Distributed by: (a)
 
 CREATE TABLE collate_test2 (
     a int,
@@ -507,7 +506,7 @@ SELECT a, b, a < b as lt FROM
 
 -- collation mismatch in subselects
 SELECT * FROM collate_test10 WHERE (x, y) NOT IN (SELECT y, x FROM collate_test10);
-ERROR:  could not determine which collation to use for string comparison  (seg1 slice1 127.0.0.1:40001 pid=24086)
+ERROR:  could not determine which collation to use for string comparison
 HINT:  Use the COLLATE clause to set the collation explicitly.
 -- now it works with overrides
 SELECT * FROM collate_test10 WHERE (x COLLATE "POSIX", y COLLATE "C") NOT IN (SELECT y, x FROM collate_test10);
@@ -626,27 +625,21 @@ RESET enable_nestloop;
 -- EXPLAIN
 EXPLAIN (COSTS OFF)
   SELECT * FROM collate_test10 ORDER BY x, y;
-                     QUERY PLAN                     
-----------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: x, y
-   ->  Sort
-         Sort Key: x COLLATE "C", y COLLATE "POSIX"
-         ->  Seq Scan on collate_test10
- Optimizer: Postgres query optimizer
-(6 rows)
+                  QUERY PLAN                  
+----------------------------------------------
+ Sort
+   Sort Key: x COLLATE "C", y COLLATE "POSIX"
+   ->  Seq Scan on collate_test10
+(3 rows)
 
 EXPLAIN (COSTS OFF)
   SELECT * FROM collate_test10 ORDER BY x DESC, y COLLATE "C" ASC NULLS FIRST;
-                           QUERY PLAN                            
------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Merge Key: x, y
-   ->  Sort
-         Sort Key: x COLLATE "C" DESC, y COLLATE "C" NULLS FIRST
-         ->  Seq Scan on collate_test10
- Optimizer: Postgres query optimizer
-(6 rows)
+                        QUERY PLAN                         
+-----------------------------------------------------------
+ Sort
+   Sort Key: x COLLATE "C" DESC, y COLLATE "C" NULLS FIRST
+   ->  Seq Scan on collate_test10
+(3 rows)
 
 -- CREATE/DROP COLLATION
 CREATE COLLATION mycoll1 FROM "C";

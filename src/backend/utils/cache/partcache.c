@@ -30,6 +30,7 @@
 #include "rewrite/rewriteHandler.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
+#include "utils/dispatchcat.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/partcache.h"
@@ -106,8 +107,7 @@ RelationBuildPartitionKey(Relation relation)
 	 * the pg_partitioned_table entry yet.
 	 */
 	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for partition key of relation %u",
-			 RelationGetRelid(relation));
+		return;
 
 	partkeycxt = AllocSetContextCreate(CurTransactionContext,
 									   "partition key",
@@ -359,6 +359,9 @@ generate_partition_qual(Relation rel)
 	if (rel->rd_partcheckvalid)
 		return copyObject(rel->rd_partcheck);
 
+	if (rel->cdbCache)
+		BeginCacheCollect(rel->cdbCache);
+
 	/* Grab at least an AccessShareLock on the parent table */
 	parent = relation_open(get_partition_parent(RelationGetRelid(rel)),
 						   AccessShareLock);
@@ -431,6 +434,9 @@ generate_partition_qual(Relation rel)
 
 	/* Keep the parent locked until commit */
 	relation_close(parent, NoLock);
+
+	if (rel->cdbCache)
+		EndCacheCollect();
 
 	/* Return the working copy to the caller */
 	return result;

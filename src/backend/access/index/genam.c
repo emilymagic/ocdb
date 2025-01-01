@@ -21,6 +21,7 @@
 
 #include "access/genam.h"
 #include "access/heapam.h"
+#include "access/memoryheapam.h"
 #include "access/relscan.h"
 #include "access/tableam.h"
 #include "access/transam.h"
@@ -30,6 +31,7 @@
 #include "storage/bufmgr.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/dispatchcat.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/rls.h"
@@ -477,6 +479,8 @@ systable_getnext(SysScanDesc sysscan)
 		}
 	}
 
+	CdbCollectTuple(htup);
+
 	return htup;
 }
 
@@ -570,6 +574,9 @@ systable_beginscan_ordered(Relation heapRelation,
 	SysScanDesc sysscan;
 	int			i;
 
+	if (MemoryHeapActive())
+		return systable_beginscan(heapRelation, 0, false, snapshot, nkeys, key);
+
 	/* REINDEX can probably be a hard error here ... */
 	if (ReindexIsProcessingIndex(RelationGetRelid(indexRelation)))
 		elog(ERROR, "cannot do ordered scan on index \"%s\", because it is being reindexed",
@@ -631,6 +638,9 @@ systable_getnext_ordered(SysScanDesc sysscan, ScanDirection direction)
 {
 	HeapTuple	htup = NULL;
 
+	if (MemoryHeapActive())
+		return systable_getnext(sysscan);
+
 	Assert(sysscan->irel);
 	if (index_getnext_slot(sysscan->iscan, direction, sysscan->slot))
 		htup = ExecFetchSlotHeapTuple(sysscan->slot, false, NULL);
@@ -638,6 +648,9 @@ systable_getnext_ordered(SysScanDesc sysscan, ScanDirection direction)
 	/* See notes in systable_getnext */
 	if (htup && sysscan->iscan->xs_recheck)
 		elog(ERROR, "system catalog scans with lossy index conditions are not implemented");
+
+
+	CdbCollectTuple(htup);
 
 	return htup;
 }
@@ -648,6 +661,15 @@ systable_getnext_ordered(SysScanDesc sysscan, ScanDirection direction)
 void
 systable_endscan_ordered(SysScanDesc sysscan)
 {
+	if (MemoryHeapActive())
+	{
+		systable_endscan(sysscan);
+		return;
+	}
+
+//	if (Gp_role != GP_ROLE_UTILITY)
+//		elog(ERROR, "Access catalog table only allowed on UTILITY mod");
+
 	if (sysscan->slot)
 	{
 		ExecDropSingleTupleTableSlot(sysscan->slot);

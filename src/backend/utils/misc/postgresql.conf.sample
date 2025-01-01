@@ -640,7 +640,7 @@ optimizer_analyze_root_partition = on # stats collection on root partitions
 #default_tablespace = ''		# a tablespace name, '' uses the default
 #temp_tablespaces = ''			# a list of tablespace names, '' uses
 					# only default tablespace
-#default_table_access_method = 'heap'
+default_table_access_method = 'tile'
 #check_function_bodies = on
 #default_transaction_isolation = 'read committed'
 #default_transaction_read_only = off
@@ -725,8 +725,6 @@ optimizer_analyze_root_partition = on # stats collection on root partitions
 #resource_select_only = on		# resource lock SELECT queries only.
 #resource_cleanup_gangs_on_wait = on	# Cleanup idle reader gangs before
 										# resource lockwait.
-gp_resqueue_memory_policy = 'eager_free'	# memory request based queueing.
-									# eager_free, auto or none
 
 #---------------------------------------------------------------------------
 # EXTERNAL TABLES

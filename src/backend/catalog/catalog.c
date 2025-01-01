@@ -495,56 +495,6 @@ IsSharedRelation(Oid relationId)
 }
 
 /*
- * OIDs for catalog object are normally allocated in the coordinator, and
- * executor nodes should just use the OIDs passed by the coordinator. But
- * there are some exceptions.
- */
-static bool
-RelationNeedsSynchronizedOIDs(Relation relation)
-{
-	if (IsCatalogNamespace(RelationGetNamespace(relation)))
-	{
-		switch(RelationGetRelid(relation))
-		{
-			/*
-			 * pg_largeobject is more like a user table, and has
-			 * different contents in each segment and coordinator.
-			 *
-			 * Large objects don't work very consistently in GPDB. They are not
-			 * distributed in the segments, but rather stored in the coordinator node.
-			 * Or actually, it depends on which node the lo_create() function
-			 * happens to run, which isn't very deterministic.
-			 */
-			case LargeObjectRelationId:
-			case LargeObjectMetadataRelationId:
-				return false;
-
-			/*
-			 * We don't currently synchronize the OIDs of these catalogs.
-			 * It's a bit sketchy that we don't, but we get away with it
-			 * because these OIDs don't appear in any of the Node structs
-			 * that are dispatched from coordinator to segments. (Except for the
-			 * OIDs, the contents of these tables should be in sync.)
-			 */
-			case RewriteRelationId:
-			case TriggerRelationId:
-				return false;
-
-			/* Event triggers are only stored and fired in the QD. */
-			case EventTriggerRelationId:
-				return false;
-		}
-
-		/*
-		 * All other system catalogs are assumed to need synchronized
-		 * OIDs.
-		 */
-		return true;
-	}
-	return false;
-}
-
-/*
  * GetNewOidWithIndex
  *		Generate a new OID that is unique within the system relation.
  *
@@ -615,53 +565,10 @@ GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 
 		collides = HeapTupleIsValid(systable_getnext(scan));
 
-		/* GPDB: Also check that this OID hasn't been preallocated */
-		if (!collides && !IsOidAcceptable(newOid))
-			collides = true;
-
 		systable_endscan(scan);
 	} while (collides);
 
-	/*
-	 * Most catalog objects need to have the same OID in the coordinator and all
-	 * segments. When creating a new object, the coordinator should allocate the
-	 * OID and tell the segments to use the same, so segments should have no
-	 * need to ever allocate OIDs on their own. Therefore, give a WARNING if
-	 * GetNewOid() is called in a segment. (There are a few exceptions, see
-	 * RelationNeedsSynchronizedOIDs()).
-	 */
-	if (Gp_role == GP_ROLE_EXECUTE && RelationNeedsSynchronizedOIDs(relation))
-		elog(PANIC, "allocated OID %u for relation \"%s\" in segment",
-			 newOid, RelationGetRelationName(relation));
-
 	return newOid;
-}
-
-static bool
-GpCheckRelFileCollision(RelFileNodeBackend rnode)
-{
-	char	   *rpath;
-	bool		collides;
-
-	/* Check for existing file of same name */
-	rpath = relpath(rnode, MAIN_FORKNUM);
-	if (access(rpath, F_OK) == 0)
-		collides = true;
-	else
-	{
-		/*
-		 * Here we have a little bit of a dilemma: if errno is something
-		 * other than ENOENT, should we declare a collision and loop? In
-		 * practice it seems best to go ahead regardless of the errno.  If
-		 * there is a colliding file we will get an smgr failure when we
-		 * attempt to create the new relation file.
-		 */
-		collides = false;
-	}
-
-	pfree(rpath);
-
-	return collides;
 }
 
 /*
@@ -673,8 +580,6 @@ GpCheckRelFileCollision(RelFileNodeBackend rnode)
  * opened pg_class catalog, and this routine will guarantee that the result
  * is also an unused OID within pg_class.  If the result is to be used only
  * as a relfilenode for an existing relation, pass NULL for pg_class.
- * (in GPDB, 'pg_class' is unused, there is a different mechanism to avoid
- * clashes, across the whole cluster.)
  *
  * As with GetNewOidWithIndex(), there is some theoretical risk of a race
  * condition, but it doesn't seem worth worrying about.
@@ -686,6 +591,7 @@ Oid
 GetNewRelFileNode(Oid reltablespace, Relation pg_class, char relpersistence)
 {
 	RelFileNodeBackend rnode;
+	char	   *rpath;
 	bool		collides;
 	BackendId	backend;
 
@@ -693,11 +599,8 @@ GetNewRelFileNode(Oid reltablespace, Relation pg_class, char relpersistence)
 	 * If we ever get here during pg_upgrade, there's something wrong; all
 	 * relfilenode assignments during a binary-upgrade run should be
 	 * determined by commands in the dump script.
-	 *
-	 * GPDB: Totally OK in Greenplum. We don't use the table's OID as its
-	 * initial relfilenode, and rely on this in binary upgrade, too.
 	 */
-	//Assert(!IsBinaryUpgrade);
+	Assert(!IsBinaryUpgrade);
 
 	switch (relpersistence)
 	{
@@ -728,31 +631,35 @@ GetNewRelFileNode(Oid reltablespace, Relation pg_class, char relpersistence)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		/* Generate the Relfilenode */
-		rnode.node.relNode = GetNewSegRelfilenode();
+		/* Generate the OID */
+		if (pg_class)
+			rnode.node.relNode = GetNewOidWithIndex(pg_class, ClassOidIndexId,
+													Anum_pg_class_oid);
+		else
+			rnode.node.relNode = GetNewObjectId();
 
-		collides = GpCheckRelFileCollision(rnode);
+		/* Check for existing file of same name */
+		rpath = relpath(rnode, MAIN_FORKNUM);
 
-		if (!collides && rnode.node.spcNode != GLOBALTABLESPACE_OID)
+		if (access(rpath, F_OK) == 0)
+		{
+			/* definite collision */
+			collides = true;
+		}
+		else
 		{
 			/*
-			 * GPDB_91_MERGE_FIXME: check again for a collision with a temp
-			 * table (if this is a normal relation) or a normal table (if this
-			 * is a temp relation).
-			 *
-			 * The shared buffer manager currently assumes that relfilenodes of
-			 * relations stored in shared buffers can't conflict, which is
-			 * trivially true in upstream because temp tables don't use shared
-			 * buffers at all. We have to make this additional check to make
-			 * sure of that.
+			 * Here we have a little bit of a dilemma: if errno is something
+			 * other than ENOENT, should we declare a collision and loop? In
+			 * practice it seems best to go ahead regardless of the errno.  If
+			 * there is a colliding file we will get an smgr failure when we
+			 * attempt to create the new relation file.
 			 */
-			rnode.backend = (backend == InvalidBackendId) ? TempRelBackendId
-														  : InvalidBackendId;
-			collides = GpCheckRelFileCollision(rnode);
+			collides = false;
 		}
-	} while (collides);
 
-	elog(DEBUG1, "Calling GetNewRelFileNode returns new relfilenode = %d", rnode.node.relNode);
+		pfree(rpath);
+	} while (collides);
 
 	return rnode.node.relNode;
 }

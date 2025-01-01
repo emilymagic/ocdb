@@ -18,7 +18,7 @@
 #include "utils/relcache.h"
 #include "utils/resowner.h"
 #include "utils/snapshot.h"
-#include "cdb/cdbtm.h"
+
 
 /*
  * The structure used to map times to TransactionId values for the "snapshot
@@ -105,7 +105,7 @@ extern void SnapshotSetCommandId(CommandId curcid);
 extern Snapshot GetOldestSnapshot(void);
 
 extern Snapshot GetCatalogSnapshot(Oid relid);
-extern Snapshot GetNonHistoricCatalogSnapshot(Oid relid, DtxContext distributedTransactionContext);
+extern Snapshot GetNonHistoricCatalogSnapshot(Oid relid);
 extern void InvalidateCatalogSnapshot(void);
 extern void InvalidateCatalogSnapshotConditionally(void);
 
@@ -128,8 +128,6 @@ extern void AtSubCommit_Snapshot(int level);
 extern void AtSubAbort_Snapshot(int level);
 extern void AtEOXact_Snapshot(bool isCommit, bool resetXmin);
 
-extern void LogDistributedSnapshotInfo(Snapshot snapshot, const char *prefix);
-
 extern void ImportSnapshot(const char *idstr);
 extern bool XactHasExportedSnapshots(void);
 extern void DeleteAllExportedSnapshotFiles(void);
@@ -144,15 +142,7 @@ extern char *ExportSnapshot(Snapshot snapshot);
 /*
  * Utility functions for implementing visibility routines in table AMs.
  */
-typedef enum
-{
-	XID_NOT_IN_SNAPSHOT,
-	XID_IN_SNAPSHOT,
-	XID_SURELY_COMMITTED
-} XidInMVCCSnapshotCheckResult;
-extern XidInMVCCSnapshotCheckResult XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot,
-							  bool distributedSnapshotIgnore, bool *setDistributedSnapshotIgnore);
-extern bool XidInMVCCSnapshot_Local(TransactionId xid, Snapshot snapshot);
+extern bool XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot);
 
 /* Support for catalog timetravel for logical decoding */
 struct HTAB;
@@ -164,6 +154,6 @@ extern bool HistoricSnapshotActive(void);
 extern Size EstimateSnapshotSpace(Snapshot snapshot);
 extern void SerializeSnapshot(Snapshot snapshot, char *start_address);
 extern Snapshot RestoreSnapshot(char *start_address);
-extern void RestoreTransactionSnapshot(Snapshot snapshot, void *source_pgproc);
+extern void RestoreTransactionSnapshot(Snapshot snapshot, void *master_pgproc);
 
 #endif							/* SNAPMGR_H */

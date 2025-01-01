@@ -21,7 +21,7 @@
 #ifndef VARSIZE_TO_SHORT
 #define VARSIZE_TO_SHORT(PTR)   ((char)(VARSIZE(PTR)-VARHDRSZ+VARHDRSZ_SHORT) | 0x80)
 #define VARSIZE_TO_SHORT_D(D)   VARSIZE_TO_SHORT(DatumGetPointer(D))
-#endif 
+#endif
 
 /*
  * This enables de-toasting of index entries.  Needed until VACUUM is
@@ -138,17 +138,10 @@ do { \
  * toast_insert_or_update -
  *
  *	Called by heap_insert() and heap_update().
- *
- *	'isFrozen' is normally marked false. it is only true
- *	when we are interested in inserting it with FrozenTxnId
- *	such a scenario is when we insert into an error table.
- *	since the data itself is inserted as frozen, we need any
- *	toasted data to be inserted frozen as well.
  * ----------
  */
 extern HeapTuple toast_insert_or_update(Relation rel,
 										HeapTuple newtup, HeapTuple oldtup,
-										int toast_tuple_target,
 										int options);
 
 extern MemTuple toast_insert_or_update_memtup(Relation rel,
@@ -165,14 +158,6 @@ extern MemTuple toast_insert_or_update_memtup(Relation rel,
 extern void toast_delete(Relation rel, HeapTuple oldtup, bool is_speculative);
 
 /* ----------
- * toast_delete_datum -
- *
- *	Delete a single external stored value.
- * ----------
- */
-extern void toast_delete_datum(Relation rel, Datum value, bool is_speculative);
-
-/* ----------
  * heap_tuple_fetch_attr() -
  *
  *		Fetches an external stored attribute from the toast
@@ -184,7 +169,7 @@ extern struct varlena *heap_tuple_fetch_attr(struct varlena *attr);
 
 /* ----------
  * varattrib_untoast_ptr_len
- * 
+ *
  *		Fast path to get the pointer and length, avoid palloc if possible.
  * ----------
  */

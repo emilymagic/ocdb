@@ -40,13 +40,11 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
-#include "catalog/oid_dispatch.h"
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_cast.h"
 #include "catalog/pg_language.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
-#include "catalog/pg_proc_callback.h"
 #include "catalog/pg_transform.h"
 #include "catalog/pg_type.h"
 #include "commands/alter.h"
@@ -77,8 +75,6 @@
 #include "utils/typcache.h"
 
 #include "catalog/heap.h"
-#include "catalog/oid_dispatch.h"
-#include "cdb/cdbdisp_query.h"
 #include "cdb/cdbvars.h"
 
 
@@ -116,7 +112,7 @@ compute_return_type(TypeName *returnType, Oid languageOid,
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("SQL function cannot return shell type %s",
 								TypeNameToString(returnType))));
-			else if (Gp_role != GP_ROLE_EXECUTE)
+			else
 				ereport(NOTICE,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 						 errmsg("return type %s is only a shell",
@@ -153,20 +149,10 @@ compute_return_type(TypeName *returnType, Oid languageOid,
 							typnam)));
 
 		/* Otherwise, go ahead and make a shell type */
-		if (Gp_role == GP_ROLE_EXECUTE)
-		{
-			ereport(DEBUG1,
+		ereport(NOTICE,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("type \"%s\" is not yet defined", typnam),
 				 errdetail("Creating a shell type definition.")));
-		}
-		else
-		{
-			ereport(NOTICE,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("type \"%s\" is not yet defined", typnam),
-					 errdetail("Creating a shell type definition.")));
-		}
 		namespaceId = QualifiedNameGetCreationNamespace(returnType->names,
 														&typname);
 		aclresult = pg_namespace_aclcheck(namespaceId, GetUserId(),
@@ -224,7 +210,6 @@ interpret_function_parameter_list(ParseState *pstate,
 	Datum	   *paramNames;
 	int			outCount = 0;
 	int			varCount = 0;
-	int			multisetCount = 0;
 	bool		have_names = false;
 	bool		have_defaults = false;
 	ListCell   *x;
@@ -232,11 +217,7 @@ interpret_function_parameter_list(ParseState *pstate,
 
 	*variadicArgType = InvalidOid;	/* default result */
 	*requiredResultType = InvalidOid;	/* default result */
-	*parameterNames		= NULL;
-	*allParameterTypes	= NULL;
-	*parameterModes		= NULL;
 
-	/* Allocate local memory */
 	inTypes = (Oid *) palloc(parameterCount * sizeof(Oid));
 	allTypes = (Datum *) palloc(parameterCount * sizeof(Datum));
 	paramModes = (Datum *) palloc(parameterCount * sizeof(Datum));
@@ -271,7 +252,7 @@ interpret_function_parameter_list(ParseState *pstate,
 							(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 							 errmsg("aggregate cannot accept shell type %s",
 									TypeNameToString(t))));
-				else if (Gp_role != GP_ROLE_EXECUTE)
+				else
 					ereport(NOTICE,
 							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 							 errmsg("argument type %s is only a shell",
@@ -328,20 +309,11 @@ interpret_function_parameter_list(ParseState *pstate,
 						 errmsg("VARIADIC parameter must be the last input parameter")));
 			inTypes[inCount++] = toid;
 			isinput = true;
-
-			/* Keep track of the number of anytable arguments */
-			if (toid == ANYTABLEOID)
-				multisetCount++;
 		}
 
 		/* handle output parameters */
 		if (fp->mode != FUNC_PARAM_IN && fp->mode != FUNC_PARAM_VARIADIC)
 		{
-			if (toid == ANYTABLEOID)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 errmsg("functions cannot return \"anytable\" arguments")));
-
 			if (objtype == OBJECT_PROCEDURE)
 				*requiredResultType = RECORDOID;
 			else if (outCount == 0) /* save first output param's type */
@@ -367,8 +339,6 @@ interpret_function_parameter_list(ParseState *pstate,
 								 errmsg("VARIADIC parameter must be an array")));
 					break;
 			}
-
-			isinput = true;
 		}
 
 		allTypes[i] = ObjectIdGetDatum(toid);
@@ -423,11 +393,6 @@ interpret_function_parameter_list(ParseState *pstate,
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("only input parameters can have default values")));
 
-			if (toid == ANYTABLEOID)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 errmsg("anytable parameter cannot have default value")));
-
 			def = transformExpr(pstate, fp->defexpr,
 								EXPR_KIND_FUNCTION_DEFAULT);
 			def = coerce_to_specific_type(pstate, def, toid, "DEFAULT");
@@ -471,14 +436,6 @@ interpret_function_parameter_list(ParseState *pstate,
 		i++;
 	}
 
-	/* Currently only support single multiset input parameters */
-	if (multisetCount > 1)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("functions cannot have multiple \"anytable\" arguments")));
-	}
-
 	/* Now construct the proper outputs as needed */
 	*parameterTypes = buildoidvector(inTypes, inCount);
 
@@ -492,6 +449,11 @@ interpret_function_parameter_list(ParseState *pstate,
 			*requiredResultType = RECORDOID;
 		/* otherwise we set requiredResultType correctly above */
 	}
+	else
+	{
+		*allParameterTypes = NULL;
+		*parameterModes = NULL;
+	}
 
 	if (have_names)
 	{
@@ -503,7 +465,8 @@ interpret_function_parameter_list(ParseState *pstate,
 		*parameterNames = construct_array(paramNames, parameterCount, TEXTOID,
 										  -1, false, 'i');
 	}
-
+	else
+		*parameterNames = NULL;
 }
 
 
@@ -1481,16 +1444,6 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 						   prorows,
 						   execLocation);
 
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		CdbDispatchUtilityStatement((Node *) stmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									GetAssignedOidsForDispatch(),
-									NULL);
-	}
-
 	return objAddr;
 }
 
@@ -1523,9 +1476,6 @@ RemoveFunctionById(Oid funcOid)
 	ReleaseSysCache(tup);
 
 	table_close(relation, RowExclusiveLock);
-
-	/* Remove anything in pg_proc_callback for this function */
-	deleteProcCallbacks(funcOid);
 
 	/*
 	 * If there's a pg_aggregate tuple, delete that too.
@@ -1754,16 +1704,6 @@ AlterFunction(ParseState *pstate, AlterFunctionStmt *stmt)
 
 	table_close(rel, NoLock);
 	heap_freetuple(tup);
-	
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		CdbDispatchUtilityStatement((Node *) stmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									NIL,
-									NULL);
-	}
 
 	return address;
 }
@@ -2119,8 +2059,7 @@ CreateCast(CreateCastStmt *stmt)
 						format_type_be(targettypeid))));
 
 	/* ready to go */
-	castid = GetNewOidForCast(relation, CastOidIndexId, Anum_pg_cast_oid,
-							  sourcetypeid, targettypeid);
+	castid = GetNewOidWithIndex(relation, CastOidIndexId, Anum_pg_cast_oid);
 	values[Anum_pg_cast_oid - 1] = ObjectIdGetDatum(castid);
 	values[Anum_pg_cast_castsource - 1] = ObjectIdGetDatum(sourcetypeid);
 	values[Anum_pg_cast_casttarget - 1] = ObjectIdGetDatum(targettypeid);
@@ -2169,16 +2108,6 @@ CreateCast(CreateCastStmt *stmt)
 	heap_freetuple(tuple);
 
 	table_close(relation, RowExclusiveLock);
-
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		CdbDispatchUtilityStatement((Node *) stmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									GetAssignedOidsForDispatch(),
-									NULL);
-	}
 
 	return myself;
 }
@@ -2411,9 +2340,8 @@ CreateTransform(CreateTransformStmt *stmt)
 	}
 	else
 	{
-		transformid = GetNewOidForTransform(relation, TransformOidIndexId,
-											Anum_pg_transform_oid,
-											typeid, langid);
+		transformid = GetNewOidWithIndex(relation, TransformOidIndexId,
+										 Anum_pg_transform_oid);
 		values[Anum_pg_transform_oid - 1] = ObjectIdGetDatum(transformid);
 		newtuple = heap_form_tuple(RelationGetDescr(relation), values, nulls);
 		CatalogTupleInsert(relation, newtuple);
@@ -2466,33 +2394,6 @@ CreateTransform(CreateTransformStmt *stmt)
 
 	table_close(relation, RowExclusiveLock);
 
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		Assert(stmt->type == T_CreateTransformStmt);
-		Assert(stmt->type < 1000);
-		CdbDispatchUtilityStatement((Node *) stmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									GetAssignedOidsForDispatch(),
-									NULL);
-		if (is_replace)
-		{
-			MetaTrackUpdObject(TransformRelationId,
-							   myself.objectId,
-							   GetUserId(),
-							   "ALTER", "TRANSFORM");
-		}
-		else
-		{
-			/* MPP-6929: metadata tracking */
-			MetaTrackAddObject(TransformRelationId,
-							   myself.objectId,
-							   GetUserId(),
-							   "CREATE", "TRANSFORM");
-		}
-	}
-
 	return myself;
 }
 
@@ -2542,11 +2443,6 @@ DropTransformById(Oid transformOid)
 	if (!HeapTupleIsValid(tuple))
 		elog(ERROR, "could not find tuple for transform %u", transformOid);
 	CatalogTupleDelete(relation, &tuple->t_self);
-
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		MetaTrackDropObject(TransformRelationId, transformOid);
-	}
 
 	systable_endscan(scan);
 	table_close(relation, RowExclusiveLock);

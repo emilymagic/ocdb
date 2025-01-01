@@ -23,8 +23,6 @@
 #include "storage/procarray.h"
 #include "miscadmin.h"
 
-#include "access/bufmask.h"
-
 /*
  * _bt_restore_page -- re-enter all the index tuples on a page
  *
@@ -808,7 +806,7 @@ btree_xlog_reuse_page(XLogReaderState *record)
 	 * RecentGlobalXmin test in _bt_page_recyclable() conceptually mirrors the
 	 * pgxact->xmin > limitXmin test in GetConflictingVirtualXIDs().
 	 * Consequently, one XID value achieves the same exclusion effect on
-	 * primary and standby.
+	 * master and standby.
 	 */
 	if (InHotStandby)
 	{
