@@ -680,6 +680,10 @@
 /* Define bytes to use libc memset(). */
 #define MEMSET_LOOP_LIMIT 1024
 
+/* Define to the OpenSSL API version in use. This avoids deprecation warnings
+   from newer OpenSSL versions. */
+#define OPENSSL_API_COMPAT 0x00908000L
+
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT "support@greenplum.com"
 
@@ -690,7 +694,7 @@
 #define PACKAGE_STRING "Greenplum Database 7.0.0-beta"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "12.12"
+#define PACKAGE_VERSION "12.15"
 
 /* Define to the name of a signed 128-bit integer type. */
 #undef PG_INT128_TYPE
@@ -699,10 +703,10 @@
 #define PG_INT64_TYPE long long int
 
 /* PostgreSQL version as a string */
-#define PG_VERSION "12.12"
+#define PG_VERSION "12.15"
 
 /* PostgreSQL version as a number */
-#define PG_VERSION_NUM 120012
+#define PG_VERSION_NUM 120015
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "greenplum"

@@ -269,7 +269,7 @@ begin_heap_rewrite(Relation old_heap, Relation new_heap, TransactionId oldest_xm
 	state->rs_new_rel = new_heap;
 	state->rs_buffer = (Page) palloc(BLCKSZ);
 	/* new_heap needn't be empty, just locked */
-	state->rs_blockno = AcquireNumberOfBlocks(new_heap);
+	state->rs_blockno = RelationGetNumberOfBlocks(new_heap);
 	state->rs_buffer_valid = false;
 	state->rs_use_wal = use_wal;
 	state->rs_oldest_xmin = oldest_xmin;
@@ -336,11 +336,10 @@ end_heap_rewrite(RewriteState state)
 						state->rs_blockno,
 						state->rs_buffer,
 						true);
-		RelationOpenSmgr(state->rs_new_rel);
 
 		PageSetChecksumInplace(state->rs_buffer, state->rs_blockno);
 
-		smgrextend(state->rs_new_rel->rd_smgr, MAIN_FORKNUM, state->rs_blockno,
+		smgrextend(RelationGetSmgr(state->rs_new_rel), MAIN_FORKNUM, state->rs_blockno,
 				   (char *) state->rs_buffer, true);
 	}
 
@@ -665,7 +664,6 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 		options |= HEAP_INSERT_NO_LOGICAL;
 
 		heaptup = toast_insert_or_update(state->rs_new_rel, tup, NULL,
-										 TOAST_TUPLE_TARGET,
 										 options);
 	}
 	else
@@ -709,18 +707,13 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
 			 * fsync for this write; we'll do it ourselves in
 			 * end_heap_rewrite.
 			 */
-			RelationOpenSmgr(state->rs_new_rel);
-
 			PageSetChecksumInplace(page, state->rs_blockno);
 
-			smgrextend(state->rs_new_rel->rd_smgr, MAIN_FORKNUM,
+			smgrextend(RelationGetSmgr(state->rs_new_rel), MAIN_FORKNUM,
 					   state->rs_blockno, (char *) page, true);
 
 			state->rs_blockno++;
 			state->rs_buffer_valid = false;
-
-			if (state->rs_use_wal)
-				wait_to_avoid_large_repl_lag();
 		}
 	}
 

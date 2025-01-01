@@ -22,6 +22,7 @@
 #include "postgres.h"
 
 #include "access/tableam.h"
+#include "access/tileam.h"
 #include "access/xact.h"
 #include "executor/executor.h"
 #include "executor/nodeLockRows.h"
@@ -386,6 +387,16 @@ ExecInitLockRows(LockRows *node, EState *estate, int eflags)
 void
 ExecEndLockRows(LockRowsState *node)
 {
+	ListCell *lc;
+
+	foreach(lc, node->lr_arowMarks)
+	{
+		ExecAuxRowMark *aerm = (ExecAuxRowMark *) lfirst(lc);
+		ExecRowMark *erm = aerm->rowmark;
+
+		table_dml_finish(erm->relation);
+	}
+
 	EvalPlanQualEnd(&node->lr_epqstate);
 	ExecEndNode(outerPlanState(node));
 }

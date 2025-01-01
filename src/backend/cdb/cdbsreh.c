@@ -198,7 +198,7 @@ HandleSingleRowError(CdbSreh *cdbsreh)
 /*
  * Returns the fixed schema for error log tuple.
  */
-static TupleDesc
+TupleDesc
 GetErrorTupleDesc(void)
 {
 	static TupleDesc tupdesc = NULL;

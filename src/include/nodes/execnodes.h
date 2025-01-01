@@ -1690,7 +1690,7 @@ typedef struct DynamicIndexScanState
 typedef struct BitmapIndexScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
-	Node       *biss_result;	/* output bitmap */
+	TIDBitmap  *biss_result;
 	struct ScanKeyData *biss_ScanKeys;
 	int			biss_NumScanKeys;
 	IndexRuntimeKeyInfo *biss_RuntimeKeys;

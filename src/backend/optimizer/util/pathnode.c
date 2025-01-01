@@ -19,8 +19,12 @@
 #include <math.h>
 
 #include "miscadmin.h"
+#include "catalog/pg_am.h"
+#include "catalog/pg_class.h"
+#include "catalog/pg_type.h"
 #include "foreign/fdwapi.h"
 #include "nodes/extensible.h"
+#include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/appendinfo.h"
 #include "optimizer/clauses.h"
@@ -32,11 +36,13 @@
 #include "optimizer/prep.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
+#include "parser/parse_clause.h"
 #include "parser/parsetree.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/selfuncs.h"
 #include "optimizer/tlist.h"
+#include "utils/syscache.h"
 
 #include "catalog/pg_operator.h"
 #include "catalog/pg_proc.h"
@@ -70,6 +76,7 @@ static int	append_startup_cost_compare(const void *a, const void *b);
 static List *reparameterize_pathlist_by_child(PlannerInfo *root,
 											  List *pathlist,
 											  RelOptInfo *child_rel);
+static bool is_tid_pathkey(List *pathkeys);
 
 static bool set_append_path_locus(PlannerInfo *root, Path *pathnode, RelOptInfo *rel,
 					  List *pathkeys);
@@ -1023,6 +1030,7 @@ create_seqscan_path(PlannerInfo *root, RelOptInfo *rel,
 					Relids required_outer, int parallel_workers)
 {
 	Path	   *pathnode = makeNode(Path);
+	ListCell   *cell;
 
 	pathnode->pathtype = T_SeqScan;
 	pathnode->parent = rel;
@@ -1038,6 +1046,40 @@ create_seqscan_path(PlannerInfo *root, RelOptInfo *rel,
 	pathnode->motionHazard = false;
 	pathnode->rescannable = true;
 	pathnode->sameslice_relids = rel->relids;
+
+
+	/*
+	 * If tid var exists in path target, add a path key.
+	 */
+	foreach(cell, pathnode->pathtarget->exprs)
+	{
+		Expr *expr;
+
+		expr = lfirst(cell);
+		if (IsA(expr, Var))
+		{
+			Var *var;
+
+			var = (Var *) expr;
+			if (var->varattno == -1 && var->vartype == 27)
+			{
+				HeapTuple	systuple;
+				RangeTblEntry *rte;
+				Form_pg_class pg_class;
+
+				rte = rt_fetch(var->varno, root->parse->rtable);
+				systuple = SearchSysCache1(RELOID, ObjectIdGetDatum(rte->relid));
+				pg_class = (Form_pg_class) GETSTRUCT(systuple);
+
+				if (pg_class->relam == TILE_TABLE_AM_OID)
+					pathnode->pathkeys = lappend(pathnode->pathkeys,
+												 make_tid_path_key(root, var));
+
+				ReleaseSysCache(systuple);
+			}
+
+		}
+	}
 
 	cost_seqscan(pathnode, root, rel, pathnode->param_info);
 
@@ -1374,7 +1416,8 @@ create_append_path(PlannerInfo *root,
 	pathnode->path.parallel_aware = parallel_aware;
 	pathnode->path.parallel_safe = rel->consider_parallel;
 	pathnode->path.parallel_workers = parallel_workers;
-	pathnode->path.pathkeys = pathkeys;
+	if (!is_tid_pathkey(pathkeys))
+		pathnode->path.pathkeys = pathkeys;
 	pathnode->partitioned_rels = list_copy(partitioned_rels);
 
 	pathnode->path.motionHazard = false;
@@ -1444,7 +1487,8 @@ create_append_path(PlannerInfo *root,
 		pathnode->path.rows = child->rows;
 		pathnode->path.startup_cost = child->startup_cost;
 		pathnode->path.total_cost = child->total_cost;
-		pathnode->path.pathkeys = child->pathkeys;
+		if (!is_tid_pathkey(child->pathkeys))
+			pathnode->path.pathkeys = child->pathkeys;
 	}
 	else
 		cost_append(pathnode);
@@ -1524,7 +1568,8 @@ create_merge_append_path(PlannerInfo *root,
 	pathnode->path.parallel_aware = false;
 	pathnode->path.parallel_safe = rel->consider_parallel;
 	pathnode->path.parallel_workers = 0;
-	pathnode->path.pathkeys = pathkeys;
+	if (!is_tid_pathkey(pathkeys))
+		pathnode->path.pathkeys = pathkeys;
 	pathnode->partitioned_rels = list_copy(partitioned_rels);
 	pathnode->subpaths = subpaths;
 
@@ -4923,7 +4968,7 @@ create_minmaxagg_path(PlannerInfo *root,
 	/* For now, assume we are above any joins, so no parameterization */
 	pathnode->path.param_info = NULL;
 	pathnode->path.parallel_aware = false;
-	/* A MinMaxAggPath implies use of subplans, so cannot be parallel-safe */
+	/* A MinMaxAggPath implies use of initplans, so cannot be parallel-safe */
 	pathnode->path.parallel_safe = false;
 	pathnode->path.parallel_workers = 0;
 	/* Result is one unordered row */
@@ -5224,6 +5269,108 @@ create_lockrows_path(PlannerInfo *root, RelOptInfo *rel,
 	return pathnode;
 }
 
+
+static bool
+is_tid_pathkey(List *pathkeys)
+{
+	PathKey *pathKey;
+	ListCell *cell;
+	bool foundTid = false;
+
+	if (list_length(pathkeys) == 1)
+	{
+		pathKey = lfirst(list_head(pathkeys));
+
+		foreach(cell, pathKey->pk_eclass->ec_members)
+		{
+			EquivalenceMember *member;
+
+			member = lfirst(cell);
+			if (IsA(member->em_expr, Var))
+			{
+				Var *var = (Var *)member->em_expr;
+
+				if (var->varattno == -1)
+				{
+					foundTid = true;
+					break;
+				}
+			}
+		}
+	}
+
+	return foundTid;
+}
+
+static Path *
+add_tid_sort_path(PlannerInfo *root, Path *subpath)
+{
+	Path *sortPath = subpath;
+	PathKey *pathKey;
+	ListCell *cell;
+	bool foundTid = false;
+
+	if (list_length(subpath->pathkeys) == 1)
+	{
+		pathKey = lfirst(list_head(subpath->pathkeys));
+
+		foreach(cell, pathKey->pk_eclass->ec_members)
+		{
+			EquivalenceMember *member;
+
+			member = lfirst(cell);
+			if (IsA(member->em_expr, Var))
+			{
+				Var *var = (Var *)member->em_expr;
+
+				if (var->varattno == -1)
+				{
+					foundTid = true;
+					break;
+				}
+			}
+		}
+	}
+
+
+	if (!foundTid)
+	{
+		foreach(cell, subpath->pathtarget->exprs)
+		{
+			Expr *expr = lfirst(cell);
+
+			if (IsA(expr, Var))
+			{
+				Var *var = (Var *) expr;
+				if (var->varattno == -1)
+				{
+					HeapTuple	systuple;
+					RangeTblEntry *rte;
+					Form_pg_class pg_class;
+
+					rte = rt_fetch(var->varno, root->parse->rtable);
+					systuple = SearchSysCache1(RELOID, ObjectIdGetDatum(rte->relid));
+					pg_class = (Form_pg_class) GETSTRUCT(systuple);
+
+					if (pg_class->relam == TILE_TABLE_AM_OID)
+					{
+						pathKey = make_tid_path_key(root, var);
+						sortPath = (Path *) create_sort_path(root, subpath->parent,
+															 subpath,
+															 list_make1(pathKey), -1.0);
+					}
+
+					ReleaseSysCache(systuple);
+					break;
+				}
+			}
+		}
+
+	}
+
+	return (Path *) sortPath;
+}
+
 /*
  * create_modifytable_path
  *	  Creates a pathnode that represents performing INSERT/UPDATE/DELETE mods
@@ -5259,6 +5406,7 @@ create_modifytable_path(PlannerInfo *root, RelOptInfo *rel,
 	ModifyTablePath *pathnode = makeNode(ModifyTablePath);
 	double		total_size;
 	ListCell   *lc;
+	ListCell   *lc2;
 
 	Assert(list_length(resultRelations) == list_length(subpaths));
 	Assert(list_length(resultRelations) == list_length(subroots));
@@ -5316,9 +5464,13 @@ create_modifytable_path(PlannerInfo *root, RelOptInfo *rel,
 	pathnode->path.total_cost = 0;
 	pathnode->path.rows = 0;
 	total_size = 0;
-	foreach(lc, subpaths)
+	forboth(lc, subpaths, lc2, subroots)
 	{
 		Path	   *subpath = (Path *) lfirst(lc);
+		PlannerInfo *subroot = (PlannerInfo *) lfirst(lc2);
+
+		subpath = add_tid_sort_path(subroot, subpath);
+		lc->data.ptr_value = subpath;
 
 		if (lc == list_head(subpaths))	/* first node? */
 			pathnode->path.startup_cost = subpath->startup_cost;
@@ -5393,7 +5545,7 @@ adjust_modifytable_subpaths(PlannerInfo *root, CmdType operation,
 
 		Assert(rte->rtekind == RTE_RELATION);
 
-		targetPolicy = GpPolicyFetch(rte->relid);
+		targetPolicy = GpPolicyFetchByCost(rte->relid, subpath->rows * 100);
 		targetPolicyType = targetPolicy->ptype;
 
 		numsegments = Max(targetPolicy->numsegments, numsegments);

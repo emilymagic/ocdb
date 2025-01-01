@@ -381,14 +381,6 @@ set_plan_references(PlannerInfo *root, Plan *plan)
 	int			rtoffset = list_length(glob->finalrtable);
 	ListCell   *lc;
 
-#ifdef USE_ASSERT_CHECKING
-	/* 
-	 * This method formalizes our assumptions about the input to set_plan_references.
-	 * This will hopefully, help us debug any problems.
-	 */
-	set_plan_references_input_asserts(glob, plan, root->parse->rtable);
-#endif
-
 	/*
 	 * Add all the query's RTEs to the flattened rangetable.  The live ones
 	 * will have their rangetable indexes increased by rtoffset.  (Additional
@@ -451,13 +443,6 @@ set_plan_references(PlannerInfo *root, Plan *plan)
 			ndx ++;
 		}
 	}
-
-#ifdef USE_ASSERT_CHECKING
-	/**
-	 * Ensuring that the output of setrefs behaves as expected.
-	 */
-	set_plan_references_output_asserts(glob, result);
-#endif
 
 	return result;
 }
@@ -1593,7 +1578,19 @@ trivial_subqueryscan(SubqueryScan *plan)
 static Plan *
 clean_up_removed_plan_level(Plan *parent, Plan *child)
 {
-	/* We have to be sure we don't lose any initplans */
+	/*
+	 * We have to be sure we don't lose any initplans, so move any that were
+	 * attached to the parent plan to the child.  If we do move any, the child
+	 * is no longer parallel-safe.
+	 */
+	if (parent->initPlan)
+		child->parallel_safe = false;
+
+	/*
+	 * Attach plans this way so that parent's initplans are processed before
+	 * any pre-existing initplans of the child.  Probably doesn't matter, but
+	 * let's preserve the ordering just in case.
+	 */
 	child->initPlan = list_concat(parent->initPlan,
 								  child->initPlan);
 

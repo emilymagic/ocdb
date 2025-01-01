@@ -1,0 +1,252 @@
+VACUUM;
+--
+-- sanity check, if we don't have indices the test will take years to
+-- complete.  But skip TOAST relations (since they will have varying
+-- names depending on the current OID counter) as well as temp tables
+-- of other backends (to avoid timing-dependent behavior).
+--
+-- temporarily disable fancy output, so catalog changes create less diff noise
+\a\t
+SELECT relname, relhasindex
+   FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = relnamespace
+   WHERE relkind IN ('r', 'p') AND (nspname ~ '^pg_temp_') IS NOT TRUE and nspname != 'pg_aoseg'
+   ORDER BY relname;
+a|f
+a_star|f
+aggtest|f
+array_index_op_test|f
+array_op_test|f
+b|f
+b_star|f
+bit_defaults|f
+box_tbl|f
+bprime|f
+bt_f8_heap|f
+bt_i4_heap|f
+bt_name_heap|f
+bt_txt_heap|f
+c|f
+c_star|f
+char_tbl|f
+check2_tbl|f
+check_tbl|f
+circle_tbl|f
+city|f
+copy_tbl|f
+d|f
+d_star|f
+date_tbl|f
+default_tbl|f
+defaultexpr_tbl|f
+dept|f
+e_star|f
+emp|f
+equipment_r|f
+extra_wide_table|f
+f_star|f
+fast_emp4000|f
+float4_tbl|f
+float8_tbl|f
+gp_configuration_history|f
+gp_distribution_policy|t
+gp_fastsequence|t
+gp_id|f
+gp_partition_template|t
+gp_segment_configuration|t
+gp_version_at_initdb|f
+hash_f8_heap|f
+hash_i4_heap|f
+hash_name_heap|f
+hash_txt_heap|f
+hobbies_r|f
+ihighway|f
+inet_tbl|f
+inh_fk_1|f
+insert_tbl|f
+int2_tbl|f
+int4_tbl|f
+int8_tbl|f
+interval_tbl|f
+invalid_check_con|f
+invalid_check_con_child|f
+iportaltest|f
+line_tbl|f
+log_table|f
+lseg_tbl|f
+main_table|f
+mlparted|f
+mlparted1|f
+mlparted11|f
+mlparted12|f
+mlparted2|f
+mlparted3|f
+mlparted4|f
+mlparted_def|f
+mlparted_def1|f
+mlparted_def2|f
+mlparted_defd|f
+money_data|f
+num_data|f
+num_exp_add|f
+num_exp_div|f
+num_exp_ln|f
+num_exp_log10|f
+num_exp_mul|f
+num_exp_power_10_ln|f
+num_exp_sqrt|f
+num_exp_sub|f
+num_input_test|f
+num_result|f
+numrange_test|f
+onek|f
+onek2|f
+path_tbl|f
+person|f
+persons|f
+persons2|f
+persons3|f
+pg_aggregate|t
+pg_am|t
+pg_amop|t
+pg_amproc|t
+pg_appendonly|t
+pg_attrdef|t
+pg_attribute|t
+pg_attribute_encoding|t
+pg_auth_members|t
+pg_auth_time_constraint|t
+pg_authid|t
+pg_cast|t
+pg_class|t
+pg_collation|t
+pg_compression|t
+pg_constraint|t
+pg_conversion|t
+pg_database|t
+pg_db_role_setting|t
+pg_default_acl|t
+pg_depend|t
+pg_description|t
+pg_enum|t
+pg_event_trigger|t
+pg_extension|t
+pg_extprotocol|t
+pg_foreign_data_wrapper|t
+pg_foreign_server|t
+pg_foreign_table|t
+pg_index|t
+pg_inherits|t
+pg_init_privs|t
+pg_language|t
+pg_largeobject|t
+pg_largeobject_metadata|t
+pg_namespace|t
+pg_opclass|t
+pg_operator|t
+pg_opfamily|t
+pg_partitioned_table|t
+pg_pltemplate|t
+pg_policy|t
+pg_proc|t
+pg_proc_callback|t
+pg_publication|t
+pg_publication_rel|t
+pg_range|t
+pg_replication_origin|t
+pg_resgroup|t
+pg_resgroupcapability|t
+pg_resourcetype|t
+pg_resqueue|t
+pg_resqueuecapability|t
+pg_rewrite|t
+pg_seclabel|t
+pg_sequence|t
+pg_shdepend|t
+pg_shdescription|t
+pg_shseclabel|t
+pg_stat_last_operation|t
+pg_stat_last_shoperation|t
+pg_statistic|t
+pg_statistic_ext|t
+pg_statistic_ext_data|t
+pg_subscription|t
+pg_subscription_rel|t
+pg_tablespace|t
+pg_tile|t
+pg_transform|t
+pg_trigger|t
+pg_ts_config|t
+pg_ts_config_map|t
+pg_ts_dict|t
+pg_ts_parser|t
+pg_ts_template|t
+pg_type|t
+pg_type_encoding|t
+pg_user_mapping|t
+point_tbl|f
+polygon_tbl|f
+quad_box_tbl|f
+quad_poly_tbl|f
+ramp|f
+real_city|f
+road|f
+shighway|f
+slow_emp4000|f
+sql_features|f
+sql_implementation_info|f
+sql_languages|f
+sql_packages|f
+sql_parts|f
+sql_sizing|f
+sql_sizing_profiles|f
+stud_emp|f
+student|f
+tableam_parted_a_heap2|f
+tableam_parted_b_heap2|f
+tableam_parted_c_heap2|f
+tableam_parted_d_heap2|f
+tableam_parted_heap2|f
+tableam_tbl_heap2|f
+tableam_tblas_heap2|f
+tenk1|f
+tenk2|f
+test_tsvector|f
+testjsonb|f
+text_tbl|f
+textrange_test|f
+time_tbl|f
+timestamp_tbl|f
+timestamptz_tbl|f
+timetz_tbl|f
+tmp|f
+varchar_tbl|f
+view_base_table|f
+-- restore normal output mode
+\a\t
+--
+-- another sanity check: every system catalog that has OIDs should have
+-- a unique index on OID.  This ensures that the OIDs will be unique,
+-- even after the OID counter wraps around.
+-- We exclude non-system tables from the check by looking at nspname.
+--
+SELECT relname, nspname
+ FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = relnamespace JOIN pg_attribute a ON (attrelid = c.oid AND attname = 'oid')
+ WHERE relkind = 'r' and c.oid < 16384
+     AND ((nspname ~ '^pg_') IS NOT FALSE)
+     AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE indrelid = c.oid
+                     AND indkey[0] = a.attnum AND indnatts = 1
+                     AND indisunique AND indimmediate) 
+     AND relname NOT LIKE 'pg_tile_%';
+ relname | nspname 
+---------+---------
+(0 rows)
+
+-- check that relations without storage don't have relfilenode
+SELECT relname, relkind
+  FROM pg_class
+ WHERE relkind IN ('v', 'c', 'f', 'p', 'I')
+       AND relfilenode <> 0;
+ relname | relkind 
+---------+---------
+(0 rows)
+

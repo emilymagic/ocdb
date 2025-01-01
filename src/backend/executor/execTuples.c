@@ -527,11 +527,27 @@ tts_minimal_getsomeattrs(TupleTableSlot *slot, int natts)
 static Datum
 tts_minimal_getsysattr(TupleTableSlot *slot, int attnum, bool *isnull)
 {
+	Datum		result;
+
 	Assert(!TTS_EMPTY(slot));
 
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("cannot retrieve a system column in this context")));
+	*isnull = false;
+
+	switch (attnum)
+	{
+		case GpSegmentIdAttributeNumber:                       /*CDB*/
+			result = Int32GetDatum(GpIdentity.segindex);
+			break;
+		default:
+			elog(ERROR, "invalid attnum: %d", attnum);
+			result = 0;			/* keep compiler quiet */
+			break;
+	}
+	return result;
+
+//	ereport(ERROR,
+//			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+//			 errmsg("cannot retrieve a system column in this context")));
 
 	return 0;					/* silence compiler warnings */
 }
@@ -611,11 +627,17 @@ static HeapTuple
 tts_minimal_copy_heap_tuple(TupleTableSlot *slot)
 {
 	MinimalTupleTableSlot *mslot = (MinimalTupleTableSlot *) slot;
+	HeapTuple htup;
 
 	if (!mslot->mintuple)
 		tts_minimal_materialize(slot);
 
-	return heap_tuple_from_minimal_tuple(mslot->mintuple);
+	htup = heap_tuple_from_minimal_tuple(mslot->mintuple);
+
+	if (ItemPointerIsValid(&mslot->base.tts_tid))
+		htup->t_self = mslot->base.tts_tid;
+
+	return htup;
 }
 
 static MinimalTuple
@@ -1374,7 +1396,7 @@ ExecStoreHeapTuple(HeapTuple tuple,
 	Assert(slot->tts_tupleDescriptor != NULL);
 
 	if (unlikely(!TTS_IS_HEAPTUPLE(slot)))
-		elog(ERROR, "trying to store a heap tuple into wrong type of slot");
+		elog(PANIC, "trying to store a heap tuple into wrong type of slot");
 	tts_heap_store_tuple(slot, tuple, shouldFree);
 
 	slot->tts_tableOid = tuple->t_tableOid;

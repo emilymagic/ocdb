@@ -1268,7 +1268,7 @@ aoco_relation_set_new_filenode(Relation rel,
 	 *
 	 * Segment files will be created when / if needed.
 	 */
-	srel = RelationCreateStorage(*newrnode, persistence, SMGR_AO);
+	srel = RelationCreateStorage(*newrnode, persistence, false);
 
 	/*
 	 * If required, set up an init fork for an unlogged table so that it can
@@ -1285,7 +1285,7 @@ aoco_relation_set_new_filenode(Relation rel,
 			   rel->rd_rel->relkind == RELKIND_MATVIEW ||
 			   rel->rd_rel->relkind == RELKIND_TOASTVALUE);
 		smgrcreate(srel, INIT_FORKNUM, false);
-		log_smgrcreate(newrnode, INIT_FORKNUM, SMGR_AO);
+		log_smgrcreate(newrnode, INIT_FORKNUM);
 		smgrimmedsync(srel, INIT_FORKNUM);
 	}
 
@@ -1333,7 +1333,7 @@ aoco_relation_copy_data(Relation rel, const RelFileNode *newrnode)
 	 * Use the "AO-specific" (non-shared buffers backed storage) SMGR
 	 * implementation
 	 */
-	dstrel = smgropen(*newrnode, rel->rd_backend, SMGR_AO);
+	dstrel = smgropen(*newrnode, rel->rd_backend);
 	RelationOpenSmgr(rel);
 
 	/*
@@ -1343,7 +1343,7 @@ aoco_relation_copy_data(Relation rel, const RelFileNode *newrnode)
 	 * NOTE: any conflict in relfilenode value will be caught in
 	 * RelationCreateStorage().
 	 */
-	RelationCreateStorage(*newrnode, rel->rd_rel->relpersistence, SMGR_AO);
+	RelationCreateStorage(*newrnode, rel->rd_rel->relpersistence, false);
 
 	copy_append_only_data(rel->rd_node, *newrnode, rel->rd_backend, rel->rd_rel->relpersistence);
 
@@ -1362,7 +1362,7 @@ aoco_relation_copy_data(Relation rel, const RelFileNode *newrnode)
 		 */
 		smgrcreate(dstrel, INIT_FORKNUM, false);
 
-		log_smgrcreate(newrnode, INIT_FORKNUM, SMGR_AO);
+		log_smgrcreate(newrnode, INIT_FORKNUM);
 	}
 
 	/* drop old relation, and close new one */
@@ -1380,8 +1380,6 @@ aoco_vacuum_rel(Relation onerel, VacuumParams *params,
 	 * get here for every phase. ao_vacuum_rel() is a wrapper of dedicated
 	 * ao_vacuum_rel_*() functions for the specific phases.
 	 */
-	ao_vacuum_rel(onerel, params, bstrategy);
-
 	return;
 }
 

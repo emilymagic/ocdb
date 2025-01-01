@@ -77,9 +77,6 @@ static void updateResgroupCapabilityEntry(Relation rel,
 static void insertResgroupCapabilities(Relation rel, Oid groupId, ResGroupCaps *caps);
 static void deleteResgroupCapabilities(Oid groupid);
 static void checkAuthIdForDrop(Oid groupId);
-static void createResgroupCallback(XactEvent event, void *arg);
-static void dropResgroupCallback(XactEvent event, void *arg);
-static void alterResgroupCallback(XactEvent event, void *arg);
 static void checkCpusetSyntax(const char *cpuset);
 
 /*
@@ -196,10 +193,6 @@ CreateResourceGroup(CreateResourceGroupStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-		MetaTrackAddObject(ResGroupRelationId,
-						   groupid,
-						   GetUserId(), /* not ownerid */
-						   "CREATE", "RESOURCE GROUP");
 	}
 
 	table_close(pg_resgroup_rel, NoLock);
@@ -219,7 +212,6 @@ CreateResourceGroup(CreateResourceGroupStmt *stmt)
 		callbackCtx->caps = caps;
 
 		MemoryContextSwitchTo(oldContext);
-		RegisterXactCallbackOnce(createResgroupCallback, callbackCtx);
 
 		/* Create os dependent part for this resource group */
 		cgroupOpsRoutine->createcgroup(groupid);
@@ -316,7 +308,6 @@ DropResourceGroup(DropResourceGroupStmt *stmt)
 		callbackCtx = (ResourceGroupCallbackContext *)
 			MemoryContextAlloc(TopMemoryContext, sizeof(*callbackCtx));
 		callbackCtx->groupid = groupid;
-		RegisterXactCallbackOnce(dropResgroupCallback, callbackCtx);
 
 		ResGroupCheckForDrop(groupid, stmt->name);
 	}
@@ -343,9 +334,6 @@ DropResourceGroup(DropResourceGroupStmt *stmt)
 
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
-		/* metadata tracking */
-		MetaTrackDropObject(ResGroupRelationId, groupid);
-
 		CdbDispatchUtilityStatement((Node *) stmt,
 									DF_CANCEL_ON_ERROR|
 									DF_WITH_SNAPSHOT|
@@ -528,11 +516,6 @@ AlterResourceGroup(AlterResourceGroupStmt *stmt)
 
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
-		MetaTrackUpdObject(ResGroupCapabilityRelationId,
-						   groupid,
-						   GetUserId(),
-						   "ALTER", defel->defname);
-
 		CdbDispatchUtilityStatement((Node *) stmt,
 									DF_CANCEL_ON_ERROR|
 									DF_WITH_SNAPSHOT|
@@ -552,7 +535,6 @@ AlterResourceGroup(AlterResourceGroupStmt *stmt)
 		callbackCtx->oldCaps = oldCaps;
 
 		MemoryContextSwitchTo(oldContext);
-		RegisterXactCallbackOnce(alterResgroupCallback, callbackCtx);
 	}
 }
 
@@ -1074,65 +1056,6 @@ parseStmtOptions(CreateResourceGroupStmt *stmt, ResGroupCaps *caps)
 	if ((mask & (1 << RESGROUP_LIMIT_TYPE_CPU)) &&
 		!(mask & (1 << RESGROUP_LIMIT_TYPE_CPU_SHARES)))
 		caps->cpuWeight = RESGROUP_DEFAULT_CPU_WEIGHT;
-}
-
-/*
- * Resource group call back function
- *
- * Remove resource group entry in shared memory when abort transaction which
- * creates resource groups
- */
-static void
-createResgroupCallback(XactEvent event, void *arg)
-{
-	ResourceGroupCallbackContext *callbackCtx = arg;
-
-	if (event != XACT_EVENT_COMMIT)
-	{
-		ResGroupCreateOnAbort(callbackCtx);
-	}
-
-	if (callbackCtx->caps.io_limit != NIL)
-		cgroupOpsRoutine->freeio(callbackCtx->caps.io_limit);
-	pfree(callbackCtx);
-}
-
-/*
- * Resource group call back function
- *
- * When DROP RESOURCE GROUP transaction ends, need wake up
- * the queued transactions and cleanup shared menory entry.
- */
-static void
-dropResgroupCallback(XactEvent event, void *arg)
-{
-	ResourceGroupCallbackContext *callbackCtx = arg;
-
-	ResGroupDropFinish(callbackCtx, event == XACT_EVENT_COMMIT);
-	pfree(callbackCtx);
-}
-
-/*
- * Resource group call back function
- *
- * When ALTER RESOURCE GROUP SET CONCURRENCY commits, some queuing
- * transaction of this resource group may need to be woke up.
- */
-static void
-alterResgroupCallback(XactEvent event, void *arg)
-{
-	ResourceGroupCallbackContext *callbackCtx = arg;
-
-	if (event == XACT_EVENT_COMMIT)
-		ResGroupAlterOnCommit(callbackCtx);
-
-	if (callbackCtx->caps.io_limit != NIL)
-		cgroupOpsRoutine->freeio(callbackCtx->caps.io_limit);
-
-	if (callbackCtx->oldCaps.io_limit != NIL)
-		cgroupOpsRoutine->freeio(callbackCtx->oldCaps.io_limit);
-
-	pfree(callbackCtx);
 }
 
 /*
