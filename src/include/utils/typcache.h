@@ -122,6 +122,8 @@ typedef struct TypeCacheEntry
 
 	/* We also maintain a list of all known domain-type cache entries */
 	struct TypeCacheEntry *nextDomain;
+
+	struct CacheNode *cdbTupleCache;
 } TypeCacheEntry;
 
 /* Bit flags to indicate which fields a given caller needs to have set */
@@ -198,6 +200,7 @@ extern void SharedRecordTypmodRegistryInit(SharedRecordTypmodRegistry *,
 										   dsm_segment *segment, dsa_area *area);
 
 extern void SharedRecordTypmodRegistryAttach(SharedRecordTypmodRegistry *);
+extern void load_enum_cache_data(TypeCacheEntry *tcache);
 
 extern List *build_tuple_node_list(int start);
 

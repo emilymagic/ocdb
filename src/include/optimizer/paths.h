@@ -253,6 +253,7 @@ extern void make_distribution_exprs_for_groupclause(PlannerInfo *root,
 													List **partition_dist_exprs,
 													List **partition_dist_opfamilies,
 													List **partition_dist_sortrefs);
+extern PathKey *make_tid_path_key(PlannerInfo *root, Var *tidVar);
 extern void initialize_mergeclause_eclasses(PlannerInfo *root,
 											RestrictInfo *restrictinfo);
 extern void update_mergeclause_eclasses(PlannerInfo *root,

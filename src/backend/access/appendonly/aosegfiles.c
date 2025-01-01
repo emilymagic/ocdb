@@ -1685,7 +1685,7 @@ pg_aoseg_tuple_could_be_updated(Relation relation, HeapTuple tuple)
 	buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(&tuple->t_self));
 	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 
-	result = HeapTupleSatisfiesUpdate(relation, tuple, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(tuple, cid, buffer);
 
 	UnlockReleaseBuffer(buffer);
 

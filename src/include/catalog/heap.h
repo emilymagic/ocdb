@@ -93,14 +93,12 @@ extern Oid	heap_create_with_catalog(const char *relname,
 									 bool shared_relation,
 									 bool mapped_relation,
 									 OnCommitAction oncommit,
-									 const struct GpPolicy *policy,    /* MPP */
 									 Datum reloptions,
 									 bool use_user_acl,
 									 bool allow_system_table_mods,
 									 bool is_internal,
 									 Oid relrewrite,
-									 ObjectAddress *typaddress,
-									 bool valid_opts);
+									 ObjectAddress *typaddress);
 
 extern void heap_drop_with_catalog(Oid relid);
 
@@ -129,19 +127,12 @@ extern List *AddRelationNewConstraints(Relation rel,
 									   bool is_local,
 									   bool is_internal,
 									   const char *queryString);
-extern List *AddRelationConstraints(Relation rel,
-						  List *rawColDefaults,
-						  List *constraints);
 
 extern void RelationClearMissing(Relation rel);
 extern void SetAttrMissing(Oid relid, char *attname, char *value);
 
 extern Oid	StoreAttrDefault(Relation rel, AttrNumber attnum,
-							 Node *expr,
-							 bool *cookedMissingVal,
-							 Datum *missingval_p,
-							 bool *missingIsNull_p,
-							 bool is_internal,
+							 Node *expr, bool is_internal,
 							 bool add_column_mode);
 
 extern Node *cookDefault(ParseState *pstate,
@@ -184,27 +175,5 @@ extern void StorePartitionKey(Relation rel,
 extern void RemovePartitionKeyByRelId(Oid relid);
 extern void StorePartitionBound(Relation rel, Relation parent,
 								PartitionBoundSpec *bound);
-extern void StorePartitionBoundSkipInvalidation(Relation rel, Relation parent,
-												PartitionBoundSpec *bound);
-
-/* MPP-6929: metadata tracking */
-extern void MetaTrackAddObject(Oid		classid, 
-							   Oid		objoid, 
-							   Oid		relowner,
-							   char*	actionname,
-							   char*	subtype);
-extern void MetaTrackUpdObject(Oid		classid, 
-							   Oid		objoid, 
-							   Oid		relowner,
-							   char*	actionname,
-							   char*	subtype);
-extern void MetaTrackDropObject(Oid		classid, 
-								Oid		objoid);
-
-#define MetaTrackValidRelkind(relkind) \
-		(((relkind) == RELKIND_RELATION) \
-		|| ((relkind) == RELKIND_INDEX) \
-		|| ((relkind) == RELKIND_SEQUENCE) \
-		|| ((relkind) == RELKIND_VIEW)) 
 
 #endif							/* HEAP_H */

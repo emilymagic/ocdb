@@ -144,7 +144,7 @@ extern bool GpPolicyEqualByName(const TupleDesc ltd, const GpPolicy *lpol,
  * for any oid not found in gp_distribution_policy.
  */
 extern GpPolicy *GpPolicyFetch(Oid tbloid);
-
+extern GpPolicy *GpPolicyFetchByCost(Oid tbloid, double size);
 /*
  * GpPolicyStore: sets the GpPolicy for a table.
  */

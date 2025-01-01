@@ -196,14 +196,8 @@ typedef PageHeaderData *PageHeader;
  *
  * As of Release 9.3, the checksum version must also be considered when
  * handling pages.
- *
- * GPDB 4 uses 4. However, it didn't have the pd_prune_xid field
- * GPDB 5.0 uses 14. The layout is the same as PostgreSQL 8.3's, but
- *		we couldn't use the same version number, because we had already
- *		used 4 for the previous format.
  */
-#define PG_PAGE_LAYOUT_VERSION		14
-
+#define PG_PAGE_LAYOUT_VERSION		4
 #define PG_DATA_CHECKSUM_VERSION	1
 
 /* ----------------------------------------------------------------
@@ -374,29 +368,11 @@ PageValidateSpecialPointer(Page page)
 	  / sizeof(ItemIdData)))
 
 /*
- * Retrieving LSN of a shared buffer is safe only if: (1) exclusive lock on the
- * buffer's contents is held OR (2) shared lock on the buffer's contents and
- * the buffer header spinlock is held.  The Assert() validates that a shared
- * buffer's contents are locked.  That is not sufficient but there is no easy
- * interface to determine if a spinlock is held or whether a LW lock is held in
- * shared/exclusive mode.  The assert applies only to shared buffers because
- * local buffers do not need to worry about concurrency.
- *
- */
-extern bool BufferLockHeldByMe(Page page);
-static inline XLogRecPtr
-PageGetLSN(Page page)
-{
-#if defined (USE_ASSERT_CHECKING) && !defined(FRONTEND)
-	Assert(BufferLockHeldByMe(page));
-#endif
-	return PageXLogRecPtrGet(((PageHeader) (page))->pd_lsn);
-}
-
-/*
  * Additional macros for access to page headers. (Beware multiple evaluation
  * of the arguments!)
  */
+#define PageGetLSN(page) \
+	PageXLogRecPtrGet(((PageHeader) (page))->pd_lsn)
 #define PageSetLSN(page, lsn) \
 	PageXLogRecPtrSet(((PageHeader) (page))->pd_lsn, lsn)
 

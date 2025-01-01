@@ -237,7 +237,7 @@ SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 	int			slotno;
 	int			i;
 
-	LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 
 	slotno = SimpleLruReadPage(CommitTsCtl, pageno, true, xid);
 
@@ -247,13 +247,13 @@ SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 
 	CommitTsCtl->shared->page_dirty[slotno] = true;
 
-	LWLockRelease(CommitTsSLRULock);
+	LWLockRelease(CommitTsControlLock);
 }
 
 /*
  * Sets the commit timestamp of a single transaction.
  *
- * Must be called with CommitTsSLRULock held
+ * Must be called with CommitTsControlLock held
  */
 static void
 TransactionIdSetCommitTs(TransactionId xid, TimestampTz ts,
@@ -354,7 +354,7 @@ TransactionIdGetCommitTsData(TransactionId xid, TimestampTz *ts,
 	if (nodeid)
 		*nodeid = entry.nodeid;
 
-	LWLockRelease(CommitTsSLRULock);
+	LWLockRelease(CommitTsControlLock);
 	return *ts != 0;
 }
 
@@ -494,9 +494,9 @@ CommitTsShmemInit(void)
 	bool		found;
 
 	CommitTsCtl->PagePrecedes = CommitTsPagePrecedes;
-	SimpleLruInit(CommitTsCtl, "CommitTs", CommitTsShmemBuffers(), 0,
-				  CommitTsSLRULock, "pg_commit_ts",
-				  LWTRANCHE_COMMITTS_BUFFER);
+	SimpleLruInit(CommitTsCtl, "commit_timestamp", CommitTsShmemBuffers(), 0,
+				  CommitTsControlLock, "pg_commit_ts",
+				  LWTRANCHE_COMMITTS_BUFFERS);
 	SlruPagePrecedesUnitTests(CommitTsCtl, COMMIT_TS_XACTS_PER_PAGE);
 
 	commitTsShared = ShmemInitStruct("CommitTs shared",
@@ -652,9 +652,9 @@ ActivateCommitTs(void)
 	/*
 	 * Re-Initialize our idea of the latest page number.
 	 */
-	LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 	CommitTsCtl->shared->latest_page_number = pageno;
-	LWLockRelease(CommitTsSLRULock);
+	LWLockRelease(CommitTsControlLock);
 
 	/*
 	 * If CommitTs is enabled, but it wasn't in the previous server run, we
@@ -682,11 +682,11 @@ ActivateCommitTs(void)
 	{
 		int			slotno;
 
-		LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
+		LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 		slotno = ZeroCommitTsPage(pageno, false);
 		SimpleLruWritePage(CommitTsCtl, slotno);
 		Assert(!CommitTsCtl->shared->page_dirty[slotno]);
-		LWLockRelease(CommitTsSLRULock);
+		LWLockRelease(CommitTsControlLock);
 	}
 
 	/* Change the activation status in shared memory. */
@@ -735,9 +735,9 @@ DeactivateCommitTs(void)
 	 * be overwritten anyway when we wrap around, but it seems better to be
 	 * tidy.)
 	 */
-	LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 	(void) SlruScanDirectory(CommitTsCtl, SlruScanDirCbDeleteAll, NULL);
-	LWLockRelease(CommitTsSLRULock);
+	LWLockRelease(CommitTsControlLock);
 }
 
 /*
@@ -801,12 +801,12 @@ ExtendCommitTs(TransactionId newestXact)
 
 	pageno = TransactionIdToCTsPage(newestXact);
 
-	LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 
 	/* Zero the page and make an XLOG entry about it */
 	ZeroCommitTsPage(pageno, !InRecovery);
 
-	LWLockRelease(CommitTsSLRULock);
+	LWLockRelease(CommitTsControlLock);
 }
 
 /*
@@ -985,13 +985,13 @@ commit_ts_redo(XLogReaderState *record)
 
 		memcpy(&pageno, XLogRecGetData(record), sizeof(int));
 
-		LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
+		LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 
 		slotno = ZeroCommitTsPage(pageno, false);
 		SimpleLruWritePage(CommitTsCtl, slotno);
 		Assert(!CommitTsCtl->shared->page_dirty[slotno]);
 
-		LWLockRelease(CommitTsSLRULock);
+		LWLockRelease(CommitTsControlLock);
 	}
 	else if (info == COMMIT_TS_TRUNCATE)
 	{

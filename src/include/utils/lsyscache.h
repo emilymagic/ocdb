@@ -163,6 +163,7 @@ extern Oid get_rel_am(Oid relid);
 extern char *get_rel_name(Oid relid);
 extern Oid	get_rel_namespace(Oid relid);
 extern Oid	get_rel_type_id(Oid relid);
+extern Oid	get_rel_relam(Oid relid);
 extern char get_rel_relkind(Oid relid);
 extern bool get_rel_relispartition(Oid relid);
 extern Oid	get_rel_tablespace(Oid relid);

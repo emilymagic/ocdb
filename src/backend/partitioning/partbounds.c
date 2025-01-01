@@ -79,9 +79,7 @@ static PartitionBoundInfo create_hash_bounds(PartitionBoundSpec **boundspecs,
 static PartitionBoundInfo create_list_bounds(PartitionBoundSpec **boundspecs,
 											 int nparts, PartitionKey key, int **mapping);
 static PartitionBoundInfo create_range_bounds(PartitionBoundSpec **boundspecs,
-											  int nparts, PartitionKey key, int **mapping,
-											  bool validate,
-											  Oid *oids);
+											  int nparts, PartitionKey key, int **mapping);
 static PartitionRangeBound *make_one_partition_rbound(PartitionKey key, int index,
 													  List *datums, bool lower);
 static int32 partition_hbound_cmp(int modulus1, int remainder1, int modulus2,
@@ -110,10 +108,6 @@ static void get_range_key_properties(PartitionKey key, int keynum,
 									 Const **lower_val, Const **upper_val);
 static List *get_range_nulltest(PartitionKey key);
 
-static PartitionBoundInfo
-partition_bounds_create_guts(PartitionBoundSpec **boundspecs, int nparts,
-							 PartitionKey key, int **mapping, bool validate, Oid *oids);
-
 /*
  * get_qual_from_partbound
  *		Given a parser node for partition bound, return the list of executable
@@ -123,7 +117,7 @@ List *
 get_qual_from_partbound(Relation rel, Relation parent,
 						PartitionBoundSpec *spec)
 {
-	PartitionKey key = RelationRetrievePartitionKey(parent);
+	PartitionKey key = RelationGetPartitionKey(parent);
 	List	   *my_qual = NIL;
 
 	Assert(key != NULL);
@@ -178,30 +172,9 @@ PartitionBoundInfo
 partition_bounds_create(PartitionBoundSpec **boundspecs, int nparts,
 						PartitionKey key, int **mapping)
 {
-	return partition_bounds_create_guts(boundspecs, nparts, key, mapping,
-										/* validate */ false, NULL);
-}
-
-/*
- * See RelationValidatePartitionDesc() for details.
- */
-PartitionBoundInfo
-partition_bounds_create_and_validate(PartitionBoundSpec **boundspecs, int nparts,
-									 PartitionKey key, int **mapping, Oid *oids)
-{
-	return partition_bounds_create_guts(boundspecs, nparts, key, mapping,
-										/* validate */ true, oids);
-}
-
-static PartitionBoundInfo
-partition_bounds_create_guts(PartitionBoundSpec **boundspecs, int nparts,
-						PartitionKey key, int **mapping, bool validate, Oid *oids)
-{
 	int			i;
 
 	Assert(nparts > 0);
-
-	AssertImply(validate, oids);
 
 	/*
 	 * For each partitioning method, we first convert the partition bounds
@@ -232,7 +205,7 @@ partition_bounds_create_guts(PartitionBoundSpec **boundspecs, int nparts,
 			return create_list_bounds(boundspecs, nparts, key, mapping);
 
 		case PARTITION_STRATEGY_RANGE:
-			return create_range_bounds(boundspecs, nparts, key, mapping, validate, oids);
+			return create_range_bounds(boundspecs, nparts, key, mapping);
 
 		default:
 			elog(ERROR, "unexpected partition strategy: %d",
@@ -253,10 +226,10 @@ create_hash_bounds(PartitionBoundSpec **boundspecs, int nparts,
 				   PartitionKey key, int **mapping)
 {
 	PartitionBoundInfo boundinfo;
-	PartitionHashBound *hbounds;
+	PartitionHashBound **hbounds = NULL;
 	int			i;
+	int			ndatums = 0;
 	int			greatest_modulus;
-	Datum	   *boundDatums;
 
 	boundinfo = (PartitionBoundInfoData *)
 		palloc0(sizeof(PartitionBoundInfoData));
@@ -265,8 +238,9 @@ create_hash_bounds(PartitionBoundSpec **boundspecs, int nparts,
 	boundinfo->null_index = -1;
 	boundinfo->default_index = -1;
 
-	hbounds = (PartitionHashBound *)
-		palloc(nparts * sizeof(PartitionHashBound));
+	ndatums = nparts;
+	hbounds = (PartitionHashBound **)
+		palloc(nparts * sizeof(PartitionHashBound *));
 
 	/* Convert from node to the internal representation */
 	for (i = 0; i < nparts; i++)
@@ -276,32 +250,25 @@ create_hash_bounds(PartitionBoundSpec **boundspecs, int nparts,
 		if (spec->strategy != PARTITION_STRATEGY_HASH)
 			elog(ERROR, "invalid strategy in partition bound spec");
 
-		hbounds[i].modulus = spec->modulus;
-		hbounds[i].remainder = spec->remainder;
-		hbounds[i].index = i;
+		hbounds[i] = (PartitionHashBound *) palloc(sizeof(PartitionHashBound));
+		hbounds[i]->modulus = spec->modulus;
+		hbounds[i]->remainder = spec->remainder;
+		hbounds[i]->index = i;
 	}
 
 	/* Sort all the bounds in ascending order */
-	qsort(hbounds, nparts, sizeof(PartitionHashBound),
+	qsort(hbounds, nparts, sizeof(PartitionHashBound *),
 		  qsort_partition_hbound_cmp);
 
 	/* After sorting, moduli are now stored in ascending order. */
-	greatest_modulus = hbounds[nparts - 1].modulus;
+	greatest_modulus = hbounds[ndatums - 1]->modulus;
 
-	boundinfo->ndatums = nparts;
-	boundinfo->datums = (Datum **) palloc0(nparts * sizeof(Datum *));
-	boundinfo->kind = NULL;
+	boundinfo->ndatums = ndatums;
+	boundinfo->datums = (Datum **) palloc0(ndatums * sizeof(Datum *));
 	boundinfo->nindexes = greatest_modulus;
 	boundinfo->indexes = (int *) palloc(greatest_modulus * sizeof(int));
 	for (i = 0; i < greatest_modulus; i++)
 		boundinfo->indexes[i] = -1;
-
-	/*
-	 * In the loop below, to save from allocating a series of small datum
-	 * arrays, here we just allocate a single array and below we'll just
-	 * assign a portion of this array per partition.
-	 */
-	boundDatums = (Datum *) palloc(nparts * 2 * sizeof(Datum));
 
 	/*
 	 * For hash partitioning, there are as many datums (modulus and remainder
@@ -310,10 +277,10 @@ create_hash_bounds(PartitionBoundSpec **boundspecs, int nparts,
 	 */
 	for (i = 0; i < nparts; i++)
 	{
-		int			modulus = hbounds[i].modulus;
-		int			remainder = hbounds[i].remainder;
+		int			modulus = hbounds[i]->modulus;
+		int			remainder = hbounds[i]->remainder;
 
-		boundinfo->datums[i] = &boundDatums[i * 2];
+		boundinfo->datums[i] = (Datum *) palloc(2 * sizeof(Datum));
 		boundinfo->datums[i][0] = Int32GetDatum(modulus);
 		boundinfo->datums[i][1] = Int32GetDatum(remainder);
 
@@ -325,37 +292,12 @@ create_hash_bounds(PartitionBoundSpec **boundspecs, int nparts,
 			remainder += modulus;
 		}
 
-		(*mapping)[hbounds[i].index] = i;
+		(*mapping)[hbounds[i]->index] = i;
+		pfree(hbounds[i]);
 	}
 	pfree(hbounds);
 
 	return boundinfo;
-}
-
-/*
- * get_non_null_list_datum_count
- * 		Counts the number of non-null Datums in each partition.
- */
-static int
-get_non_null_list_datum_count(PartitionBoundSpec **boundspecs, int nparts)
-{
-	int			i;
-	int			count = 0;
-
-	for (i = 0; i < nparts; i++)
-	{
-		ListCell   *lc;
-
-		foreach(lc, boundspecs[i]->listdatums)
-		{
-			Const	   *val = castNode(Const, lfirst(lc));
-
-			if (!val->constisnull)
-				count++;
-		}
-	}
-
-	return count;
 }
 
 /*
@@ -367,14 +309,14 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 				   PartitionKey key, int **mapping)
 {
 	PartitionBoundInfo boundinfo;
-	PartitionListValue *all_values;
-	int			i;
-	int			j;
-	int			ndatums;
+	PartitionListValue **all_values = NULL;
+	ListCell   *cell;
+	int			i = 0;
+	int			ndatums = 0;
 	int			next_index = 0;
 	int			default_index = -1;
 	int			null_index = -1;
-	Datum	   *boundDatums;
+	List	   *non_null_values = NIL;
 
 	boundinfo = (PartitionBoundInfoData *)
 		palloc0(sizeof(PartitionBoundInfoData));
@@ -383,12 +325,8 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 	boundinfo->null_index = -1;
 	boundinfo->default_index = -1;
 
-	ndatums = get_non_null_list_datum_count(boundspecs, nparts);
-	all_values = (PartitionListValue *)
-		palloc(ndatums * sizeof(PartitionListValue));
-
 	/* Create a unified list of non-null values across all partitions. */
-	for (j = 0, i = 0; i < nparts; i++)
+	for (i = 0; i < nparts; i++)
 	{
 		PartitionBoundSpec *spec = boundspecs[i];
 		ListCell   *c;
@@ -410,12 +348,14 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 		foreach(c, spec->listdatums)
 		{
 			Const	   *val = castNode(Const, lfirst(c));
+			PartitionListValue *list_value = NULL;
 
 			if (!val->constisnull)
 			{
-				all_values[j].index = i;
-				all_values[j].value = val->constvalue;
-				j++;
+				list_value = (PartitionListValue *)
+					palloc0(sizeof(PartitionListValue));
+				list_value->index = i;
+				list_value->value = val->constvalue;
 			}
 			else
 			{
@@ -427,27 +367,39 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 					elog(ERROR, "found null more than once");
 				null_index = i;
 			}
+
+			if (list_value)
+				non_null_values = lappend(non_null_values, list_value);
 		}
 	}
 
-	/* ensure we found a Datum for every slot in the all_values array */
-	Assert(j == ndatums);
+	ndatums = list_length(non_null_values);
 
-	qsort_arg(all_values, ndatums, sizeof(PartitionListValue),
+	/*
+	 * Collect all list values in one array. Alongside the value, we also save
+	 * the index of partition the value comes from.
+	 */
+	all_values = (PartitionListValue **)
+		palloc(ndatums * sizeof(PartitionListValue *));
+	i = 0;
+	foreach(cell, non_null_values)
+	{
+		PartitionListValue *src = lfirst(cell);
+
+		all_values[i] = (PartitionListValue *)
+			palloc(sizeof(PartitionListValue));
+		all_values[i]->value = src->value;
+		all_values[i]->index = src->index;
+		i++;
+	}
+
+	qsort_arg(all_values, ndatums, sizeof(PartitionListValue *),
 			  qsort_partition_list_value_cmp, (void *) key);
 
 	boundinfo->ndatums = ndatums;
 	boundinfo->datums = (Datum **) palloc0(ndatums * sizeof(Datum *));
-	boundinfo->kind = NULL;
 	boundinfo->nindexes = ndatums;
 	boundinfo->indexes = (int *) palloc(ndatums * sizeof(int));
-
-	/*
-	 * In the loop below, to save from allocating a series of small datum
-	 * arrays, here we just allocate a single array and below we'll just
-	 * assign a portion of this array per datum.
-	 */
-	boundDatums = (Datum *) palloc(ndatums * sizeof(Datum));
 
 	/*
 	 * Copy values.  Canonical indexes are values ranging from 0 to (nparts -
@@ -457,10 +409,10 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 	 */
 	for (i = 0; i < ndatums; i++)
 	{
-		int			orig_index = all_values[i].index;
+		int			orig_index = all_values[i]->index;
 
-		boundinfo->datums[i] = &boundDatums[i];
-		boundinfo->datums[i][0] = datumCopy(all_values[i].value,
+		boundinfo->datums[i] = (Datum *) palloc(sizeof(Datum));
+		boundinfo->datums[i][0] = datumCopy(all_values[i]->value,
 											key->parttypbyval[0],
 											key->parttyplen[0]);
 
@@ -470,8 +422,6 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 
 		boundinfo->indexes[i] = (*mapping)[orig_index];
 	}
-
-	pfree(all_values);
 
 	/*
 	 * Set the canonical value for null_index, if any.
@@ -511,28 +461,20 @@ create_list_bounds(PartitionBoundSpec **boundspecs, int nparts,
 /*
  * create_range_bounds
  *		Create a PartitionBoundInfo for a range partitioned table
- *
- * GPDB: Partition bound checks (check_new_partition_bound()) can be deferred
- * during partition hierarchy construction, for performance. So, this routine
- * has been modified to validate while constructing the supplied range bounds
- * (if 'validate' is true). 'oids' is also passed down to help with error reporting.
  */
 static PartitionBoundInfo
 create_range_bounds(PartitionBoundSpec **boundspecs, int nparts,
-					PartitionKey key, int **mapping, bool validate, Oid *oids)
+					PartitionKey key, int **mapping)
 {
 	PartitionBoundInfo boundinfo;
 	PartitionRangeBound **rbounds = NULL;
 	PartitionRangeBound **all_bounds,
 			   *prev;
 	int			i,
-				k,
-				partnatts;
+				k;
 	int			ndatums = 0;
 	int			default_index = -1;
 	int			next_index = 0;
-	Datum	   *boundDatums;
-	PartitionRangeDatumKind *boundKinds;
 
 	boundinfo = (PartitionBoundInfoData *)
 		palloc0(sizeof(PartitionBoundInfoData));
@@ -569,24 +511,6 @@ create_range_bounds(PartitionBoundSpec **boundspecs, int nparts,
 
 		lower = make_one_partition_rbound(key, i, spec->lowerdatums, true);
 		upper = make_one_partition_rbound(key, i, spec->upperdatums, false);
-
-		/*
-		 * GPDB: Check if the resulting range would be empty with specified
-		 * lower and upper bounds.
-		 */
-		if (validate && partition_rbound_cmp(key->partnatts, key->partsupfunc,
-											 key->partcollation, lower->datums,
-											 lower->kind, true, upper) >= 0)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-						errmsg("empty range bound specified for partition \"%s\"",
-							   get_rel_name(oids[i])),
-						errdetail("Specified lower bound %s is greater than or equal to upper bound %s.",
-								  get_range_partbound_string(spec->lowerdatums),
-								  get_range_partbound_string(spec->upperdatums))));
-		}
-
 		all_bounds[ndatums++] = lower;
 		all_bounds[ndatums++] = upper;
 	}
@@ -599,26 +523,6 @@ create_range_bounds(PartitionBoundSpec **boundspecs, int nparts,
 			  sizeof(PartitionRangeBound *),
 			  qsort_partition_rbound_cmp,
 			  (void *) key);
-
-	if (validate)
-	{
-		/*
-		 * GPDB: Check for range overlaps. If two consecutive bounds in the sorted
-		 * array happen to be lower bounds, there is definite overlap.
-		 */
-		for (int j = 1; j < ndatums; j++)
-		{
-			if (all_bounds[j - 1]->lower && all_bounds[j]->lower)
-			{
-				int index1 = all_bounds[j - 1]->index;
-				int index2 = all_bounds[j]->index;
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-							errmsg("partition \"%s\" would overlap partition \"%s\"",
-								   get_rel_name(oids[index2]), get_rel_name(oids[index1]))));
-			}
-		}
-	}
 
 	/* Save distinct bounds from all_bounds into rbounds. */
 	rbounds = (PartitionRangeBound **)
@@ -671,8 +575,6 @@ create_range_bounds(PartitionBoundSpec **boundspecs, int nparts,
 		prev = cur;
 	}
 
-	pfree(all_bounds);
-
 	/* Update ndatums to hold the count of distinct datums. */
 	ndatums = k;
 
@@ -697,24 +599,16 @@ create_range_bounds(PartitionBoundSpec **boundspecs, int nparts,
 	boundinfo->nindexes = ndatums + 1;
 	boundinfo->indexes = (int *) palloc((ndatums + 1) * sizeof(int));
 
-	/*
-	 * In the loop below, to save from allocating a series of small arrays,
-	 * here we just allocate a single array for Datums and another for
-	 * PartitionRangeDatumKinds, below we'll just assign a portion of these
-	 * arrays in each loop.
-	 */
-	partnatts = key->partnatts;
-	boundDatums = (Datum *) palloc(ndatums * partnatts * sizeof(Datum));
-	boundKinds = (PartitionRangeDatumKind *) palloc(ndatums * partnatts *
-													sizeof(PartitionRangeDatumKind));
-
 	for (i = 0; i < ndatums; i++)
 	{
 		int			j;
 
-		boundinfo->datums[i] = &boundDatums[i * partnatts];
-		boundinfo->kind[i] = &boundKinds[i * partnatts];
-		for (j = 0; j < partnatts; j++)
+		boundinfo->datums[i] = (Datum *) palloc(key->partnatts *
+												sizeof(Datum));
+		boundinfo->kind[i] = (PartitionRangeDatumKind *)
+			palloc(key->partnatts *
+				   sizeof(PartitionRangeDatumKind));
+		for (j = 0; j < key->partnatts; j++)
 		{
 			if (rbounds[i]->kind[j] == PARTITION_RANGE_DATUM_VALUE)
 				boundinfo->datums[i][j] =
@@ -745,8 +639,6 @@ create_range_bounds(PartitionBoundSpec **boundspecs, int nparts,
 			boundinfo->indexes[i] = (*mapping)[orig_index];
 		}
 	}
-
-	pfree(rbounds);
 
 	/* Set the canonical value for default_index, if any. */
 	if (default_index != -1)
@@ -873,11 +765,6 @@ partition_bounds_equal(int partnatts, int16 *parttyplen, bool *parttypbyval,
 /*
  * Return a copy of given PartitionBoundInfo structure. The data types of bounds
  * are described by given partition key specification.
- *
- * Note: it's important that this function and its callees not do any catalog
- * access, nor anything else that would result in allocating memory other than
- * the returned data structure.  Since this is called in a long-lived context,
- * that would result in unwanted memory leaks.
  */
 PartitionBoundInfo
 partition_bounds_copy(PartitionBoundInfo src,
@@ -888,9 +775,6 @@ partition_bounds_copy(PartitionBoundInfo src,
 	int			ndatums;
 	int			nindexes;
 	int			partnatts;
-	bool		hash_part;
-	int			natts;
-	Datum	   *boundDatums;
 
 	dest = (PartitionBoundInfo) palloc(sizeof(PartitionBoundInfoData));
 
@@ -906,45 +790,32 @@ partition_bounds_copy(PartitionBoundInfo src,
 
 	if (src->kind != NULL)
 	{
-		PartitionRangeDatumKind *boundKinds;
-
-		/* only RANGE partition should have a non-NULL kind */
-		Assert(key->strategy == PARTITION_STRATEGY_RANGE);
-
 		dest->kind = (PartitionRangeDatumKind **) palloc(ndatums *
 														 sizeof(PartitionRangeDatumKind *));
-
-		/*
-		 * In the loop below, to save from allocating a series of small arrays
-		 * for storing the PartitionRangeDatumKind, we allocate a single chunk
-		 * here and use a smaller portion of it for each datum.
-		 */
-		boundKinds = (PartitionRangeDatumKind *) palloc(ndatums * partnatts *
-														sizeof(PartitionRangeDatumKind));
-
 		for (i = 0; i < ndatums; i++)
 		{
-			dest->kind[i] = &boundKinds[i * partnatts];
+			dest->kind[i] = (PartitionRangeDatumKind *) palloc(partnatts *
+															   sizeof(PartitionRangeDatumKind));
+
 			memcpy(dest->kind[i], src->kind[i],
-				   sizeof(PartitionRangeDatumKind) * partnatts);
+				   sizeof(PartitionRangeDatumKind) * key->partnatts);
 		}
 	}
 	else
 		dest->kind = NULL;
 
-	/*
-	 * For hash partitioning, datums array will have two elements - modulus and
-	 * remainder.
-	 */
-	hash_part = (key->strategy == PARTITION_STRATEGY_HASH);
-	natts = hash_part ? 2 : partnatts;
-	boundDatums = palloc(ndatums * natts * sizeof(Datum));
-
 	for (i = 0; i < ndatums; i++)
 	{
 		int			j;
 
-		dest->datums[i] = &boundDatums[i * natts];
+		/*
+		 * For a corresponding hash partition, datums array will have two
+		 * elements - modulus and remainder.
+		 */
+		bool		hash_part = (key->strategy == PARTITION_STRATEGY_HASH);
+		int			natts = hash_part ? 2 : partnatts;
+
+		dest->datums[i] = (Datum *) palloc(sizeof(Datum) * natts);
 
 		for (j = 0; j < natts; j++)
 		{
@@ -1052,8 +923,8 @@ void
 check_new_partition_bound(char *relname, Relation parent,
 						  PartitionBoundSpec *spec)
 {
-	PartitionKey key = RelationRetrievePartitionKey(parent);
-	PartitionDesc partdesc = RelationRetrievePartitionDesc(parent);
+	PartitionKey key = RelationGetPartitionKey(parent);
+	PartitionDesc partdesc = RelationGetPartitionDesc(parent);
 	PartitionBoundInfo boundinfo = partdesc->boundinfo;
 	ParseState *pstate = make_parsestate(NULL);
 	int			with = -1;
@@ -1165,7 +1036,6 @@ check_new_partition_bound(char *relname, Relation parent,
 		case PARTITION_STRATEGY_LIST:
 			{
 				Assert(spec->strategy == PARTITION_STRATEGY_LIST);
-				Assert(spec->listdatums != NULL);
 
 				if (partdesc->nparts > 0)
 				{
@@ -1463,7 +1333,7 @@ check_default_partition_contents(Relation parent, Relation default_rel,
 		econtext = GetPerTupleExprContext(estate);
 		snapshot = RegisterSnapshot(GetLatestSnapshot());
 		tupslot = table_slot_create(part_rel, &estate->es_tupleTable);
-		scan = table_beginscan_es(part_rel, snapshot, NULL, NULL, NULL, lappend(NIL, partition_constraint));
+		scan = table_beginscan(part_rel, snapshot, 0, NULL);
 
 		/*
 		 * Switch to per-tuple memory context and reset it for each tuple
@@ -1584,7 +1454,6 @@ partition_rbound_cmp(int partnatts, FmgrInfo *partsupfunc,
 	Datum	   *datums2 = b2->datums;
 	PartitionRangeDatumKind *kind2 = b2->kind;
 	bool		lower2 = b2->lower;
-	bool		optimizerBackup;
 
 	for (i = 0; i < partnatts; i++)
 	{
@@ -1607,19 +1476,10 @@ partition_rbound_cmp(int partnatts, FmgrInfo *partsupfunc,
 			 */
 			break;
 
-		/*
-		 * Orca doesn't support parameterized queries (which the below FunctionCall 
-		 * is), and would end up throwing an exception and falling back to planner
-		 * anyway. This fallback could also trample memory contexts and cause errors.
-		 * Instead, temporarily disable Orca when making this function call. 
-		 */
-		optimizerBackup = optimizer;
-		optimizer = false;
 		cmpval = DatumGetInt32(FunctionCall2Coll(&partsupfunc[i],
 												 partcollation[i],
 												 datums1[i],
 												 datums2[i]));
-		optimizer = optimizerBackup;
 		if (cmpval != 0)
 			break;
 	}
@@ -1873,8 +1733,8 @@ partition_hash_bsearch(PartitionBoundInfo boundinfo,
 static int32
 qsort_partition_hbound_cmp(const void *a, const void *b)
 {
-	PartitionHashBound *const h1 = (PartitionHashBound *const) a;
-	PartitionHashBound *const h2 = (PartitionHashBound *const) b;
+	PartitionHashBound *h1 = (*(PartitionHashBound *const *) a);
+	PartitionHashBound *h2 = (*(PartitionHashBound *const *) b);
 
 	return partition_hbound_cmp(h1->modulus, h1->remainder,
 								h2->modulus, h2->remainder);
@@ -1888,8 +1748,8 @@ qsort_partition_hbound_cmp(const void *a, const void *b)
 static int32
 qsort_partition_list_value_cmp(const void *a, const void *b, void *arg)
 {
-	Datum		val1 = ((PartitionListValue *const) a)->value,
-				val2 = ((PartitionListValue *const) b)->value;
+	Datum		val1 = (*(PartitionListValue *const *) a)->value,
+				val2 = (*(PartitionListValue *const *) b)->value;
 	PartitionKey key = (PartitionKey) arg;
 
 	return DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[0],
@@ -2076,7 +1936,7 @@ make_partition_op_expr(PartitionKey key, int keynum,
 static List *
 get_qual_for_hash(Relation parent, PartitionBoundSpec *spec)
 {
-	PartitionKey key = RelationRetrievePartitionKey(parent);
+	PartitionKey key = RelationGetPartitionKey(parent);
 	FuncExpr   *fexpr;
 	Node	   *relidConst;
 	Node	   *modulusConst;
@@ -2159,7 +2019,7 @@ get_qual_for_hash(Relation parent, PartitionBoundSpec *spec)
 static List *
 get_qual_for_list(Relation parent, PartitionBoundSpec *spec)
 {
-	PartitionKey key = RelationRetrievePartitionKey(parent);
+	PartitionKey key = RelationGetPartitionKey(parent);
 	List	   *result;
 	Expr	   *keyCol;
 	Expr	   *opexpr;
@@ -2194,7 +2054,7 @@ get_qual_for_list(Relation parent, PartitionBoundSpec *spec)
 	{
 		int			i;
 		int			ndatums = 0;
-		PartitionDesc pdesc = RelationRetrievePartitionDesc(parent);
+		PartitionDesc pdesc = parent->rd_partdesc;
 		PartitionBoundInfo boundinfo = pdesc->boundinfo;
 
 		if (boundinfo)
@@ -2394,7 +2254,7 @@ get_qual_for_range(Relation parent, PartitionBoundSpec *spec,
 	if (spec->is_default)
 	{
 		List	   *or_expr_args = NIL;
-		PartitionDesc pdesc = RelationRetrievePartitionDesc(parent);
+		PartitionDesc pdesc = parent->rd_partdesc;
 		Oid		   *inhoids = pdesc->oids;
 		int			nparts = pdesc->nparts,
 					i;

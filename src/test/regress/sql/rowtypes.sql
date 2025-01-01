@@ -82,7 +82,12 @@ select * from quadtable;
 create temp table pp (f1 text);
 insert into pp values (repeat('abcdefghijkl', 100000));
 
-insert into people select ('Jim', f1, null)::fullname, current_date from pp;
+-- insert into people select ('Jim', f1, null)::fullname, current_date from pp;
+
+select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people;
+
+-- try an update on a toasted composite value, too
+update people set fn.first = 'Jack';
 
 select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people;
 

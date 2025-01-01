@@ -530,32 +530,7 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 
 	if (resqueue)
 	{
-		Oid		queueid;
-
-		if (strcmp(resqueue, "none") == 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_RESERVED_NAME),
-					 errmsg("resource queue name \"%s\" is reserved",
-							resqueue)));
-
-		queueid = GetResQueueIdForName(resqueue);
-		if (queueid == InvalidOid)
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("resource queue \"%s\" does not exist",
-							resqueue)));
-
-		new_record[Anum_pg_authid_rolresqueue - 1] =
-		ObjectIdGetDatum(queueid);
-
-		/*
-		 * Don't complain if you CREATE a superuser,
-		 * who doesn't use the queue
-		 */
-		if (!IsResQueueEnabled() && !issuper)
-			ereport(WARNING,
-					(errmsg("resource queue is disabled"),
-					 errhint("To enable set gp_resource_manager=queue")));
+		elog(ERROR, "Resqueur does not supperted anymore");
 	}
 	else
 	{
@@ -723,12 +698,6 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackAddObject(AuthIdRelationId,
-						   roleid,
-						   GetUserId(),
-						   "CREATE", "ROLE");
 	}
 
 	return roleid;
@@ -795,7 +764,6 @@ AlterRole(AlterRoleStmt *stmt)
 	bool		createwextgpfd;
 	List	   *addintervals = NIL;		/* list of time intervals for which login should be denied */
 	List	   *dropintervals = NIL;	/* list of time intervals for which matching rules should be dropped */
-	Oid			queueid;
 
 	numopts = list_length(stmt->options);
 
@@ -813,7 +781,7 @@ AlterRole(AlterRoleStmt *stmt)
 	}
 
 	check_rolespec_name(stmt->role,
-						"Cannot alter reserved roles.");
+						_("Cannot alter reserved roles."));
 
 	/* Extract options from the statement node tree */
 	foreach(option, stmt->options)
@@ -1247,43 +1215,7 @@ AlterRole(AlterRoleStmt *stmt)
 	/* resource queue */
 	if (resqueue)
 	{
-		/* NONE not supported -- use default queue  */
-		if (strcmp(resqueue, "none") == 0)
-		{
-			/*
-			 * Don't complain if you ALTER a superuser, who doesn't use the
-			 * queue
-			 */
-			if (!bWas_super && IsResQueueEnabled() && Gp_role == GP_ROLE_DISPATCH)
-			{
-				ereport(NOTICE,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("resource queue required -- using default resource queue \"%s\"",
-								GP_DEFAULT_RESOURCE_QUEUE_NAME)));
-			}
-
-			resqueue = pstrdup(GP_DEFAULT_RESOURCE_QUEUE_NAME);
-		}
-
-		queueid = GetResQueueIdForName(resqueue);
-		if (queueid == InvalidOid)
-			ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("resource queue \"%s\" does not exist", resqueue)));
-
-		new_record[Anum_pg_authid_rolresqueue - 1] = ObjectIdGetDatum(queueid);
-		new_record_repl[Anum_pg_authid_rolresqueue - 1] = true;
-
-		if (!IsResQueueEnabled() && !bWas_super)
-		{
-			/*
-			 * Don't complain if you ALTER a superuser, who doesn't use the
-			 * queue
-			 */
-			ereport(WARNING,
-					(errmsg("resource queue is disabled"),
-					 errhint("To enable set gp_resource_manager=queue.")));
-		}
+		elog(ERROR, "Resqueue does not supported anymore");
 	}
 
 	/* resource group */
@@ -1413,13 +1345,6 @@ AlterRole(AlterRoleStmt *stmt)
 	if (dropintervals)
 		DelRoleDenials(rolename, roleid, dropintervals);
 
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackUpdObject(AuthIdRelationId,
-						   roleid,
-						   GetUserId(),
-						   "ALTER", alter_subtype);
-
 	/*
 	 * Close pg_authid, but keep lock till commit.
 	 */
@@ -1453,7 +1378,7 @@ AlterRoleSet(AlterRoleSetStmt *stmt)
 	if (stmt->role)
 	{
 		check_rolespec_name(stmt->role,
-							"Cannot alter reserved roles.");
+							_("Cannot alter reserved roles."));
 
 		roletuple = get_rolespec_tuple(stmt->role);
 		roleform = (Form_pg_authid) GETSTRUCT(roletuple);
@@ -1679,10 +1604,6 @@ DropRole(DropRoleStmt *stmt)
 		DeleteSharedComments(roleid, AuthIdRelationId);
 		DeleteSharedSecurityLabel(roleid, AuthIdRelationId);
 
-		/* MPP-6929: metadata tracking */
-		if (Gp_role == GP_ROLE_DISPATCH)
-			MetaTrackDropObject(AuthIdRelationId,
-								roleid);
 		/*
 		 * Remove settings for this role.
 		 */
@@ -1854,14 +1775,6 @@ RenameRole(const char *oldname, const char *newname)
 	 */
 	table_close(rel, NoLock);
 
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackUpdObject(AuthIdRelationId,
-						   roleid,
-						   GetUserId(),
-						   "ALTER", "RENAME"
-				);
-
 	return address;
 }
 
@@ -1916,16 +1829,6 @@ GrantRole(GrantRoleStmt *stmt)
 			DelRoleMems(rolename, roleid,
 						stmt->grantee_roles, grantee_ids,
 						stmt->admin_opt);
-
-		/* MPP-6929: metadata tracking */
-		if (Gp_role == GP_ROLE_DISPATCH)
-				MetaTrackUpdObject(AuthIdRelationId,
-								   roleid,
-								   GetUserId(),
-								   "PRIVILEGE",
-								   (stmt->is_grant) ? "GRANT" : "REVOKE"
-						);
-
 	}
 
 	/*

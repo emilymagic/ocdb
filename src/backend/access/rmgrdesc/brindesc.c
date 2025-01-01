@@ -27,9 +27,8 @@ brin_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_brin_createidx *xlrec = (xl_brin_createidx *) rec;
 
-		appendStringInfo(buf, "v%d pagesPerRange %u isAO %s",
-						 xlrec->version, xlrec->pagesPerRange,
-						 xlrec->isAO ? "true" : "false");
+		appendStringInfo(buf, "v%d pagesPerRange %u",
+						 xlrec->version, xlrec->pagesPerRange);
 	}
 	else if (info == XLOG_BRIN_INSERT)
 	{
@@ -60,8 +59,7 @@ brin_desc(StringInfo buf, XLogReaderState *record)
 	{
 		xl_brin_revmap_extend *xlrec = (xl_brin_revmap_extend *) rec;
 
-		appendStringInfo(buf, "targetBlk %u isAO %s", xlrec->targetBlk,
-						 xlrec->isAO ? "true" : "false");
+		appendStringInfo(buf, "targetBlk %u", xlrec->targetBlk);
 	}
 	else if (info == XLOG_BRIN_DESUMMARIZE)
 	{

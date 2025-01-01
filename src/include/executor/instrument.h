@@ -15,6 +15,7 @@
 #ifndef INSTRUMENT_H
 #define INSTRUMENT_H
 
+#include "cdb/cdbvars.h"
 #include "nodes/plannodes.h"
 #include "portability/instr_time.h"
 #include "utils/resowner.h"

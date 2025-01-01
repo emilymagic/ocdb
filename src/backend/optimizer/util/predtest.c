@@ -18,6 +18,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
+#include "utils/dispatchcat.h"
 #include "executor/executor.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -1953,6 +1954,7 @@ typedef struct OprProofCacheEntry
 	bool		same_subexprs_refutes;	/* X clause_op Y refutes X pred_op Y? */
 	Oid			implic_test_op; /* OID of the test operator, or 0 if none */
 	Oid			refute_test_op; /* OID of the test operator, or 0 if none */
+	struct CacheNode *cdbTupleCache;
 } OprProofCacheEntry;
 
 static HTAB *OprProofCacheHash = NULL;
@@ -2006,13 +2008,20 @@ lookup_proof_cache(Oid pred_op, Oid clause_op, bool refute_it)
 		/* new cache entry, set it invalid */
 		cache_entry->have_implic = false;
 		cache_entry->have_refute = false;
+		cache_entry->cdbTupleCache =  MemoryContextAllocZero(CacheMemoryContext,
+															 sizeof(CacheNode));
 	}
 	else
 	{
 		/* pre-existing cache entry, see if we know the answer yet */
 		if (refute_it ? cache_entry->have_refute : cache_entry->have_implic)
+		{
+			CdbCopyCacheTuples(cache_entry->cdbTupleCache);
 			return cache_entry;
+		}
 	}
+
+	BeginCacheCollect(cache_entry->cdbTupleCache);
 
 	/*
 	 * Try to find a btree opfamily containing the given operators.
@@ -2158,6 +2167,9 @@ lookup_proof_cache(Oid pred_op, Oid clause_op, bool refute_it)
 		cache_entry->same_subexprs_implies = same_subexprs;
 		cache_entry->have_implic = true;
 	}
+
+	EndCacheCollect();
+	CdbCopyCacheTuples(cache_entry->cdbTupleCache);
 
 	return cache_entry;
 }

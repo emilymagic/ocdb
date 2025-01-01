@@ -27,6 +27,7 @@
 #include "access/heapam.h"
 #include "access/reloptions.h"
 #include "access/htup_details.h"
+#include "access/tileam.h"
 #include "access/sysattr.h"
 #include "access/tableam.h"
 #include "access/xact.h"
@@ -58,7 +59,6 @@
 #include "cdb/cdbappendonlyam.h"
 #include "cdb/cdbaocsam.h"
 #include "cdb/cdbdisp_query.h"
-#include "cdb/cdboidsync.h"
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
 #include "cdb/memquota.h"
@@ -104,9 +104,6 @@ create_ctas_internal(List *attrList, IntoClause *into, QueryDesc *queryDesc, boo
 	Datum		toast_options;
 	static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
 	ObjectAddress intoRelationAddr;
-
-	/* Sync OIDs for into relation, if any */
-	cdb_sync_oid_to_segments();
 
 	/* This code supports both CREATE TABLE AS and CREATE MATERIALIZED VIEW */
 	is_matview = (into->viewQuery != NULL);
@@ -164,12 +161,9 @@ create_ctas_internal(List *attrList, IntoClause *into, QueryDesc *queryDesc, boo
                                       relkind,
                                       InvalidOid,
                                       NULL,
-                                      NULL,
-                                      false,
-                                      queryDesc->ddesc ? queryDesc->ddesc->useChangedAOOpts : true,
-                                      queryDesc->plannedstmt->intoPolicy);
+                                      NULL);
 
-	if (Gp_role == GP_ROLE_DISPATCH)
+	if (Gp_role == GP_ROLE_DISPATCH &&  dispatch)
 	{
 		queryDesc->ddesc->intoCreateStmt = create;
 	}
@@ -202,8 +196,11 @@ create_ctas_internal(List *attrList, IntoClause *into, QueryDesc *queryDesc, boo
 		CommandCounterIncrement();
 	}
 
+	/*
+	 * Keep utility dispatch
+	 */
 	if (Gp_role == GP_ROLE_DISPATCH && dispatch)
-		CdbDispatchUtilityStatement((Node *) create,
+		CdbDispatchUtilityStatement2((Node *) create,
 									DF_CANCEL_ON_ERROR |
 									DF_NEED_TWO_PHASE |
 									DF_WITH_SNAPSHOT,
@@ -282,7 +279,7 @@ create_ctas_nodata(List *tlist, IntoClause *into, QueryDesc *queryDesc)
 				 errmsg("too many column names were specified")));
 
 	/* Create the relation definition using the ColumnDef list */
-	intoRelationAddr = create_ctas_internal(attrList, into, queryDesc, true);
+	intoRelationAddr = create_ctas_internal(attrList, into, queryDesc, false);
 
 	return intoRelationAddr;
 }
@@ -482,7 +479,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		/* MPP-14001: Running auto_stats */
 		if (Gp_role == GP_ROLE_DISPATCH)
 		{
-			bool inFunction = already_under_executor_run() || utility_nested();
+			bool inFunction = already_under_executor_run();
 			auto_stats(cmdType, relationOid, queryDesc->es_processed, inFunction);
 		}
 	}
@@ -651,53 +648,65 @@ intorel_initplan(struct QueryDesc *queryDesc, int eflags)
 	 * is created in the initialization of the plan in QEs, but with NO DATA, we
 	 * don't need to dispatch the plan during ExecutorStart().
 	 */
-	intoRelationAddr = create_ctas_internal(attrList, into, queryDesc,
-											into->skipData ? true : false);
+	if (Gp_role == GP_ROLE_EXECUTE)
+	{
+		Oid relid = RangeVarGetRelid(into->rel, AccessShareLock, false);
+
+		ObjectAddressSet(intoRelationAddr, RelationRelationId, relid);
+	}
+	else
+		intoRelationAddr = create_ctas_internal(attrList, into, queryDesc, false);
 
 	/*
 	 * Finally we can open the target table
 	 */
 	intoRelationDesc = table_open(intoRelationAddr.objectId, AccessExclusiveLock);
 
-	/*
-	 * Check INSERT permission on the constructed table.
-	 *
-	 * XXX: It would arguably make sense to skip this check if into->skipData
-	 * is true.
-	 */
-	rte = makeNode(RangeTblEntry);
-	rte->rtekind = RTE_RELATION;
-	rte->relid = intoRelationAddr.objectId;
-	rte->relkind = relkind;
-	rte->rellockmode = RowExclusiveLock;
-	rte->requiredPerms = ACL_INSERT;
+	if (RelationIsTile(intoRelationDesc))
+		tile_access_initialization(intoRelationDesc);
 
-	for (attnum = 1; attnum <= intoRelationDesc->rd_att->natts; attnum++)
-		rte->insertedCols = bms_add_member(rte->insertedCols,
-										   attnum - FirstLowInvalidHeapAttributeNumber);
+	if (Gp_role != GP_ROLE_EXECUTE)
+	{
+		/*
+		 * Check INSERT permission on the constructed table.
+		 *
+		 * XXX: It would arguably make sense to skip this check if into->skipData
+		 * is true.
+		 */
+		rte = makeNode(RangeTblEntry);
+		rte->rtekind = RTE_RELATION;
+		rte->relid = intoRelationAddr.objectId;
+		rte->relkind = relkind;
+		rte->rellockmode = RowExclusiveLock;
+		rte->requiredPerms = ACL_INSERT;
 
-	ExecCheckRTPerms(list_make1(rte), true);
+		for (attnum = 1; attnum <= intoRelationDesc->rd_att->natts; attnum++)
+			rte->insertedCols = bms_add_member(rte->insertedCols,
+											   attnum -
+											   FirstLowInvalidHeapAttributeNumber);
 
-	/*
-	 * Make sure the constructed table does not have RLS enabled.
-	 *
-	 * check_enable_rls() will ereport(ERROR) itself if the user has requested
-	 * something invalid, and otherwise will return RLS_ENABLED if RLS should
-	 * be enabled here.  We don't actually support that currently, so throw
-	 * our own ereport(ERROR) if that happens.
-	 */
-	if (check_enable_rls(intoRelationAddr.objectId, InvalidOid, false) == RLS_ENABLED)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 (errmsg("policies not yet implemented for this command"))));
+		ExecCheckRTPerms(list_make1(rte), true);
 
-	/*
-	 * Tentatively mark the target as populated, if it's a matview and we're
-	 * going to fill it; otherwise, no change needed.
-	 */
-	if (is_matview && !into->skipData)
-		SetMatViewPopulatedState(intoRelationDesc, true);
+		/*
+		 * Make sure the constructed table does not have RLS enabled.
+		 *
+		 * check_enable_rls() will ereport(ERROR) itself if the user has requested
+		 * something invalid, and otherwise will return RLS_ENABLED if RLS should
+		 * be enabled here.  We don't actually support that currently, so throw
+		 * our own ereport(ERROR) if that happens.
+		 */
+		if (check_enable_rls(intoRelationAddr.objectId, InvalidOid, false) == RLS_ENABLED)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							(errmsg("policies not yet implemented for this command"))));
 
+		/*
+		 * Tentatively mark the target as populated, if it's a matview and we're
+		 * going to fill it; otherwise, no change needed.
+		 */
+		if (is_matview && !into->skipData)
+			SetMatViewPopulatedState(intoRelationDesc, true);
+	}
 	/*
 	 * Fill private fields of myState for use by later routines
 	 */
@@ -771,6 +780,7 @@ intorel_shutdown(DestReceiver *self)
 	/* close rel, but keep lock until commit */
 	table_close(myState->rel, NoLock);
 	myState->rel = NULL;
+
 }
 
 /*

@@ -41,8 +41,6 @@
 #include "cdb/cdbendpoint.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbvars.h"
-#include "postmaster/backoff.h"
-#include "utils/resscheduler.h"
 
 extern volatile uint32 *parallelCursorCount;
 extern int gp_max_parallel_cursors;
@@ -401,24 +399,6 @@ PortalCleanup(Portal portal)
 	if (PortalIsParallelRetrieveCursor(portal) && pg_atomic_read_u32((pg_atomic_uint32 *) parallelCursorCount) > 0)
 	{
 		pg_atomic_sub_fetch_u32((pg_atomic_uint32 *) parallelCursorCount, 1);
-	}
-
-	/* 
-	 * If resource scheduling is enabled, release the resource lock. 
-	 */
-	if (IsResQueueLockedForPortal(portal))
-	{
-        ResUnLockPortal(portal);
-	}
-
-	/**
-	 * Clean up backend's backoff entry
-	 */
-	if (gp_enable_resqueue_priority
-			&& Gp_role == GP_ROLE_DISPATCH
-			&& gp_session_id > -1)
-	{
-		BackoffBackendEntryExit();
 	}
 }
 

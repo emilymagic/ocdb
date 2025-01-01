@@ -357,13 +357,6 @@ AuxiliaryProcessMain(int argc, char *argv[])
 			proc_exit(1);
 	}
 
-	if (userDoption)
-	{
-		/* userDoption isn't used any more */
-		pfree(userDoption);
-		userDoption = NULL;
-	}
-
 	/*
 	 * Validate we have been given a reasonable-looking DataDir and change
 	 * into it (if under postmaster, should be done already).
@@ -459,29 +452,34 @@ AuxiliaryProcessMain(int argc, char *argv[])
 			proc_exit(1);		/* should never return */
 
 		case StartupProcess:
+			/* don't set signals, startup process has its own agenda */
 			StartupProcessMain();
-			proc_exit(1);
+			proc_exit(1);		/* should never return */
 
 		case ArchiverProcess:
 			PgArchiverMain();
 			proc_exit(1);
 
 		case BgWriterProcess:
+			/* don't set signals, bgwriter has its own agenda */
 			BackgroundWriterMain();
-			proc_exit(1);
+			proc_exit(1);		/* should never return */
 
 		case CheckpointerProcess:
+			/* don't set signals, checkpointer has its own agenda */
 			CheckpointerMain();
-			proc_exit(1);
+			proc_exit(1);		/* should never return */
 
 		case WalWriterProcess:
+			/* don't set signals, walwriter has its own agenda */
 			InitXLOGAccess();
 			WalWriterMain();
-			proc_exit(1);
+			proc_exit(1);		/* should never return */
 
 		case WalReceiverProcess:
+			/* don't set signals, walreceiver has its own agenda */
 			WalReceiverMain();
-			proc_exit(1);
+			proc_exit(1);		/* should never return */
 
 		default:
 			elog(PANIC, "unrecognized process type: %d", (int) MyAuxProcType);

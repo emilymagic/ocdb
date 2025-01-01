@@ -7,6 +7,7 @@
  */
 #include "postgres.h"
 
+#include "access/bitmap_xlog.h"
 #include "access/clog.h"
 #include "access/commit_ts.h"
 #include "access/ginxlog.h"
@@ -21,6 +22,7 @@
 #include "access/xact.h"
 #include "access/xlog_internal.h"
 #include "catalog/storage_xlog.h"
+#include "cdb/cdbappendonlyxlog.h"
 #include "commands/dbcommands_xlog.h"
 #include "commands/sequence.h"
 #include "commands/tablespace.h"
@@ -28,11 +30,6 @@
 #include "replication/origin.h"
 #include "storage/standby.h"
 #include "utils/relmapper.h"
-
-#include "access/bitmap_xlog.h"
-#include "access/distributedlog.h"
-#include "cdb/cdbappendonlyxlog.h"
-
 
 /* must be kept in sync with RmgrData definition in xlog_internal.h */
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup,mask) \

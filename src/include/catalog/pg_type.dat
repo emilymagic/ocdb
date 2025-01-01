@@ -93,7 +93,7 @@
   typreceive => 'oidrecv', typsend => 'oidsend', typalign => 'i' },
 { oid => '27', array_type_oid => '1010',
   descr => '(block, offset), physical location of tuple',
-  typname => 'tid', typlen => '6', typbyval => 'f', typcategory => 'U',
+  typname => 'tid', typlen => '22', typbyval => 'f', typcategory => 'U',
   typinput => 'tidin', typoutput => 'tidout', typreceive => 'tidrecv',
   typsend => 'tidsend', typalign => 's' },
 { oid => '28', array_type_oid => '1011', descr => 'transaction id',

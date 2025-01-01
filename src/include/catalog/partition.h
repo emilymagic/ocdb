@@ -20,6 +20,7 @@
 #define HASH_PARTITION_SEED UINT64CONST(0x7A5B22367996DCFD)
 
 extern Oid	get_partition_parent(Oid relid);
+extern Oid	get_partition_parent_noerror(Oid relid);
 extern List *get_partition_ancestors(Oid relid);
 extern Oid	get_top_level_partition_root(Oid relid);
 extern Oid	index_get_partition(Relation partition, Oid indexId);

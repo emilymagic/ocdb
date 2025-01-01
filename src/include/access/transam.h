@@ -124,15 +124,10 @@ typedef struct VariableCacheData
 	uint32		oidCount;		/* OIDs available before must do XLOG work */
 
 	/*
-	 * These fields are protected by RelfilenodeGenLock.
-	 */
-	Oid			nextRelfilenode;	/* next relfilenode to assign */
-	uint32		relfilenodeCount;	/* relfilenodes available before we must do XLOG work */
-
-	/*
 	 * These fields are protected by XidGenLock.
 	 */
 	FullTransactionId nextFullXid;	/* next full XID to assign */
+	uint64			  nextAssignedXid;
 
 	TransactionId oldestXid;	/* cluster-wide minimum datfrozenxid */
 	TransactionId xidVacLimit;	/* start forcing autovacuums here */
@@ -152,20 +147,9 @@ typedef struct VariableCacheData
 	 */
 	TransactionId latestCompletedXid;	/* newest XID that has committed or
 										 * aborted */
-	DistributedTransactionId latestCompletedGxid;	/* newest distributed XID that has
-													   committed or aborted */
 
 	/*
-	 * The two variables are protected by shmGxidGenLock.  Note nextGxid won't
-	 * be accurate after crash recovery.  When crash recovery happens, we bump
-	 * them to the next batch on the coordinator, while on the primary, it is
-	 * not accurate until the next query with an assigned gxid is dispatched.
-	 */
-	DistributedTransactionId nextGxid;	/* next full XID to assign */
-	uint32		GxidCount;		/* Gxids available before must do XLOG work */
-
-	/*
-	 * These fields are protected by XactTruncationLock
+	 * These fields are protected by CLogTruncationLock
 	 */
 	TransactionId oldestClogXid;	/* oldest it's safe to look up in clog */
 
@@ -185,19 +169,13 @@ extern bool TransactionStartedDuringRecovery(void);
 /* in transam/varsup.c */
 extern PGDLLIMPORT VariableCache ShmemVariableCache;
 
-extern int xid_stop_limit;
-extern int xid_warn_limit;
-
-/* GPDB-specific */
-extern bool gp_pause_on_restore_point_replay;
-
 /*
  * prototypes for functions in transam/transam.c
  */
 extern bool TransactionIdDidCommit(TransactionId transactionId);
 extern bool TransactionIdDidAbort(TransactionId transactionId);
-extern bool TransactionIdDidAbortForReader(TransactionId transactionId);
 extern bool TransactionIdIsKnownCompleted(TransactionId transactionId);
+extern void TransactionIdAbort(TransactionId transactionId);
 extern void TransactionIdCommitTree(TransactionId xid, int nxids, TransactionId *xids);
 extern void TransactionIdAsyncCommitTree(TransactionId xid, int nxids, TransactionId *xids, XLogRecPtr lsn);
 extern void TransactionIdAbortTree(TransactionId xid, int nxids, TransactionId *xids);
@@ -218,9 +196,6 @@ extern void SetTransactionIdLimit(TransactionId oldest_datfrozenxid,
 extern void AdvanceOldestClogXid(TransactionId oldest_datfrozenxid);
 extern bool ForceTransactionIdLimitUpdate(void);
 extern Oid	GetNewObjectId(void);
-extern void AdvanceObjectId(Oid newOid);
-extern Oid	GetNewSegRelfilenode(void);
-extern bool OidFollowsNextOid(Oid id);
 
 /*
  * Some frontend programs include this header.  For compilers that emit static

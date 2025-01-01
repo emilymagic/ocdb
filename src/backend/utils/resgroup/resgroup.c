@@ -3255,10 +3255,6 @@ HandleMoveResourceGroup(void)
 			MyProc->movetoGroupId = InvalidOid;
 			callerPid = MyProc->movetoCallerPid;
 			SpinLockRelease(&MyProc->movetoMutex);
-
-			/* notify initiator, current command is irrelevant */
-			if (callerPid != InvalidPid)
-				ResGroupMoveNotifyInitiator(callerPid);
 		}
 		return;
 	}
@@ -3297,8 +3293,6 @@ HandleMoveResourceGroup(void)
 		Assert(groupId != InvalidOid);
 		SIMPLE_FAULT_INJECTOR("resource_group_move_handler_after_qd_control");
 
-		ResGroupMoveNotifyInitiator(callerPid);
-
 		/* unassign the old resource group and release the old slot */
 		UnassignResGroup();
 
@@ -3310,17 +3304,6 @@ HandleMoveResourceGroup(void)
 
 		/* Init self */
 		self->caps = slot->caps;
-
-		/*
-		 * You may say it's ugly to notify entrydb process here, but not in
-		 * initiator process, but we want to be sure slot was actually
-		 * assigned to session using sessionSetSlot(). We can't do much inside
-		 * one spinlock. Especially, we can't work with multiple LWLocks
-		 * inside of it. So, to keep the solution simple and plain, we decided
-		 * to signal entrydb process here, inside of target process handler.
-		 */
-		(void) ResGroupMoveSignalTarget(MyProc->mppSessionId,
-										NULL, groupId, true);
 
 		/*
 		 * Add into cgroup. On any exception slot will be freed by the end of
@@ -3440,11 +3423,6 @@ resGroupGiveSlotAway(int sessionId, ResGroupSlotData ** slot, Oid groupId)
 
 	SIMPLE_FAULT_INJECTOR("resource_group_give_away_begin");
 
-	if (!ResGroupMoveSignalTarget(sessionId, *slot, groupId, false))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 (errmsg("cannot send signal to process"))));
-
 	waitStart = GetCurrentTimestamp();
 
 	for (;;)
@@ -3481,7 +3459,6 @@ resGroupGiveSlotAway(int sessionId, ResGroupSlotData ** slot, Oid groupId)
 			PG_CATCH();
 			{
 				clean = true;
-				ResGroupMoveCheckTargetReady(sessionId, &clean, &res);
 				if (res)
 				{
 					/*
@@ -3503,7 +3480,6 @@ resGroupGiveSlotAway(int sessionId, ResGroupSlotData ** slot, Oid groupId)
 		SIMPLE_FAULT_INJECTOR("resource_group_give_away_after_latch");
 
 		clean = (latchRes & WL_TIMEOUT);
-		ResGroupMoveCheckTargetReady(sessionId, &clean, &res);
 		if (clean)
 			break;
 
@@ -3678,7 +3654,7 @@ check_and_unassign_from_resgroup(PlannedStmt* stmt)
 	 * Don't need to consider the sql commands inside the UDF, they will also
 	 * be bypassed or use the same resgroup as the outer query.
 	 */
-	inFunction = already_under_executor_run() || utility_nested();
+	inFunction = already_under_executor_run();
 	if (IsInTransactionBlock(!inFunction))
 		return;
 

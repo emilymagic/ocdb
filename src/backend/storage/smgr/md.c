@@ -24,13 +24,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/file.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
-#include "access/aomd.h"
-#include "access/htup_details.h"
-#include "catalog/catalog.h"
 #include "miscadmin.h"
+#include "access/tileam.h"
 #include "access/xlogutils.h"
 #include "access/xlog.h"
 #include "pgstat.h"
@@ -44,9 +40,6 @@
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 #include "pg_trace.h"
-
-#include "catalog/pg_tablespace.h"
-#include "utils/faultinjector.h"
 
 /*
  *	The magnetic disk storage manager keeps track of open file
@@ -222,48 +215,6 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
 }
 
 /*
- *	mdcreate_ao() -- Create a AO segfile
- *
- * If isRedo is true, it's okay for the file to exist already.
- */
-void
-mdcreate_ao(RelFileNodeBackend rnode, int32 segmentFileNum, bool isRedo)
-{
-	char	   *path;
-	char		buf[MAXPGPATH];
-	File		fd;
-
-	path = aorelpath(rnode, segmentFileNum);
-
-	fd = PathNameOpenFile(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
-
-	if (fd < 0)
-	{
-		int			save_errno = errno;
-
-		/*
-		 * During bootstrap, there are cases where a system relation will be
-		 * accessed (by internal backend processes) before the bootstrap
-		 * script nominally creates it.  Therefore, allow the file to exist
-		 * already, even if isRedo is not set.	(See also mdopen)
-		 */
-		if (isRedo || IsBootstrapProcessingMode())
-			fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
-		if (fd < 0)
-		{
-			/* be sure to report the error reported by create, not open */
-			errno = save_errno;
-			ereport(ERROR,
-					(errcode_for_file_access(),
-					 errmsg("could not create relation %s: %m", path)));
-		}
-	}
-
-	if (path != buf)
-		pfree(path);
-}
-
-/*
  *	mdunlink() -- Unlink a relation.
  *
  * Note that we're passed a RelFileNodeBackend --- by the time this is called,
@@ -321,6 +272,13 @@ mdunlink(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
 	}
 	else
 		mdunlinkfork(rnode, forkNum, isRedo);
+}
+
+void
+mdunlink_tile(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
+{
+	if (forkNum == MAIN_FORKNUM)
+		tile_clear_table(rnode.node);
 }
 
 /*
@@ -868,8 +826,7 @@ mdtruncate(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks)
 						relpath(reln->smgr_rnode, forknum),
 						nblocks, curnblk)));
 	}
-
-	if (nblocks == curnblk && (forknum != MAIN_FORKNUM))
+	if (nblocks == curnblk)
 		return;					/* no work */
 
 	/*
@@ -1003,34 +960,6 @@ register_dirty_segment(SMgrRelation reln, ForkNumber forknum, MdfdVec *seg)
 }
 
 /*
- * register_dirty_segment_ao()
- *
- * Similar to register_dirty_segment() but it is for append optimized tables.
- * The API definition is different because (1) relation forks are not used for
- * AO tables, it's always MAIN_FORKNUM and (2) there is no MdfdVec equivalent
- * for AO segment files.
- */
-void
-register_dirty_segment_ao(RelFileNode rnode, int segno, File vfd)
-{
-	FileTag		tag;
-
-	INIT_FILETAG(tag, rnode, MAIN_FORKNUM, segno, SYNC_HANDLER_AO);
-
-	if (!RegisterSyncRequest(&tag, SYNC_REQUEST, false /* retryOnError */ ))
-	{
-		ereport(DEBUG1,
-				(errmsg("could not forward AO fsync request because request queue is full")));
-
-		if (FileSync(vfd, WAIT_EVENT_DATA_FILE_SYNC) < 0)
-			ereport(data_sync_elevel(ERROR),
-					(errcode_for_file_access(),
-					 errmsg("could not fsync AO file \"%s\": %m",
-							FilePathName(vfd))));
-	}
-}
-
-/*
  * register_unlink_segment() -- Schedule a file to be deleted after next checkpoint
  */
 static void
@@ -1077,22 +1006,13 @@ ForgetDatabaseSyncRequests(Oid dbid)
 	INIT_MD_FILETAG(tag, rnode, InvalidForkNumber, InvalidBlockNumber);
 
 	RegisterSyncRequest(&tag, SYNC_FILTER_REQUEST, true /* retryOnError */ );
-
-	/*
-	 * Need to register filter requests for all the handlers because handler
-	 * is part of the key that is used to determine equivalence among two
-	 * pending entries.
-	 */
-	INIT_FILETAG(tag, rnode, InvalidForkNumber, InvalidBlockNumber, SYNC_HANDLER_AO);
-
-	RegisterSyncRequest(&tag, SYNC_FILTER_REQUEST, true /* retryOnError */ );
 }
 
 /*
  * DropRelationFiles -- drop files of all given relations
  */
 void
-DropRelationFiles(RelFileNodePendingDelete *delrels, int ndelrels, bool isRedo)
+DropRelationFiles(RelFileNode *delrels, int ndelrels, bool isRedo)
 {
 	SMgrRelation *srels;
 	int			i;
@@ -1100,35 +1020,25 @@ DropRelationFiles(RelFileNodePendingDelete *delrels, int ndelrels, bool isRedo)
 	srels = palloc(sizeof(SMgrRelation) * ndelrels);
 	for (i = 0; i < ndelrels; i++)
 	{
-		/* GPDB: backend can only be TempRelBackendId or InvalidBackendId for a
-		 * given relfile since we don't tie temp relations to their backends. */
-		SMgrRelation srel = smgropen(delrels[i].node,
-									 delrels[i].isTempRelation ?
-									 TempRelBackendId : InvalidBackendId,
-									 delrels[i].smgr_which);
+		SMgrRelation srel = smgropen(delrels[i], InvalidBackendId);
 
 		if (isRedo)
 		{
 			ForkNumber	fork;
 
 			for (fork = 0; fork <= MAX_FORKNUM; fork++)
-				XLogDropRelation(delrels[i].node, fork);
+				XLogDropRelation(delrels[i], fork);
 		}
 		srels[i] = srel;
 	}
 
 	smgrdounlinkall(srels, ndelrels, isRedo);
 
-	/*
-	 * Call smgrclose() in reverse order as when smgropen() is called.
-	 * This trick enables remove_from_unowned_list() in smgrclose()
-	 * to search the SMgrRelation from the unowned list,
-	 * with O(1) performance.
-	 */
-	for (i = ndelrels - 1; i >= 0; i--)
+	for (i = 0; i < ndelrels; i++)
 		smgrclose(srels[i]);
 	pfree(srels);
 }
+
 
 /*
  *	_fdvec_resize() -- Resize the fork's open segments array
@@ -1386,7 +1296,7 @@ _mdnblocks(SMgrRelation reln, ForkNumber forknum, MdfdVec *seg)
 int
 mdsyncfiletag(const FileTag *ftag, char *path)
 {
-	SMgrRelation reln = smgropen(ftag->rnode, InvalidBackendId, 0);
+	SMgrRelation reln = smgropen(ftag->rnode, InvalidBackendId);
 	File		file;
 	bool		need_to_close;
 	int			result,
@@ -1419,34 +1329,6 @@ mdsyncfiletag(const FileTag *ftag, char *path)
 
 	if (need_to_close)
 		FileClose(file);
-
-	errno = save_errno;
-	return result;
-}
-
-
-int
-aosyncfiletag(const FileTag *ftag, char *path)
-{
-	SMgrRelation reln = smgropen(ftag->rnode, InvalidBackendId, 1);
-	char	   *p;
-	int			result,
-				save_errno;
-
-	/* Provide the path for informational messages. */
-	p = _mdfd_segpath(reln, ftag->forknum, ftag->segno);
-	strlcpy(path, p, MAXPGPATH);
-	pfree(p);
-
-	File fd = PathNameOpenFile(path, O_RDWR);
-	if (fd <= 0)
-		elog(ERROR, "could not open file %s: %m", path);
-
-	/* Try to fsync the file. */
-	result = FileSync(fd, WAIT_EVENT_DATA_FILE_SYNC);
-	save_errno = errno;
-
-	FileClose(fd);
 
 	errno = save_errno;
 	return result;

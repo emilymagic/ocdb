@@ -392,6 +392,9 @@ tbm_free_shared_area(dsa_area *dsa, dsa_pointer dp)
 
 /*
  * tbm_add_tuples - add some tuple IDs to a TIDBitmap
+ *
+ * If recheck is true, then the recheck flag will be set in the
+ * TBMIterateResult when any of these tuples are reported out.
  */
 void
 tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
@@ -410,12 +413,8 @@ tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
 					bitnum;
 
 		/* safety check to ensure we don't overrun bit array bounds */
-
-		/* UNDONE: Turn this off until we convert this module to AO TIDs. */
-#if 0
 		if (off < 1 || off > MAX_TUPLES_PER_PAGE)
 			elog(ERROR, "tuple offset out of range: %u", off);
-#endif
 
 		/*
 		 * Look up target page unless we already did.  This saves cycles when
@@ -445,7 +444,7 @@ tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
 			wordnum = WORDNUM(off - 1);
 			bitnum = BITNUM(off - 1);
 		}
-		page->words[wordnum] |= ((tbm_bitmapword) 1 << bitnum);
+		page->words[wordnum] |= ((bitmapword) 1 << bitnum);
 		page->recheck |= recheck;
 
 		if (tbm->nentries > tbm->maxentries)

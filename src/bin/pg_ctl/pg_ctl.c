@@ -494,6 +494,10 @@ start_postmaster(void)
 	fflush(stdout);
 	fflush(stderr);
 
+#ifdef EXEC_BACKEND
+	pg_disable_aslr();
+#endif
+
 	pm_pid = fork();
 	if (pm_pid < 0)
 	{
@@ -739,7 +743,7 @@ wait_for_postmaster_start(pgpid_t pm_pid, bool do_checkpoint)
 				}
 				else /* I'm one of coordinator, standby-coor, primary, mirror */
 				{
-					if (strcmp(pmstatus, pmReadyStatuses[pmStartMode]) == 0 ||
+					if (strcmp(pmstatus, PM_STATUS_READY) == 0 ||
 						(gp_mirror_fast_wait && pmStartMode == IS_MIRROR && strcmp(pmstatus, PM_STATUS_STANDBY) == 0))
 					{
 						/* postmaster is done starting up */

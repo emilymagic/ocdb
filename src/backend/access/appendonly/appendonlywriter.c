@@ -186,13 +186,6 @@ LockSegnoForWrite(Relation rel, int segno)
 	if (snapshot == NULL)
 		snapshot = GetTransactionSnapshot();
 
-	if (Debug_appendonly_print_segfile_choice)
-	{
-		elog(LOG, "usedByConcurrentTransaction: TransactionXmin = %u, xmin = %u, xmax = %u, myxid = %u",
-			 TransactionXmin, snapshot->xmin, snapshot->xmax, GetCurrentTransactionIdIfAny());
-		LogDistributedSnapshotInfo(snapshot, "Used snapshot: ");
-	}
-
 	aoscan = systable_beginscan(pg_aoseg_rel, InvalidOid, false, snapshot, 0, NULL);
 	while ((tuple = systable_getnext(aoscan)) != NULL)
 	{
@@ -427,13 +420,6 @@ choose_segno_internal(Relation rel, List *avoid_segnos, choose_segno_mode mode)
 	snapshot = GetOldestSnapshot();
 	if (snapshot == NULL)
 		snapshot = GetTransactionSnapshot();
-
-	if (Debug_appendonly_print_segfile_choice)
-	{
-		elog(LOG, "choose_segno_internal: TransactionXmin = %u, xmin = %u, xmax = %u, myxid = %u",
-			 TransactionXmin, snapshot->xmin, snapshot->xmax, GetCurrentTransactionIdIfAny());
-		LogDistributedSnapshotInfo(snapshot, "Used snapshot: ");
-	}
 
 	GetAppendOnlyEntryAuxOids(rel,
 							  &segrelid, NULL, NULL);

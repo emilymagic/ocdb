@@ -16,7 +16,6 @@
 #ifndef CDBDISP_H
 #define CDBDISP_H
 
-#include "cdb/cdbtm.h"
 #include "utils/resowner.h"
 
 #define CDB_MOTION_LOST_CONTACT_STRING "Interconnect error coordinator lost contact with segment."

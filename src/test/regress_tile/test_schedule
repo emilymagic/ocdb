@@ -1,0 +1,63 @@
+# ----------
+# src/test/regress/parallel_schedule
+#
+# By convention, we put no more than twenty tests in any one parallel group;
+# this limits the number of connections needed to run the tests.
+# ----------
+
+# run tablespace by itself, and first, because it forces a checkpoint;
+# we'd prefer not to have checkpoints later in the tests because that
+# interferes with crash-recovery testing.
+#test: tablespace
+
+# ----------
+# The first group of parallel tests
+# ----------
+test: boolean char name varchar text int2 int4 int8 oid float4 float8 bit numeric txid uuid enum money rangetypes pg_lsn regproc
+
+# ----------
+# The second group of parallel tests
+# strings depends on char, varchar and text
+# numerology depends on int2, int4, int8, float4, float8
+# ----------
+test: strings numerology point lseg line box path polygon circle date time timetz timestamp timestamptz interval inet macaddr macaddr8 tstypes
+
+# ----------
+# Another group of parallel tests
+# geometry depends on point, lseg, box, path, polygon and circle
+# horology depends on interval, timetz, timestamp, timestamptz
+# ----------
+test: geometry horology regex oidjoins type_sanity opr_sanity misc_sanity comments expressions
+
+# ----------
+# These four each depend on the previous one
+# ----------
+test: create_function_1
+test: create_type
+test: create_table
+test: create_function_2
+
+# ----------
+# Load huge amounts of data
+# We should split the data files into single files and then
+# execute two copy tests parallel, to check that copy itself
+# is concurrent safe.
+# ----------
+test: copy copyselect copydml insert
+# test: insert_conflict
+
+# ----------
+# More groups of parallel tests
+# ----------
+test: create_misc create_operator create_procedure
+# These depend on create_misc and create_operator
+# test: create_index_spgist index_including_gist
+# test: create_index create_view index_including
+test: create_view
+
+# ----------
+# Another group of parallel tests
+# ----------
+test: create_aggregate create_function_3 create_cast constraints triggers select inherit typed_table vacuum drop_if_exists updatable_views roleattributes create_am hash_func errors infinite_recurse
+
+test: plpgsql

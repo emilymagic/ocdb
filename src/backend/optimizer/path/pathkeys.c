@@ -21,6 +21,7 @@
 
 #include "access/hash.h"
 #include "access/stratnum.h"
+#include "catalog/pg_type.h"
 #include "catalog/pg_opfamily.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -1608,6 +1609,22 @@ make_pathkeys_for_sortclauses(PlannerInfo *root,
 			pathkeys = lappend(pathkeys, pathkey);
 	}
 	return pathkeys;
+}
+
+PathKey *
+make_tid_path_key(PlannerInfo *root, Var *tidVar)
+{
+	PathKey *pathkey;
+
+	pathkey = make_pathkey_from_sortop(root,
+									  (Expr *) tidVar,
+									   root->nullable_baserels,
+									   2799,
+									   false,
+									   0,
+									   true);
+
+	return pathkey;
 }
 
 /****************************************************************************

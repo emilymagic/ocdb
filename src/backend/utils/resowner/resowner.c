@@ -484,15 +484,6 @@ ResourceOwnerRelease(ResourceOwner owner,
 					 bool isCommit,
 					 bool isTopLevel)
 {
-	/*
-	 * Greenplum: For some reason we've been calling this when the owner is NULL.
-	 */
-	if (owner == NULL)
-	{
-		elog((Debug_print_full_dtm ? LOG : DEBUG5),"ResourceOwnerRelease found owner = NULL");
-		return;
-	}
-
 	/* There's not currently any setup needed before recursing */
 	ResourceOwnerReleaseInternal(owner, phase, isCommit, isTopLevel);
 }
@@ -505,7 +496,7 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 {
 	ResourceOwner child;
 	ResourceOwner save;
-	ResourceReleaseCallbackItem *item, *next;
+	ResourceReleaseCallbackItem *item;
 	Datum		foundres;
 
 	/* Recurse to handle descendants */
@@ -580,9 +571,6 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 			{
 				ProcReleaseLocks(isCommit);
 				ReleasePredicateLocks(isCommit, false);
-
-				if (Gp_role == GP_ROLE_DISPATCH && IsResQueueEnabled())
-					ResLockWaitCancel();
 			}
 		}
 		else
@@ -632,7 +620,7 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 			HeapTuple	res = (HeapTuple) DatumGetPointer(foundres);
 
 			if (isCommit)
-				PrintCatCacheLeakWarning(res, owner->name);
+				PrintCatCacheLeakWarning(res);
 			ReleaseCatCache(res);
 		}
 
@@ -642,7 +630,7 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 			CatCList   *res = (CatCList *) DatumGetPointer(foundres);
 
 			if (isCommit)
-				PrintCatCacheListLeakWarning(res, owner->name);
+				PrintCatCacheListLeakWarning(res);
 			ReleaseCatCacheList(res);
 		}
 
@@ -688,11 +676,8 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 	}
 
 	/* Let add-on modules get a chance too */
-	for (item = ResourceRelease_callbacks; item; item = next)
-	{
-		next = item->next;
+	for (item = ResourceRelease_callbacks; item; item = item->next)
 		item->callback(phase, isCommit, isTopLevel, item->arg);
-	}
 
 	CurrentResourceOwner = save;
 }

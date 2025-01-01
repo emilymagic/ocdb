@@ -86,7 +86,6 @@
 #include "utils/ps_status.h"
 
 #include "cdb/cdbvars.h"  /* GpIdentity.segindex */
-#include "cdb/cdbtm.h"
 #include "utils/ps_status.h"    /* get_ps_display_username() */
 #include "cdb/cdbselect.h"
 #include "pgtime.h"
@@ -319,41 +318,6 @@ errstart(int elevel, const char *domain)
 				ExitOnAnyError ||
 				proc_exit_inprogress)
 				elevel = FATAL;
-		}
-
-		/*
-		 * If coordinator process hits FATAL, post PREPARE but before COMMIT / ABORT on segment,
-		 * just coordinator process dies silently, leaves dangling prepared xact on segment.
-		 * This also introduces inconsistency in the cluster, as xact is commited on coordinator
-		 * and some segments and still in-progress on few others.
-		 * Hence converting FATAL to PANIC, here to reset coordinator and perform full recovery
-		 * instead, which would clean the dangling transaction update to COMMIT / ABORT.
-		 */
-		if ((elevel == FATAL) && (Gp_role == GP_ROLE_DISPATCH))
-		{
-			switch (getCurrentDtxState())
-			{
-				case DTX_STATE_PREPARING:
-				case DTX_STATE_PREPARED:
-				case DTX_STATE_INSERTING_COMMITTED:
-				case DTX_STATE_INSERTED_COMMITTED:
-				case DTX_STATE_NOTIFYING_COMMIT_PREPARED:
-				case DTX_STATE_NOTIFYING_ABORT_SOME_PREPARED:
-				case DTX_STATE_NOTIFYING_ABORT_PREPARED:
-				case DTX_STATE_RETRY_COMMIT_PREPARED:
-				case DTX_STATE_RETRY_ABORT_PREPARED:
-					elevel = PANIC;
-					break;
-
-				case DTX_STATE_NONE:
-				case DTX_STATE_ACTIVE_DISTRIBUTED:
-				case DTX_STATE_ONE_PHASE_COMMIT:
-				case DTX_STATE_NOTIFYING_ONE_PHASE_COMMIT:
-				case DTX_STATE_INSERTING_FORGET_COMMITTED:
-				case DTX_STATE_INSERTED_FORGET_COMMITTED:
-				case DTX_STATE_NOTIFYING_ABORT_NO_PREPARED:
-					break;
-			}
 		}
 
 		/*
@@ -3082,26 +3046,6 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 				break;
 			case 'X':
 				{
-					DistributedTransactionId distribXid;
-					TransactionId localXid;
-					TransactionId subXid;
-
-					GetAllTransactionXids(
-									&distribXid,
-									&localXid,
-									&subXid);
-
-					if (localXid != InvalidTransactionId)
-					{
-						if (distribXid >= FirstDistributedTransactionId)
-							appendStringInfo(buf, "dx"UINT64_FORMAT", ", distribXid);
-
-						appendStringInfo(buf, "x%u", localXid);
-
-						if (subXid >= FirstNormalTransactionId)
-							appendStringInfo(buf, ", sx%u, ", subXid);
-					}
-
 					break;
 				}
 			case 'e':
@@ -3790,19 +3734,7 @@ write_syslogger_in_csv(ErrorData *edata, bool amsyslogger)
 	syslogger_write_int32(true, "cmd", gp_command_count, amsyslogger, true);
 	syslogger_write_int32(false, "seg", GpIdentity.segindex, amsyslogger, true);
 	syslogger_write_int32(true, "slice", currentSliceId, amsyslogger, true);
-	{
-		DistributedTransactionId dist_trans_id;
-		TransactionId local_trans_id;
-		TransactionId subtrans_id;
 
-		GetAllTransactionXids(&dist_trans_id,
-							  &local_trans_id,
-							  &subtrans_id);
-
-		syslogger_write_int32(true, "dx", dist_trans_id, amsyslogger, true);
-		syslogger_write_int32(true, "x", local_trans_id, amsyslogger, true);
-		syslogger_write_int32(true, "sx", subtrans_id, amsyslogger, true);
-	}
 
 	/* error severity */
 	write_syslogger_file_string(error_severity(edata->elevel), amsyslogger, true);
@@ -3933,10 +3865,6 @@ write_message_to_server_log(int elevel,
 	fix_fields.internal_query_pos = internalpos;
 	fix_fields.error_fileline = lineno;
 	fix_fields.top_trans_id = GetTopTransactionIdIfAny();
-
-	GetAllTransactionXids(&(fix_fields.dist_trans_id),
-						  &(fix_fields.local_trans_id),
-						  &(fix_fields.subtrans_id));
 
 	Assert(buffer.hdr.len + sizeof(GpErrorDataFixFields) <= PIPE_MAX_PAYLOAD);
 

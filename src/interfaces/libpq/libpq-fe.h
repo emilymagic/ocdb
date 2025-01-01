@@ -401,6 +401,7 @@ extern pgthreadlock_t PQregisterThreadLock(pgthreadlock_t newhandler);
 
 /* Simple synchronous query */
 extern PGresult *PQexec(PGconn *conn, const char *query);
+extern PGresult *PQexecPlan(PGconn *conn, const char *plan, size_t len);
 extern PGresult *PQexecParams(PGconn *conn,
 							  const char *command,
 							  int nParams,
@@ -422,6 +423,7 @@ extern PGresult *PQexecPrepared(PGconn *conn,
 
 /* Interface for multiple-result or asynchronous queries */
 extern int	PQsendQuery(PGconn *conn, const char *query);
+extern int	PQsendPlan(PGconn *conn, const char *plan, size_t len);
 extern int	PQsendQueryParams(PGconn *conn,
 							  const char *command,
 							  int nParams,

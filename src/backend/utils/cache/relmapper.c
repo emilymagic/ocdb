@@ -710,6 +710,9 @@ load_relmap_file(bool shared, bool lock_held)
 	int			fd;
 	int			r;
 
+	if (!IS_CATALOG_SERVER())
+		return;
+
 	if (shared)
 	{
 		snprintf(mapfilename, sizeof(mapfilename), "global/%s",

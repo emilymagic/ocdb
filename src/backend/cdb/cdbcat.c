@@ -20,16 +20,19 @@
 #include "access/hash.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/tileam.h"
 #include "catalog/dependency.h"
 #include "catalog/gp_distribution_policy.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/objectaddress.h"
+#include "catalog/pg_am.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_type.h"
 #include "cdb/cdbcat.h"
+#include "utils/dispatchcat.h"
 #include "cdb/cdbhash.h"
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"		/* Gp_role */
@@ -316,60 +319,9 @@ GpPolicy *
 GpPolicyFetch(Oid tbloid)
 {
 	GpPolicy   *policy = NULL;	/* The result */
-	HeapTuple	gp_policy_tuple = NULL;
+	Oid 		tableamOid;
 
-	/*
-	 * EXECUTE-type external tables have an "ON ..." specification.
-	 * See if it's "COORDINATOR_ONLY". Other types of external tables have a
-	 * gp_distribution_policy row, like normal tables.
-	 */
-	if (rel_is_external_table(tbloid))
-	{
-		/*
-		 * An external table really should have a catalog entry, but
-		 * there's currently a transient state during creation of an external
-		 * table, where the pg_class entry has been created, and its loaded
-		 * into the relcache, before the catalog entry has been created.
-		 * Silently ignore missing catalog rows to cope with that.
-		 */
-		ExtTableEntry *e = GetExtTableEntryIfExists(tbloid);
-
-		/*
-		 * Writeable external tables have gp_distribution_policy entries, like
-		 * regular tables. Readable external tables are implicitly randomly
-		 * distributed, except for "EXECUTE ... ON COORDINATOR" ones.
-		 */
-		if (e)
-		{
-			char	   *on_clause = (char *) strVal(linitial(e->execlocations));
-
-			if (!e->iswritable)
-			{
-				if (strcmp(on_clause, "COORDINATOR_ONLY") == 0)
-				{
-					return makeGpPolicy(POLICYTYPE_ENTRY, 0, -1);
-				}
-				return createRandomPartitionedPolicy(getgpsegmentCount());
-			}
-			else if (strcmp(on_clause, "COORDINATOR_ONLY") == 0)
-			{
-				ListCell   *cell;
-				Assert(e->urilocations != NIL);
-
-				/* set policy for writable s3 on primary external table */
-				foreach(cell, e->urilocations)
-				{
-					const char *uri_str = (char *) strVal(lfirst(cell));
-					Uri	*uri = ParseExternalTableUri(uri_str);
-					if (uri->protocol == URI_CUSTOM && 0 == pg_strncasecmp(uri->customprotocol, "s3", 2))
-					{
-						return makeGpPolicy(POLICYTYPE_ENTRY, 0, -1);
-					}
-				}
-			}
-		}
-	}
-	else if (get_rel_relkind(tbloid) == RELKIND_FOREIGN_TABLE)
+	if (get_rel_relkind(tbloid) == RELKIND_FOREIGN_TABLE)
 	{
 		/*
 		 * Similar to the external table creation, there is a transient state
@@ -403,95 +355,12 @@ GpPolicyFetch(Oid tbloid)
 		}
 	}
 
-	/*
-	 * Select by value of the localoid field
-	 *
-	 * SELECT * FROM gp_distribution_policy WHERE localoid = :1
-	 */
-	gp_policy_tuple = SearchSysCache1(GPPOLICYID,
-									 ObjectIdGetDatum(tbloid));
+	tableamOid = get_rel_relam(tbloid);
+	if (tableamOid == HEAP_TABLE_AM_OID)
+		return makeGpPolicy(POLICYTYPE_ENTRY, 0, -1);
+	else if (tableamOid == TILE_TABLE_AM_OID)
+		return createRandomPartitionedPolicy(getgpsegmentCount());
 
-	/*
-	 * Read first (and only) tuple
-	 */
-	if (HeapTupleIsValid(gp_policy_tuple))
-	{
-		Form_gp_distribution_policy policyform = (Form_gp_distribution_policy) GETSTRUCT(gp_policy_tuple);
-		bool		isNull;
-		int			i;
-		int			nattrs;
-		int2vector *distkey;
-		oidvector  *distopclasses;
-
-		/*
-		 * Sanity check of numsegments.
-		 *
-		 * Currently, Gxact always use a fixed size of cluster after the Gxact started,
-		 * If a table is expanded after Gxact started, we should report an error,
-		 * otherwise, planner will arrange a gang whose size is larger than the size
-		 * of cluster and dispatcher cannot handle this.
-		 */
-		if ((Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_EXECUTE) &&
-			policyform->numsegments > getgpsegmentCount())
-		{
-			ReleaseSysCache(gp_policy_tuple);
-			ereport(ERROR,
-					(errcode(ERRCODE_GP_FEATURE_NOT_YET),
-					 errmsg("cannot access table \"%s\" in current transaction",
-							get_rel_name(tbloid)),
-					 errdetail("New segments are concurrently added to the cluster during the execution of current transaction, "
-							   "the table has data on some of the new segments, "
-							   "but these new segments are invisible and inaccessible to current transaction."),
-					 errhint("Re-run the query in a new transaction.")));
-		}
-
-		switch (policyform->policytype)
-		{
-			case SYM_POLICYTYPE_REPLICATED:
-				policy = createReplicatedGpPolicy(policyform->numsegments);
-				break;
-			case SYM_POLICYTYPE_PARTITIONED:
-				/*
-				 * Get the attributes on which to partition.
-				 */
-				distkey = (int2vector *) DatumGetPointer(
-					SysCacheGetAttr(GPPOLICYID, gp_policy_tuple,
-									Anum_gp_distribution_policy_distkey,
-									&isNull));
-
-				/*
-				 * Get distribution keys only if this table has a policy.
-				 */
-				if (!isNull)
-				{
-					nattrs = distkey->dim1;
-					distopclasses = (oidvector *) DatumGetPointer(
-						SysCacheGetAttr(GPPOLICYID, gp_policy_tuple,
-										Anum_gp_distribution_policy_distclass,
-										&isNull));
-					Assert(!isNull);
-					Assert(distopclasses->dim1 == nattrs);
-				}
-				else
-					nattrs = 0;
-
-				/* Create a GpPolicy object. */
-				policy = makeGpPolicy(POLICYTYPE_PARTITIONED,
-									  nattrs, policyform->numsegments);
-
-				for (i = 0; i < nattrs; i++)
-				{
-					policy->attrs[i] = distkey->values[i];
-					policy->opclasses[i] = distopclasses->values[i];
-				}
-				break;
-			default:
-				ReleaseSysCache(gp_policy_tuple);
-				elog(ERROR, "unrecognized distribution policy type");	
-		}
-
-		ReleaseSysCache(gp_policy_tuple);
-	}
 
 	/* Interpret absence of a valid policy row as POLICYTYPE_ENTRY */
 	if (policy == NULL)
@@ -501,6 +370,22 @@ GpPolicyFetch(Oid tbloid)
 
 	return policy;
 }								/* GpPolicyFetch */
+
+GpPolicy *
+GpPolicyFetchByCost(Oid tbloid, double size)
+{
+	Oid tableamOid;
+
+	tableamOid = get_rel_relam(tbloid);
+
+	if (tableamOid != TILE_TABLE_AM_OID)
+		return GpPolicyFetch(tbloid);
+
+	if (size < TILE_BLOCK_SIZE)
+		return makeGpPolicy(POLICYTYPE_ENTRY, 0, -1);
+	else
+		return createRandomPartitionedPolicy(getgpsegmentCount());
+}
 
 /*
  * Sets the policy of a table into the gp_distribution_policy table

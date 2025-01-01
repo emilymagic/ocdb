@@ -23,6 +23,7 @@
 #include "cdb/cdbvars.h"
 #include "miscadmin.h"
 #include "port/atomics.h"
+#include "storage/shmem.h"
 #include "utils/guc.h"
 #include "utils/vmem_tracker.h"
 #include "utils/resource_manager.h"

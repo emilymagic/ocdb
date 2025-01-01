@@ -32,7 +32,6 @@
 #include "cdb/cdbdisp.h"
 #include "lib/stringinfo.h"
 #include "libpq/libpq-be.h"
-#include "postmaster/backoff.h"
 #include "utils/resource_manager.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -364,6 +363,7 @@ bool		gp_cost_hashjoin_chainwalk = false;
  * can simply #include cdbvars.h, and use GpIdentity.numsegments
  */
 GpId		GpIdentity = {UNINITIALIZED_GP_IDENTITY_VALUE, UNINITIALIZED_GP_IDENTITY_VALUE};
+int			myClusterId = 0;
 
 /*
  * Keep track of a few dispatch-related  statistics:
@@ -549,12 +549,10 @@ gpvars_assign_gp_resource_manager_policy(const char *newval, void *extra)
 	else if (!pg_strcasecmp("group", newval))
 	{
 		Gp_resource_manager_policy = RESOURCE_MANAGER_POLICY_GROUP;
-		gp_enable_resqueue_priority = false;
 	}
 	else if (!pg_strcasecmp("group-v2", newval))
 	{
 		Gp_resource_manager_policy = RESOURCE_MANAGER_POLICY_GROUP_V2;
-		gp_enable_resqueue_priority = false;
 	}
 	/*
 	 * No else should happen, since newval has been checked in check_hook.

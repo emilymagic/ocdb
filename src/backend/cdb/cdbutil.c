@@ -46,7 +46,6 @@
 #include "cdb/cdbgang.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/ml_ipc.h"			/* listener_setup */
-#include "cdb/cdbtm.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
 #include "cdb/cdbconn.h"
@@ -86,7 +85,6 @@ static void cleanupComponentIdleQEs(CdbComponentDatabaseInfo *cdi, bool includeW
 
 static int	CdbComponentDatabaseInfoCompare(const void *p1, const void *p2);
 
-static GpSegConfigEntry * readGpSegConfigFromCatalog(int *total_dbs);
 static GpSegConfigEntry * readGpSegConfigFromFTSFiles(int *total_dbs);
 
 static void getAddressesForDBid(GpSegConfigEntry *c, int elevel);
@@ -231,7 +229,7 @@ writeGpSegConfigToFTSFiles(void)
 			 GPSEGCONFIGDUMPFILETMP, GPSEGCONFIGDUMPFILE);
 }
 
-static GpSegConfigEntry *
+GpSegConfigEntry *
 readGpSegConfigFromCatalog(int *total_dbs)
 {
 	int					idx = 0;
@@ -682,21 +680,12 @@ cdbcomponent_updateCdbComponents(void)
 		else if ((cdb_component_dbs->fts_version != ftsVersion ||
 				 cdb_component_dbs->expand_version != expandVersion))
 		{
-			if (TempNamespaceOidIsValid())
-			{
-				/*
-				 * Do not update here, otherwise, temp files will be lost 
-				 * in segments;
-				 */
-			}
-			else
-			{
-				ELOG_DISPATCHER_DEBUG("FTS rescanned, get new component databases info.");
-				cdbcomponent_destroyCdbComponents();
-				cdb_component_dbs = getCdbComponentInfo();
-				cdb_component_dbs->fts_version = ftsVersion;
-				cdb_component_dbs->expand_version = expandVersion;
-			}
+
+			ELOG_DISPATCHER_DEBUG("FTS rescanned, get new component databases info.");
+			cdbcomponent_destroyCdbComponents();
+			cdb_component_dbs = getCdbComponentInfo();
+			cdb_component_dbs->fts_version = ftsVersion;
+			cdb_component_dbs->expand_version = expandVersion;
 		}
 	}
 	PG_CATCH();
@@ -963,11 +952,6 @@ destroy_segdb:
 
 	cdbconn_termSegmentDescriptor(segdbDesc);
 
-	if (isWriter)
-	{
-		markCurrentGxactWriterGangLost();
-	}
-
 	MemoryContextSwitchTo(oldContext);
 }
 
@@ -1131,34 +1115,6 @@ cdb_setup(void)
 		/* Initialize the Motion Layer IPC subsystem. */
 		InitMotionLayerIPC();
 	}
-
-	/*
-	 * Backend process requires consistent state, it cannot proceed until
-	 * dtx recovery process finish up the recovery of distributed transactions.
-	 *
-	 * Ignore background worker because bgworker_should_start_mpp() already did
-	 * the check.
-	 *
-	 * Ignore if we are the standby coordinator started in hot standby mode.
-	 * We don't expect dtx recovery to have finished, as dtx recovery is
-	 * performed at the end of startup. In hot standby, we are recovering
-	 * continuously and should allow queries much earlier. Since a hot standby
-	 * won't proceed dtx, it is not required to wait for recovery of the dtx
-	 * that has been prepared but not committed (i.e. to commit them); on the
-	 * other hand, the recovery of any in-doubt transactions (i.e. not prepared)
-	 * won't bother a hot standby either, just like they can be recovered in the 
-	 * background when a primary instance is running.
-	 */
-	if (!IsBackgroundWorker &&
-		Gp_role == GP_ROLE_DISPATCH &&
-		!*shmDtmStarted &&
-		!IS_HOT_STANDBY_QD())
-	{
-		ereport(FATAL,
-				(errcode(ERRCODE_CANNOT_CONNECT_NOW),
-				 errmsg(POSTMASTER_IN_RECOVERY_MSG),
-				 errdetail("waiting for distributed transaction recovery to complete")));
-	}
 }
 
 /*
@@ -1190,7 +1146,7 @@ cdb_cleanup(int code pg_attribute_unused(), Datum arg
 		}
 	}
 
-	if (Gp_role != GP_ROLE_UTILITY)
+	if (Gp_role != GP_ROLE_UTILITY && !IS_CATALOG_SERVER())
 	{
 		/* shutdown our listener socket */
 		CleanUpMotionLayerIPC();

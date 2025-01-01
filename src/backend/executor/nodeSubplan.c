@@ -325,6 +325,11 @@ ExecScanSubPlan(SubPlanState *node,
 	 * NULL.  Assuming we get a tuple, we just use its first column (there can
 	 * be only one non-junk column in this case).
 	 *
+	 * For MULTIEXPR_SUBLINK, we push the per-column subplan outputs out to
+	 * the setParams and then return a dummy false value.  There must not be
+	 * multiple tuples returned from the subplan; if zero tuples are produced,
+	 * set the setParams to NULL.
+	 *
 	 * For ARRAY_SUBLINK we allow the subplan to produce any number of tuples,
 	 * and form an array of the first column's values.  Note in particular
 	 * that we produce a zero-element array if no tuples are produced (this is
@@ -1115,7 +1120,6 @@ ExecSetParamPlan(SubPlanState *node, ExprContext *econtext, QueryDesc *queryDesc
 	ArrayBuildState *astate pg_attribute_unused() = NULL;
 	Size		savepeakspace = MemoryContextGetPeakSpace(planstate->state->es_query_cxt);
 
-	bool		needDtx;
 	bool		shouldDispatch = false;
 	volatile bool explainRecvStats = false;
 
@@ -1148,9 +1152,7 @@ ExecSetParamPlan(SubPlanState *node, ExprContext *econtext, QueryDesc *queryDesc
 PG_TRY();
 {
 	if (shouldDispatch)
-	{			
-		needDtx = isCurrentDtxActivated();
-
+	{
 		/*
 		 * This call returns after launching the threads that send the
 		 * command to the appropriate segdbs.  It does not wait for them
@@ -1158,7 +1160,7 @@ PG_TRY();
 		 */
 		CdbDispatchPlan(queryDesc,
 						estate->es_param_exec_vals,
-						needDtx, true);
+						false, true);
 
 		/*
 		 * Set up the interconnect for execution of the initplan root slice.

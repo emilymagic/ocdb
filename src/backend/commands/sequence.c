@@ -56,6 +56,7 @@
 #include "utils/varlena.h"
 
 #include "catalog/oid_dispatch.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbmotion.h"
@@ -256,10 +257,7 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	stmt->ownerid = GetUserId();
 	stmt->origin = ORIGIN_NO_GEN;
 
-	address = DefineRelation(stmt, RELKIND_SEQUENCE, seq->ownerId, NULL, NULL,
-							 false, /* dispatch */
-							 true, /* useChangedOpts */
-							 NULL); /* intoPolicy */
+	address = DefineRelation(stmt, RELKIND_SEQUENCE, seq->ownerId, NULL, NULL);
 	seqoid = address.objectId;
 	Assert(seqoid != InvalidOid);
 
@@ -599,15 +597,6 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 		alter_subtype = tempo;
 	}
 
-	if (Gp_role == GP_ROLE_DISPATCH && !bSeqIsTemp)
-	{
-		/* MPP-6929: metadata tracking */
-		MetaTrackUpdObject(RelationRelationId,
-						   relid,
-						   GetUserId(),
-						   "ALTER", alter_subtype);
-	}
-
 	if (Gp_role == GP_ROLE_DISPATCH)
 		CdbDispatchUtilityStatement((Node *) stmt,
 									DF_CANCEL_ON_ERROR|
@@ -681,6 +670,12 @@ nextval_oid(PG_FUNCTION_ARGS)
 void
 nextval_qd(Oid relid, int64 *plast, int64 *pcached, int64  *pincrement, bool *poverflow)
 {
+	cc_next_val(relid, plast, pcached, pincrement, poverflow);
+}
+
+void
+nextval_cs(Oid relid, int64 *plast, int64 *pcached, int64  *pincrement, bool *poverflow)
+{
 	Assert(IS_QUERY_DISPATCHER());
 
 	*plast = nextval_internal(relid, false, true);
@@ -736,7 +731,7 @@ nextval_internal(Oid relid, bool check_permissions, bool called_from_dispatcher)
 	PreventCommandIfParallelMode("nextval()");
 
 	if (elm->last != elm->cached	/* some numbers were cached */
-		&& !called_from_dispatcher)
+		&& IS_CATALOG_SERVER())
 	{
 		Assert(elm->last_valid);
 		Assert(elm->increment != 0);
@@ -747,19 +742,34 @@ nextval_internal(Oid relid, bool check_permissions, bool called_from_dispatcher)
 	}
 
 	/* Update the sequence object. */
-	if (Gp_role == GP_ROLE_EXECUTE)
+	if (!IS_CATALOG_SERVER())
 	{
-		cdb_sequence_nextval_qe(seqrel,
-								&elm->last,
-								&elm->cached,
-								&elm->increment,
-								&elm->last_valid);
+		if (Gp_role == GP_ROLE_EXECUTE)
+		{
+			cdb_sequence_nextval_qe(seqrel,
+									&elm->last,
+									&elm->cached,
+									&elm->increment,
+									&elm->last_valid);
 
-		last_used_seq = elm;
-		relation_close(seqrel, NoLock);
+			last_used_seq = elm;
+			relation_close(seqrel, NoLock);
 
-		return elm->last;
+			return elm->last;
+		}
+		else
+		{
+			nextval_qd(relid,
+					   &elm->last,
+					   &elm->cached,
+					   &elm->increment,
+					   &elm->last_valid);
+			last_used_seq = elm;
+			relation_close(seqrel, NoLock);
+			return elm->last;
+		}
 	}
+
 	pgstuple = SearchSysCache1(SEQRELID, ObjectIdGetDatum(relid));
 	if (!HeapTupleIsValid(pgstuple))
 		elog(ERROR, "cache lookup failed for sequence %u", relid);

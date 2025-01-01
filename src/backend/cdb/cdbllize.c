@@ -405,99 +405,7 @@ cdbllize_adjust_top_path(PlannerInfo *root, Path *best_path,
 
 	if (query->commandType == CMD_SELECT && query->parentStmtType == PARENTSTMTTYPE_CTAS)
 	{
-		/* CREATE TABLE AS or SELECT INTO */
-		if (query->intoPolicy != NULL)
-		{
-			targetPolicy = query->intoPolicy;
-
-			Assert(query->intoPolicy->ptype != POLICYTYPE_ENTRY);
-			Assert(query->intoPolicy->nattrs >= 0);
-			Assert(query->intoPolicy->nattrs <= MaxPolicyAttributeNumber);
-		}
-		else if (gp_create_table_random_default_distribution)
-		{
-			targetPolicy = createRandomPartitionedPolicy(GP_POLICY_DEFAULT_NUMSEGMENTS());
-			ereport(NOTICE,
-					(errcode(ERRCODE_SUCCESSFUL_COMPLETION),
-					 errmsg("using default RANDOM distribution since no distribution was specified"),
-					 errhint("Consider including the 'DISTRIBUTED BY' clause to determine the distribution of rows.")));
-		}
-		else
-		{
-			/* First try to deduce the distribution from the query */
-			targetPolicy = get_partitioned_policy_from_path(root, best_path);
-
-			/*
-			 * If that fails, hash on the first hashable column we can
-			 * find.
-			 */
-			if (!targetPolicy)
-			{
-				int			i;
-				List	   *policykeys = NIL;
-				List	   *policyopclasses = NIL;
-				ListCell   *lc;
-
-				i = 0;
-				foreach(lc, best_path->pathtarget->exprs)
-				{
-					Oid			typeOid = exprType((Node *) lfirst(lc));
-					Oid			opclass = InvalidOid;
-
-					/*
-					 * Check for a legacy hash operator class if
-					 * gp_use_legacy_hashops GUC is set. If
-					 * InvalidOid is returned or the GUC is not
-					 * set, we'll get the default operator class.
-					 */
-					if (gp_use_legacy_hashops)
-						opclass = get_legacy_cdbhash_opclass_for_base_type(typeOid);
-
-					if (!OidIsValid(opclass))
-						opclass = cdb_default_distribution_opclass_for_type(typeOid);
-
-
-					if (OidIsValid(opclass))
-					{
-						policykeys = lappend_int(policykeys, i + 1);
-						policyopclasses = lappend_oid(policyopclasses, opclass);
-						break;
-					}
-					i++;
-				}
-				targetPolicy = createHashPartitionedPolicy(policykeys,
-														   policyopclasses,
-														   GP_POLICY_DEFAULT_NUMSEGMENTS());
-			}
-
-			/* If we deduced the policy from the query, give a NOTICE */
-			if (query->parentStmtType == PARENTSTMTTYPE_CTAS)
-			{
-				StringInfoData columnsbuf;
-				int			i;
-
-				initStringInfo(&columnsbuf);
-				for (i = 0; i < targetPolicy->nattrs; i++)
-				{
-					TargetEntry *target = get_tle_by_resno(root->processed_tlist, targetPolicy->attrs[i]);
-
-					if (i > 0)
-						appendStringInfoString(&columnsbuf, ", ");
-					if (target->resname)
-						appendStringInfoString(&columnsbuf, target->resname);
-					else
-						appendStringInfoString(&columnsbuf, "???");
-
-				}
-				ereport(NOTICE,
-						(errcode(ERRCODE_SUCCESSFUL_COMPLETION),
-						 errmsg("Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) "
-								"named '%s' as the Greenplum Database data distribution key for this "
-								"table. ", columnsbuf.data),
-						 errhint("The 'DISTRIBUTED BY' clause determines the distribution of data."
-								 " Make sure column(s) chosen are the optimal data distribution key to minimize skew.")));
-			}
-		}
+		targetPolicy = createRandomPartitionedPolicy(GP_POLICY_DEFAULT_NUMSEGMENTS());
 		Assert(targetPolicy->ptype != POLICYTYPE_ENTRY);
 
 		query->intoPolicy = targetPolicy;
@@ -517,22 +425,11 @@ cdbllize_adjust_top_path(PlannerInfo *root, Path *best_path,
 												   false,
 												   replicatedLocus);
 		}
-		else
-		{
-			/*
-			 * Make sure the top level flow is partitioned on the
-			 * partitioning key of the target relation.	Since this is
-			 * a SELECT INTO (basically same as an INSERT) command,
-			 * the target list will correspond to the attributes of
-			 * the target relation in order.
-			 */
-			best_path = create_motion_path_for_ctas(root, targetPolicy,
-													best_path);
-		}
 
-		topslice->numsegments = targetPolicy->numsegments;
+		topslice->numsegments = best_path->locus.numsegments;
 		topslice->segindex = 0;
-		topslice->gangType = (targetPolicy->ptype == POLICYTYPE_ENTRY) ? GANGTYPE_UNALLOCATED : GANGTYPE_PRIMARY_WRITER;
+		topslice->gangType = best_path->locus.numsegments > 0 ?
+				GANGTYPE_PRIMARY_WRITER : GANGTYPE_UNALLOCATED;
 	}
 	else if (query->commandType == CMD_SELECT && query->parentStmtType == PARENTSTMTTYPE_REFRESH_MATVIEW)
 	{
@@ -574,9 +471,10 @@ cdbllize_adjust_top_path(PlannerInfo *root, Path *best_path,
 													  best_path);
 		}
 
-		topslice->numsegments = targetPolicy->numsegments;
+		topslice->numsegments = best_path->locus.numsegments;
 		topslice->segindex = 0;
-		topslice->gangType = (targetPolicy->ptype == POLICYTYPE_ENTRY) ? GANGTYPE_UNALLOCATED : GANGTYPE_PRIMARY_WRITER;
+		topslice->gangType = best_path->locus.numsegments > 0 ?
+							 GANGTYPE_PRIMARY_WRITER : GANGTYPE_UNALLOCATED;
 	}
 	else if (query->commandType == CMD_SELECT && query->parentStmtType == PARENTSTMTTYPE_COPY)
 	{
@@ -633,9 +531,9 @@ cdbllize_adjust_top_path(PlannerInfo *root, Path *best_path,
 		}
 		else
 		{
-			topslice->numsegments = targetPolicy->numsegments;
+			topslice->numsegments = best_path->locus.numsegments;
 			topslice->segindex = 0;
-			topslice->gangType = (targetPolicy->ptype == POLICYTYPE_ENTRY) ? GANGTYPE_UNALLOCATED : GANGTYPE_PRIMARY_WRITER;
+			topslice->gangType = topslice->numsegments > 0 ? GANGTYPE_PRIMARY_WRITER : GANGTYPE_UNALLOCATED;
 		}
 	}
 	else if (query->commandType == CMD_UTILITY)

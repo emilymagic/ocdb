@@ -45,7 +45,7 @@
 
 #include "nodes/execnodes.h"
 
-static void bmbuildCallback(Relation index,	ItemPointer tupleId, Datum *attdata,
+static void bmbuildCallback(Relation index,	HeapTuple htup, Datum *attdata,
 							bool *nulls, bool tupleIsAlive,	void *state);
 static bool words_get_match(BMBatchWords *words, BMIterateResult *result,
                             BlockNumber blockno, PagetableEntry *entry,
@@ -264,7 +264,7 @@ bminitbitmap(Node **bmNodeP)
  * bmgetbitmap() -- return a stream bitmap.
  */
 int64
-bmgetbitmap(IndexScanDesc scan, Node **bmNodeP)
+bmgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 {
 	IndexStream	 *is;
 	BMScanPosition	scanPos;
@@ -300,23 +300,6 @@ bmgetbitmap(IndexScanDesc scan, Node **bmNodeP)
 			bmvec->bm_lovBuffer = InvalidBuffer;
 		}
 	}
-
-	/*
-	 * GPDB specific code. Since GPDB also support StreamBitmap
-	 * in bitmap index. So normally we need to create specific bitmap
-	 * node in the amgetbitmap AM.
-	 */
-	Assert(bmNodeP);
-	if (*bmNodeP == NULL)
-	{
-		StreamBitmap *sb = makeNode(StreamBitmap);
-		sb->streamNode = is;
-		*bmNodeP = (Node *) sb;
-	}
-	else if (IsA(*bmNodeP, StreamBitmap))
-		stream_add_node((StreamBitmap *)*bmNodeP, is, BMS_OR);
-	else
-		elog(ERROR, "non stream bitmap");
 
 	/*
 	 * XXX We don't have a precise idea of the number of heap tuples
@@ -586,12 +569,12 @@ bmvacuumcleanup(IndexVacuumInfo *info,
  * Per-tuple callback from IndexBuildHeapScan
  */
 static void
-bmbuildCallback(Relation index, ItemPointer tupleId, Datum *attdata,
+bmbuildCallback(Relation index, HeapTuple htup, Datum *attdata,
 				bool *nulls, bool tupleIsAlive pg_attribute_unused(),	void *state)
 {
 	BMBuildState *bstate = (BMBuildState *) state;
 
-	_bitmap_buildinsert(index, *tupleId, attdata, nulls, bstate);
+	_bitmap_buildinsert(index, htup->t_self, attdata, nulls, bstate);
 	bstate->ituples += 1;
 
 	if (((int)bstate->ituples) % 1000 == 0)
@@ -1132,5 +1115,5 @@ bmvalidate(Oid opclassoid)
 	 * as B-tree indexes. In fact, we use a real B-tree index for the LOV
 	 * tree. So borrow B-tree's validate function.
 	 */
-	return btree_or_bitmap_validate(opclassoid, "bitmap");
+	return true;
 }

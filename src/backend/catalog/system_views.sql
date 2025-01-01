@@ -16,6 +16,9 @@
  * string literal (including a function body!) or a multiline comment.
  */
 
+SET default_table_access_method TO heap;
+
+
 CREATE VIEW pg_roles AS
     SELECT
         rolname,
@@ -992,26 +995,6 @@ CREATE VIEW pg_stat_resqueues AS
 		pg_stat_get_queue_elapsed_wait(Q.oid) AS elapsed_wait
 	FROM pg_resqueue AS Q;
 
--- Resource queue views
-
-CREATE VIEW pg_resqueue_status AS
-	SELECT 
-			q.rsqname, 
-			q.rsqcountlimit, 
-			s.queuecountvalue AS rsqcountvalue,
-			q.rsqcostlimit, 
-			s.queuecostvalue AS rsqcostvalue,
-			s.queuewaiters AS rsqwaiters,
-			s.queueholders AS rsqholders
-	FROM pg_resqueue AS q 
-			INNER JOIN pg_resqueue_status() AS s 
-			(	queueid oid, 
-	 			queuecountvalue float4, 
-				queuecostvalue float4,
-				queuewaiters int4,
-				queueholders int4)
-			ON (s.queueid = q.oid);
-			
 -- External table views
 
 CREATE VIEW pg_max_external_files AS
@@ -1494,28 +1477,6 @@ CREATE OR REPLACE VIEW gp_pgdatabase AS
 GRANT SELECT ON gp_pgdatabase TO PUBLIC;
 
 ------------------------------------------------------------------
--- GPDB distributed transaction related views
-------------------------------------------------------------------
-CREATE OR REPLACE VIEW gp_distributed_xacts AS 
-    SELECT *
-      FROM gp_distributed_xacts() AS L(distributed_xid xid, state text, gp_session_id int, xmin_distributed_snapshot xid);
-
-GRANT SELECT ON gp_distributed_xacts TO PUBLIC;
-
-
-CREATE OR REPLACE VIEW gp_transaction_log AS 
-    SELECT *
-      FROM gp_transaction_log() AS L(segment_id smallint, dbid smallint, transaction xid, status text);
-
-GRANT SELECT ON gp_transaction_log TO PUBLIC;
-
-CREATE OR REPLACE VIEW gp_distributed_log AS 
-    SELECT *
-      FROM gp_distributed_log() AS L(segment_id smallint, dbid smallint, distributed_xid xid, status text, local_transaction xid);
-
-GRANT SELECT ON gp_distributed_log TO PUBLIC;
-
-------------------------------------------------------------------
 -- GPDB view for aggregating the backends information of subtransactions overflowed
 ------------------------------------------------------------------
 CREATE VIEW gp_suboverflowed_backend(segid, pids) AS
@@ -1821,27 +1782,6 @@ GRANT EXECUTE ON FUNCTION pg_ls_tmpdir(oid) TO pg_monitor;
 GRANT pg_read_all_settings TO pg_monitor;
 GRANT pg_read_all_stats TO pg_monitor;
 GRANT pg_stat_scan_tables TO pg_monitor;
-
-create or replace function brin_summarize_range(t regclass, block_number int8) returns setof bigint as 
-$$
-  -- brin_summarize_range_internal is marked as EXECUTE ON ALL SEGMENTS.
-  select sum(n.brin_summarize_range_internal) from (select brin_summarize_range_internal(t, block_number)) as n;
-$$
-LANGUAGE SQL READS SQL DATA EXECUTE ON COORDINATOR;
-
-create or replace function brin_summarize_new_values(t regclass) returns setof bigint as
-$$
-  -- brin_summarize_new_values_internal is marked as EXECUTE ON ALL SEGMENTS.
-  select sum(n) from brin_summarize_new_values_internal(t) as n;
-$$
-LANGUAGE sql READS SQL DATA EXECUTE ON COORDINATOR;
-
-create or replace function brin_desummarize_range(t regclass, block_number int8) returns setof void as
-$$
-  -- brin_desummarize_range_internal is marked as EXECUTE ON ALL SEGMENTS.
-select brin_desummarize_range_internal(t, block_number);
-$$
-LANGUAGE SQL READS SQL DATA EXECUTE ON COORDINATOR;
 
 ------------------------------------------------------------------
 -- GPDB endpoint related views and functions

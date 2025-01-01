@@ -535,12 +535,6 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackAddObject(SubscriptionRelationId,
-						   subid,
-						   GetUserId(),
-						   "CREATE", "SUBSCRIPTION");
 	}
 
 	if (enabled)
@@ -873,12 +867,6 @@ AlterSubscription(AlterSubscriptionStmt *stmt)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackUpdObject(SubscriptionRelationId,
-						   subid,
-						   GetUserId(),
-						   "ALTER", "SUBSCRIPTION");
 	}
 
 	ObjectAddressSet(myself, SubscriptionRelationId, subid);
@@ -1043,10 +1031,6 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 									DF_NEED_TWO_PHASE,
 									GetAssignedOidsForDispatch(),
 									NULL);
-
-		/* MPP-6929: metadata tracking */
-		MetaTrackDropObject(SubscriptionRelationId,
-							subid);
 	}
 
 	/*
@@ -1081,7 +1065,8 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 						"drop the replication slot \"%s\"", slotname),
 				 errdetail("The error was: %s", err),
 		/* translator: %s is an SQL ALTER command */
-				 errhint("Use %s to disassociate the subscription from the slot.",
+				 errhint("Use %s to disable the subscription, and then use %s to disassociate it from the slot.",
+						 "ALTER SUBSCRIPTION ... DISABLE",
 						 "ALTER SUBSCRIPTION ... SET (slot_name = NONE)")));
 
 	PG_TRY();

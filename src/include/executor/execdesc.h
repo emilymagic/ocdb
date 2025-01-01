@@ -19,6 +19,7 @@
 
 #include "nodes/execnodes.h"
 #include "tcop/dest.h"
+#include "utils/dispatchcat.h"
 
 struct CdbExplain_ShowStatCtx;  /* private, in "cdb/cdbexplain.c" */
 
@@ -239,6 +240,8 @@ typedef struct QueryDispatchDesc
 	 * Security context flags.
 	 */
 	int		secContext;
+
+	CdbCatalogNode *catalogNode;
 } QueryDispatchDesc;
 
 /*

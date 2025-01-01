@@ -216,7 +216,7 @@ relation_openrv_extended(const RangeVar *relation, LOCKMODE lockmode,
 	if (!OidIsValid(relOid))
 		return NULL;
 
-	/* Let try_relation_open do the rest */
+	/* Let relation_open do the rest */
 	return relation_open(relOid, NoLock);
 }
 
@@ -241,20 +241,4 @@ relation_close(Relation relation, LOCKMODE lockmode)
 
 	if (lockmode != NoLock)
 		UnlockRelationId(&relid, lockmode);
-	else
-	{
-		LOCKTAG		tag;
-
-		SET_LOCKTAG_RELATION(tag, relid.dbId, relid.relId);
-
-		/*
-		 * Closing with NoLock is a sufficient condition for a relation lock
-		 * to be transaction-level(means the lock can only be released after
-		 * the holding transaction is over).
-		 * This is because the difference betwwen the ref counts in the
-		 * relation and the lock tag can not be removed.
-		 * So this is a good time to set the holdTillEndXact flag for the lock.
-		 */
-		LockSetHoldTillEndXact(&tag);
-	}
 }

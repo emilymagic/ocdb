@@ -408,6 +408,10 @@ DECLARE_UNIQUE_INDEX(pg_proc_callback_profnoid_promethod_index, 9926, on pg_proc
 
 DECLARE_UNIQUE_INDEX(pg_compression_compname_index, 7059, on pg_compression using btree(compname name_ops));
 #define CompressionCompnameIndexId	7059
+
+DECLARE_UNIQUE_INDEX(pg_tile_mainrelid_index, 7145, on pg_tile using btree(mainrelid oid_ops));
+#define TileMainrelidIndexId  7145
+
 DECLARE_UNIQUE_INDEX(pg_range_rngtypid_index, 3542, on pg_range using btree(rngtypid oid_ops));
 #define RangeTypidIndexId					3542
 

@@ -218,13 +218,13 @@ TruncateAOSegmentFile(File fd, Relation rel, int32 segFileNum, int64 offset, AOV
 
 	SIMPLE_FAULT_INJECTOR("appendonly_after_truncate_segment_file");
 
-	if (file_truncate_hook)
-	{
-		RelFileNodeBackend rnode;
-		rnode.node = rel->rd_node;
-		rnode.backend = rel->rd_backend;
-		(*file_truncate_hook)(rnode);
-	}
+//	if (file_truncate_hook)
+//	{
+//		RelFileNodeBackend rnode;
+//		rnode.node = rel->rd_node;
+//		rnode.backend = rel->rd_backend;
+//		(*file_truncate_hook)(rnode);
+//	}
 }
 
 struct mdunlink_ao_callback_ctx
@@ -496,13 +496,13 @@ copy_append_only_data(RelFileNode src, RelFileNode dst,
 
     ao_foreach_extent_file(copy_append_only_data_perFile, &copyFiles);
 
-	if (file_extend_hook)
-	{
-		RelFileNodeBackend rnode;
-		rnode.node = dst;
-		rnode.backend = backendid;
-		(*file_extend_hook)(rnode);
-	}
+//	if (file_extend_hook)
+//	{
+//		RelFileNodeBackend rnode;
+//		rnode.node = dst;
+//		rnode.backend = backendid;
+//		(*file_extend_hook)(rnode);
+//	}
 }
 
 static bool

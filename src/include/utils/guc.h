@@ -375,38 +375,6 @@ extern bool execute_pruned_plan;
 
 extern bool gp_enable_relsize_collection;
 
-/* Debug DTM Action */
-typedef enum
-{
-	DEBUG_DTM_ACTION_NONE = 0,
-	DEBUG_DTM_ACTION_DELAY = 1,
-	DEBUG_DTM_ACTION_FAIL_BEGIN_COMMAND = 2,
-	DEBUG_DTM_ACTION_FAIL_END_COMMAND = 3,
-	DEBUG_DTM_ACTION_PANIC_BEGIN_COMMAND = 4,
-
-	DEBUG_DTM_ACTION_LAST = 4
-}	DebugDtmAction;
-
-/* Debug DTM Action */
-typedef enum
-{
-	DEBUG_DTM_ACTION_TARGET_NONE = 0,
-	DEBUG_DTM_ACTION_TARGET_PROTOCOL = 1,
-	DEBUG_DTM_ACTION_TARGET_SQL = 2,
-
-	DEBUG_DTM_ACTION_TARGET_LAST = 2
-}	DebugDtmActionTarget;
-
-extern char *Debug_dtm_action_sql_command_tag;
-extern char *Debug_dtm_action_str;
-extern char *Debug_dtm_action_target_str;
-extern int Debug_dtm_action;
-extern int Debug_dtm_action_target;
-extern int Debug_dtm_action_protocol;
-extern int Debug_dtm_action_segment;
-extern int Debug_dtm_action_nestinglevel;
-
-
 /* Enable check for compatibility of encoding and locale in createdb */
 extern bool gp_encoding_check_locale_compatibility;
 
@@ -805,7 +773,6 @@ extern void assign_xlog_sync_method(int new_sync_method, void *extra);
 extern bool check_gp_role(char **newval, void **extra, GucSource source);
 extern void assign_gp_role(const char *newval, void *extra);
 extern const char *show_gp_role(void);
-extern void assign_gp_write_shared_snapshot(bool newval, void *extra);
 extern bool gpvars_check_gp_resource_manager_policy(char **newval, void **extra, GucSource source);
 extern void gpvars_assign_gp_resource_manager_policy(const char *newval, void *extra);
 extern const char *gpvars_show_gp_resource_manager_policy(void);

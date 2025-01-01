@@ -131,31 +131,31 @@ SELECT * FROM serialTest2 ORDER BY f2 ASC;
 SELECT nextval('serialTest2_f2_seq');
  nextval 
 ---------
-      21
+       2
 (1 row)
 
 SELECT nextval('serialTest2_f3_seq');
  nextval 
 ---------
-      21
+       2
 (1 row)
 
 SELECT nextval('serialTest2_f4_seq');
  nextval 
 ---------
-      21
+       2
 (1 row)
 
 SELECT nextval('serialTest2_f5_seq');
  nextval 
 ---------
-      21
+       2
 (1 row)
 
 SELECT nextval('serialTest2_f6_seq');
  nextval 
 ---------
-      21
+       2
 (1 row)
 
 -- basic sequence operations using both text and oid references
@@ -254,7 +254,7 @@ SELECT nextval('foo_seq_new');
 SELECT last_value, log_cnt IN (31, 32) AS log_cnt_ok, is_called FROM foo_seq_new;
  last_value | log_cnt_ok | is_called 
 ------------+------------+-----------
-          2 | t          | t
+          2 | f          | t
 (1 row)
 
 DROP SEQUENCE foo_seq_new;
@@ -512,11 +512,11 @@ WHERE sequencename ~ ANY(ARRAY['sequence_test', 'serialtest'])
  public     | sequence_test8     |           1 |                    1 |               20000 |            1 | f     |         20 |           
  public     | sequence_test9     |          -1 |               -32768 |                  -1 |           -1 | f     |         20 |           
  public     | serialtest1_f2_foo |           1 |                    1 |          2147483647 |            1 | f     |         20 |         40
- public     | serialtest2_f2_seq |           1 |                    1 |          2147483647 |            1 | f     |         20 |         40
- public     | serialtest2_f3_seq |           1 |                    1 |               32767 |            1 | f     |         20 |         40
- public     | serialtest2_f4_seq |           1 |                    1 |               32767 |            1 | f     |         20 |         40
- public     | serialtest2_f5_seq |           1 |                    1 | 9223372036854775807 |            1 | f     |         20 |         40
- public     | serialtest2_f6_seq |           1 |                    1 | 9223372036854775807 |            1 | f     |         20 |         40
+ public     | serialtest2_f2_seq |           1 |                    1 |          2147483647 |            1 | f     |         20 |         20
+ public     | serialtest2_f3_seq |           1 |                    1 |               32767 |            1 | f     |         20 |         20
+ public     | serialtest2_f4_seq |           1 |                    1 |               32767 |            1 | f     |         20 |         20
+ public     | serialtest2_f5_seq |           1 |                    1 | 9223372036854775807 |            1 | f     |         20 |         20
+ public     | serialtest2_f6_seq |           1 |                    1 | 9223372036854775807 |            1 | f     |         20 |         20
 (19 rows)
 
 SELECT * FROM pg_sequence_parameters('sequence_test4'::regclass);

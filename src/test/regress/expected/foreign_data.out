@@ -1357,18 +1357,17 @@ CREATE TRIGGER trigtest_before_stmt BEFORE INSERT OR UPDATE OR DELETE
 ON foreign_schema.foreign_table_1
 FOR EACH STATEMENT
 EXECUTE PROCEDURE dummy_trigger();
-ERROR:  Triggers for statements are not yet supported
 CREATE TRIGGER trigtest_after_stmt AFTER INSERT OR UPDATE OR DELETE
 ON foreign_schema.foreign_table_1
 FOR EACH STATEMENT
 EXECUTE PROCEDURE dummy_trigger();
-ERROR:  Triggers for statements are not yet supported
 CREATE TRIGGER trigtest_after_stmt_tt AFTER INSERT OR UPDATE OR DELETE -- ERROR
 ON foreign_schema.foreign_table_1
 REFERENCING NEW TABLE AS new_table
 FOR EACH STATEMENT
 EXECUTE PROCEDURE dummy_trigger();
-ERROR:  Triggers for statements are not yet supported
+ERROR:  "foreign_table_1" is a foreign table
+DETAIL:  Triggers on foreign tables cannot have transition tables.
 CREATE TRIGGER trigtest_before_row BEFORE INSERT OR UPDATE OR DELETE
 ON foreign_schema.foreign_table_1
 FOR EACH ROW
@@ -1385,15 +1384,11 @@ ERROR:  "foreign_table_1" is a foreign table
 DETAIL:  Foreign tables cannot have constraint triggers.
 ALTER FOREIGN TABLE foreign_schema.foreign_table_1
 	DISABLE TRIGGER trigtest_before_stmt;
-ERROR:  trigger "trigtest_before_stmt" for table "foreign_table_1" does not exist
 ALTER FOREIGN TABLE foreign_schema.foreign_table_1
 	ENABLE TRIGGER trigtest_before_stmt;
-ERROR:  trigger "trigtest_before_stmt" for table "foreign_table_1" does not exist
 DROP TRIGGER trigtest_before_stmt ON foreign_schema.foreign_table_1;
-ERROR:  trigger "trigtest_before_stmt" for table "foreign_table_1" does not exist
 DROP TRIGGER trigtest_before_row ON foreign_schema.foreign_table_1;
 DROP TRIGGER trigtest_after_stmt ON foreign_schema.foreign_table_1;
-ERROR:  trigger "trigtest_after_stmt" for table "foreign_table_1" does not exist
 DROP TRIGGER trigtest_after_row ON foreign_schema.foreign_table_1;
 DROP FUNCTION dummy_trigger();
 -- Table inheritance
@@ -1471,8 +1466,6 @@ Inherits: fd_pt1
 
 -- GPDB: Cannot create distributed table from non-distributed foreign table.
 CREATE TABLE ct3() INHERITS(ft2);
-ERROR:  cannot inherit from foreign table "ft2" to create table "ct3"
-DETAIL:  An inheritance hierarchy cannot contain a mixture of distributed and non-distributed tables.
 CREATE FOREIGN TABLE ft3 (
 	c1 integer NOT NULL,
 	c2 text,
@@ -1492,11 +1485,20 @@ NOTICE:  merging column "c3" with inherited definition
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 Inherits: fd_pt1
-Child tables: ft3
+Child tables: ct3,
+              ft3
 
 -- start_ignore
 -- GPDB: ct3 is not created.
 \d+ ct3
+                                    Table "public.ct3"
+ Column |  Type   | Collation | Nullable | Default | Storage  | Stats target | Description 
+--------+---------+-----------+----------+---------+----------+--------------+-------------
+ c1     | integer |           | not null |         | plain    |              | 
+ c2     | text    |           |          |         | extended |              | 
+ c3     | date    |           |          |         | plain    |              | 
+Inherits: ft2
+
 -- end_ignore
 \d+ ft3
                                        Foreign table "public.ft3"
@@ -1543,11 +1545,25 @@ Child tables: ft2
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 Inherits: fd_pt1
-Child tables: ft3
+Child tables: ct3,
+              ft3
 
 -- start_ignore
 -- GPDB: ct3 is not created.
 \d+ ct3
+                                    Table "public.ct3"
+ Column |  Type   | Collation | Nullable | Default | Storage  | Stats target | Description 
+--------+---------+-----------+----------+---------+----------+--------------+-------------
+ c1     | integer |           | not null |         | plain    |              | 
+ c2     | text    |           |          |         | extended |              | 
+ c3     | date    |           |          |         | plain    |              | 
+ c4     | integer |           |          |         | plain    |              | 
+ c5     | integer |           |          | 0       | plain    |              | 
+ c6     | integer |           |          |         | plain    |              | 
+ c7     | integer |           | not null |         | plain    |              | 
+ c8     | integer |           |          |         | plain    |              | 
+Inherits: ft2
+
 -- end_ignore
 \d+ ft3
                                        Foreign table "public.ft3"
@@ -1606,7 +1622,8 @@ Child tables: ft2
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 Inherits: fd_pt1
-Child tables: ft3
+Child tables: ct3,
+              ft3
 
 -- drop attributes recursively
 ALTER TABLE fd_pt1 DROP COLUMN c4;
@@ -1633,7 +1650,8 @@ Child tables: ft2
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 Inherits: fd_pt1
-Child tables: ft3
+Child tables: ct3,
+              ft3
 
 -- add constraints recursively
 ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk1 CHECK (c1 > 0) NO INHERIT;
@@ -1674,14 +1692,18 @@ Check constraints:
 Server: s0
 FDW options: (delimiter ',', quote '"', "be quoted" 'value')
 Inherits: fd_pt1
-Child tables: ft3
+Child tables: ct3,
+              ft3
 
 DROP FOREIGN TABLE ft2; -- ERROR
 ERROR:  cannot drop foreign table ft2 because other objects depend on it
-DETAIL:  foreign table ft3 depends on foreign table ft2
+DETAIL:  table ct3 depends on foreign table ft2
+foreign table ft3 depends on foreign table ft2
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP FOREIGN TABLE ft2 CASCADE;
-NOTICE:  drop cascades to foreign table ft3
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table ct3
+drop cascades to foreign table ft3
 CREATE FOREIGN TABLE ft2 (
 	c1 integer NOT NULL,
 	c2 text,
@@ -1835,6 +1857,7 @@ DROP FOREIGN TABLE foreign_schema.foreign_table_1;
 REASSIGN OWNED BY regress_test_role TO regress_test_role2;
 DROP OWNED BY regress_test_role2;
 ERROR:  cannot drop desired object(s) because other objects depend on them
+DETAIL:  user mapping for regress_test_role on server s5 depends on server s5
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 DROP OWNED BY regress_test_role2 CASCADE;
 NOTICE:  drop cascades to user mapping for regress_test_role on server s5

@@ -28,8 +28,8 @@ SUBDIRS = \
 	backend/replication/pgoutput \
 	fe_utils \
 	bin \
-	pl \
 	makefiles \
+	pl \
 	test/regress \
 	test/isolation \
 	test/perl

@@ -22,11 +22,11 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
-#include "catalog/gp_partition_template.h"
 #include "catalog/namespace.h"
-#include "catalog/partition.h"
+#include "catalog/pg_am.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"
+#include "utils/dispatchcat.h"
 #include "commands/alter.h"
 #include "commands/async.h"
 #include "commands/cluster.h"
@@ -41,16 +41,13 @@
 #include "commands/event_trigger.h"
 #include "commands/explain.h"
 #include "commands/extension.h"
-#include "commands/extprotocolcmds.h"
 #include "commands/matview.h"
 #include "commands/lockcmds.h"
 #include "commands/policy.h"
 #include "commands/portalcmds.h"
 #include "commands/prepare.h"
-#include "commands/queue.h"
 #include "commands/proclang.h"
 #include "commands/publicationcmds.h"
-#include "commands/resgroupcmds.h"
 #include "commands/schemacmds.h"
 #include "commands/seclabel.h"
 #include "commands/sequence.h"
@@ -78,6 +75,7 @@
 
 #include "access/table.h"
 #include "catalog/oid_dispatch.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbendpoint.h"
 #include "cdb/cdbvars.h"
@@ -87,18 +85,7 @@
 /* Hook for plugins to get control in ProcessUtility() */
 ProcessUtility_hook_type ProcessUtility_hook = NULL;
 
-/*
- * Greenplumn specific code:
- *   for detailed comments, please refer to the comments at the
- *   definition of executor_run_nesting_level in execMain.c.
- *   Greenplum now support create procedure, so auto_stats also
- *   need to take inside a procedure as inside function call.
- *   process_utility_nesting_level >= 2 implies in function call
- *   when calling from procedure.
- */
-static int process_utility_nesting_level = 0;
-
-/* Local function declarations */
+/* local function declarations */
 static void ProcessUtilitySlow(ParseState *pstate,
 							   PlannedStmt *pstmt,
 							   const char *queryString,
@@ -173,8 +160,6 @@ check_xact_readonly(Node *parsetree)
 		case T_AlterDatabaseSetStmt:
 		case T_AlterDomainStmt:
 		case T_AlterFunctionStmt:
-		case T_AlterQueueStmt:
-		case T_AlterResourceGroupStmt:
 		case T_AlterRoleStmt:
 		case T_AlterRoleSetStmt:
 		case T_AlterObjectDependsStmt:
@@ -194,8 +179,6 @@ check_xact_readonly(Node *parsetree)
 		case T_CreatedbStmt:
 		case T_CreateDomainStmt:
 		case T_CreateFunctionStmt:
-		case T_CreateQueueStmt:
-		case T_CreateResourceGroupStmt:
 		case T_CreateRoleStmt:
 		case T_IndexStmt:
 		case T_CreatePLangStmt:
@@ -206,7 +189,6 @@ check_xact_readonly(Node *parsetree)
 		case T_CreateSchemaStmt:
 		case T_CreateSeqStmt:
 		case T_CreateStmt:
-		case T_CreateExternalStmt:
 		case T_CreateTableAsStmt:
 		case T_RefreshMatViewStmt:
 		case T_CreateTableSpaceStmt:
@@ -220,8 +202,6 @@ check_xact_readonly(Node *parsetree)
 		case T_DropStmt:
 		case T_DropdbStmt:
 		case T_DropTableSpaceStmt:
-		case T_DropQueueStmt:
-		case T_DropResourceGroupStmt:
 		case T_DropRoleStmt:
 		case T_GrantStmt:
 		case T_GrantRoleStmt:
@@ -274,12 +254,6 @@ PreventCommandIfReadOnly(const char *cmdname)
 		/* translator: %s is name of a SQL command, eg CREATE */
 				 errmsg("cannot execute %s in a read-only transaction",
 						cmdname)));
-
-	/*
-	 * This is also a convenient place to make note that this transaction
-	 * needs two-phase commit.
-	 */
-	ExecutorMarkTransactionDoesWrites();
 }
 
 /*
@@ -384,33 +358,26 @@ ProcessUtility(PlannedStmt *pstmt,
 	Assert(queryString != NULL);	/* required as of 8.4 */
 
 	/*
-	 * Greenplum specific code:
-	 *   Please refer to the comments at the definition of process_utility_nesting_level.
+	 * We provide a function hook variable that lets loadable plugins get
+	 * control when ProcessUtility is called.  Such a plugin would normally
+	 * call standard_ProcessUtility().
 	 */
-	process_utility_nesting_level++;
-	PG_TRY();
+	if (ProcessUtility_hook)
+		(*ProcessUtility_hook) (pstmt, queryString,
+								context, params, queryEnv,
+								dest, completionTag);
+	else
 	{
-		/*
-		 * We provide a function hook variable that lets loadable plugins get
-		 * control when ProcessUtility is called.  Such a plugin would normally
-		 * call standard_ProcessUtility().
-		 */
-		if (ProcessUtility_hook)
-			(*ProcessUtility_hook) (pstmt, queryString,
-									context, params, queryEnv,
-									dest, completionTag);
-		else
+//		if (cdbCatAuxNode)
+//			cc_process_utility(pstmt, queryString,
+//							   context, params, queryEnv,
+//							   dest, completionTag);
+//		else
 			standard_ProcessUtility(pstmt, queryString,
 									context, params, queryEnv,
 									dest, completionTag);
-		process_utility_nesting_level--;
 	}
-	PG_CATCH();
-	{
-		process_utility_nesting_level--;
-		PG_RE_THROW();
-	}
-	PG_END_TRY();
+
 }
 
 /*
@@ -446,6 +413,8 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 	if (completionTag)
 		completionTag[0] = '\0';
 
+	InvalidBaseSearchPath();
+
 	pstate = make_parsestate(NULL);
 	pstate->p_sourcetext = queryString;
 
@@ -475,23 +444,18 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 								DefElem    *item = (DefElem *) lfirst(lc);
 
 								if (strcmp(item->defname, "transaction_isolation") == 0)
-									SetPGVariableOptDispatch("transaction_isolation",
+									SetPGVariable("transaction_isolation",
 												  list_make1(item->arg),
-												  true,
-												  /* gp_dispatch */ false);
+												  true);
 								else if (strcmp(item->defname, "transaction_read_only") == 0)
-									SetPGVariableOptDispatch("transaction_read_only",
+									SetPGVariable("transaction_read_only",
 												  list_make1(item->arg),
-												  true,
-												  /* gp_dispatch */ false);
+												  true);
 								else if (strcmp(item->defname, "transaction_deferrable") == 0)
-									SetPGVariableOptDispatch("transaction_deferrable",
+									SetPGVariable("transaction_deferrable",
 												  list_make1(item->arg),
-												  true,
-												  /* gp_dispatch */ false);
+												  true);
 							}
-
-							sendDtxExplicitBegin();
 						}
 						break;
 
@@ -505,12 +469,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_PREPARE:
-						if (Gp_role == GP_ROLE_DISPATCH)
-						{
-							ereport(ERROR, (errcode(ERRCODE_GP_COMMAND_ERROR),
-									errmsg("PREPARE TRANSACTION is not yet supported in Greenplum Database")));
-
-						}
 						PreventCommandDuringRecovery("PREPARE TRANSACTION");
 						if (!PrepareTransactionBlock(stmt->gid))
 						{
@@ -521,25 +479,15 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_COMMIT_PREPARED:
-						if (Gp_role == GP_ROLE_DISPATCH)
-						{
-							ereport(ERROR, (errcode(ERRCODE_GP_COMMAND_ERROR),
-									errmsg("COMMIT PREPARED is not yet supported in Greenplum Database")));
-						}
 						PreventInTransactionBlock(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-						FinishPreparedTransaction(stmt->gid, /* isCommit */ true, /* raiseErrorIfNotFound */ true);
+						FinishPreparedTransaction(stmt->gid, true);
 						break;
 
 					case TRANS_STMT_ROLLBACK_PREPARED:
-						if (Gp_role == GP_ROLE_DISPATCH)
-						{
-							ereport(ERROR, (errcode(ERRCODE_GP_COMMAND_ERROR),
-									errmsg("ROLLBACK PREPARED is not yet supported in Greenplum Database")));
-						}
 						PreventInTransactionBlock(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-						FinishPreparedTransaction(stmt->gid, /* isCommit */ false, /* raiseErrorIfNotFound */ true);
+						FinishPreparedTransaction(stmt->gid, false);
 						break;
 
 					case TRANS_STMT_ROLLBACK:
@@ -548,14 +496,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 					case TRANS_STMT_SAVEPOINT:
 						RequireTransactionBlock(isTopLevel, "SAVEPOINT");
-						/* We already checked that we're in a
-						 * transaction; need to make certain
-						 * that the BEGIN has been dispatched
-						 * before we start dispatching our savepoint.
-						 */
-						sendDtxExplicitBegin();
-
-						DefineDispatchSavepoint(stmt->savepoint_name);
+						DefineSavepoint(stmt->savepoint_name);
 						break;
 
 					case TRANS_STMT_RELEASE:
@@ -604,27 +545,13 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 		case T_CreateTableSpaceStmt:
 			/* no event triggers for global objects */
-			if (Gp_role != GP_ROLE_EXECUTE)
-			{
-				/*
-				 * Don't allow coordinator to call this in a transaction block. Segments
-				 * are ok as distributed transaction participants.
-				 */
-				PreventInTransactionBlock(isTopLevel, "CREATE TABLESPACE");
-			}
+			PreventInTransactionBlock(isTopLevel, "CREATE TABLESPACE");
 			CreateTableSpace((CreateTableSpaceStmt *) parsetree);
 			break;
 
 		case T_DropTableSpaceStmt:
 			/* no event triggers for global objects */
-			if (Gp_role != GP_ROLE_EXECUTE)
-			{
-				/*
-				 * Don't allow coordinator to call this in a transaction block.  Segments are ok as
-				 * distributed transaction participants.
-				 */
-				PreventInTransactionBlock(isTopLevel, "DROP TABLESPACE");
-			}
+			PreventInTransactionBlock(isTopLevel, "DROP TABLESPACE");
 			DropTableSpace((DropTableSpaceStmt *) parsetree);
 			break;
 
@@ -674,14 +601,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 		case T_CreatedbStmt:
 			/* no event triggers for global objects */
-			if (Gp_role != GP_ROLE_EXECUTE)
-			{
-				/*
-				 * Don't allow coordinator to call this in a transaction block. Segments
-				 * are ok as distributed transaction participants.
-				 */
-				PreventInTransactionBlock(isTopLevel, "CREATE DATABASE");
-			}
+			PreventInTransactionBlock(isTopLevel, "CREATE DATABASE");
 			createdb(pstate, (CreatedbStmt *) parsetree);
 			break;
 
@@ -700,14 +620,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				DropdbStmt *stmt = (DropdbStmt *) parsetree;
 
 				/* no event triggers for global objects */
-				if (Gp_role != GP_ROLE_EXECUTE)
-				{
-					/*
-					 * Don't allow coordinator to call this in a transaction block.  Segments are ok as
-					 * distributed transaction participants. 
-					 */
-					PreventInTransactionBlock(isTopLevel, "DROP DATABASE");
-				}
+				PreventInTransactionBlock(isTopLevel, "DROP DATABASE");
 				dropdb(stmt->dbname, stmt->missing_ok);
 			}
 			break;
@@ -800,7 +713,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				PreventCommandDuringRecovery(stmt->is_vacuumcmd ?
 											 "VACUUM" : "ANALYZE");
 				/* forbidden in parallel mode due to CommandIsReadOnly */
-				ExecVacuum(pstate, stmt, isTopLevel, false);
+				ExecVacuum(pstate, stmt, isTopLevel);
 			}
 			break;
 
@@ -812,8 +725,11 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 		case T_AlterSystemStmt:
 			PreventInTransactionBlock(isTopLevel, "ALTER SYSTEM");
 			AlterSystemSetConfigFile((AlterSystemStmt *) parsetree);
+			/*
+			 * Keep utility dispatch
+			 */
 			if (Gp_role == GP_ROLE_DISPATCH)
-				CdbDispatchUtilityStatement((Node *) parsetree,
+				CdbDispatchUtilityStatement2((Node *) parsetree,
 											DF_CANCEL_ON_ERROR,
 											NULL,
 											NULL);
@@ -845,55 +761,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 		case T_AlterEventTrigStmt:
 			/* no event triggers on event triggers */
 			AlterEventTrigger((AlterEventTrigStmt *) parsetree);
-			break;
-
-			/*
-			 * ********************* RESOURCE QUEUE statements ****
-			 */
-		case T_CreateQueueStmt:
-
-			/*
-			 * MPP-7960: We cannot run CREATE RESOURCE QUEUE inside a user
-			 * transaction block because the shared memory structures are not
-			 * cleaned up on abort, resulting in "leaked", unreachable queues.
-			 */
-
-			if (Gp_role == GP_ROLE_DISPATCH)
-				PreventInTransactionBlock(isTopLevel, "CREATE RESOURCE QUEUE");
-
-			CreateQueue((CreateQueueStmt *) parsetree);
-			break;
-
-		case T_AlterQueueStmt:
-			AlterQueue((AlterQueueStmt *) parsetree);
-			break;
-
-		case T_DropQueueStmt:
-			DropQueue((DropQueueStmt *) parsetree);
-			break;
-
-			/*
-			 * ********************* RESOURCE GROUP statements ****
-			 */
-		case T_CreateResourceGroupStmt:
-			if (Gp_role == GP_ROLE_DISPATCH)
-				PreventInTransactionBlock(isTopLevel, "CREATE RESOURCE GROUP");
-
-			CreateResourceGroup((CreateResourceGroupStmt *) parsetree);
-			break;
-
-		case T_AlterResourceGroupStmt:
-			if (Gp_role == GP_ROLE_DISPATCH)
-				PreventInTransactionBlock(isTopLevel, "ALTER RESOURCE GROUP");
-
-			AlterResourceGroup((AlterResourceGroupStmt *) parsetree);
-			break;
-
-		case T_DropResourceGroupStmt:
-			if (Gp_role == GP_ROLE_DISPATCH)
-				PreventInTransactionBlock(isTopLevel, "DROP RESOURCE GROUP");
-
-			DropResourceGroup((DropResourceGroupStmt *) parsetree);
 			break;
 
 			/*
@@ -953,10 +820,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			 * can be a useful way of reducing switchover time when using
 			 * various forms of replication.
 			 */
-			if (Gp_role == GP_ROLE_DISPATCH)
-			{
-				CdbDispatchCommand("CHECKPOINT", 0, NULL);
-			}
 			RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_WAIT |
 							  (RecoveryInProgress() ? 0 : CHECKPOINT_FORCE));
 			break;
@@ -975,10 +838,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				switch (stmt->kind)
 				{
 					case REINDEX_OBJECT_INDEX:
-						ReindexIndex(stmt, isTopLevel);
+						ReindexIndex(stmt->relation, stmt->options, stmt->concurrent);
 						break;
 					case REINDEX_OBJECT_TABLE:
-						ReindexTable(stmt, isTopLevel);
+						ReindexTable(stmt->relation, stmt->options, stmt->concurrent);
 						break;
 					case REINDEX_OBJECT_SCHEMA:
 					case REINDEX_OBJECT_SYSTEM:
@@ -990,8 +853,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						 * start-transaction-command calls would not have the
 						 * intended effect!
 						 */
-						if (Gp_role == GP_ROLE_DISPATCH)
-							PreventInTransactionBlock(isTopLevel,
+						PreventInTransactionBlock(isTopLevel,
 												  (stmt->kind == REINDEX_OBJECT_SCHEMA) ? "REINDEX SCHEMA" :
 												  (stmt->kind == REINDEX_OBJECT_SYSTEM) ? "REINDEX SYSTEM" :
 												  "REINDEX DATABASE");
@@ -1088,10 +950,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			}
 			break;
 
-		case T_RetrieveStmt:
-			ExecRetrieveStmt((RetrieveStmt *) parsetree, dest);
-			break;
-
 		case T_CommentStmt:
 			{
 				CommentStmt *stmt = (CommentStmt *) parsetree;
@@ -1159,8 +1017,6 @@ ProcessUtilitySlow(ParseState *pstate,
 	ObjectAddress address;
 	ObjectAddress secondaryObject = InvalidObjectAddress;
 
-	List 		*deferredValidationParts = NIL;
-
 	/* All event trigger calls are done only when isCompleteQuery is true */
 	needCleanup = isCompleteQuery && EventTriggerBeginCompleteQuery();
 
@@ -1192,25 +1048,12 @@ ProcessUtilitySlow(ParseState *pstate,
 			case T_CreateForeignTableStmt:
 				{
 					List	   *stmts;
-					List	   *more_stmts = NIL;
 					RangeVar   *table_rv = NULL;
 
 					/* Run parse analysis ... */
-					/*
-					 * GPDB: Only do parse analysis in the Query Dispatcher. The Executor
-					 * nodes receive an already-transformed statement from the QD. We only
-					 * want to process the main CreateStmt here, not any auxiliary IndexStmts
-					 * or other such statements that would be created from the main
-					 * CreateStmt by parse analysis. The QD will dispatch those other statements
-					 * separately.
-					 */
-					if (Gp_role == GP_ROLE_EXECUTE)
-						stmts = list_make1(parsetree);
-					else
-						stmts = transformCreateStmt((CreateStmt *) parsetree,
-													queryString);
+					stmts = transformCreateStmt((CreateStmt *) parsetree,
+												queryString);
 
-			process_more_stmts:
 					/*
 					 * ... and do it.  We can't use foreach() because we may
 					 * modify the list midway through, so pick off the
@@ -1225,73 +1068,17 @@ ProcessUtilitySlow(ParseState *pstate,
 						if (IsA(stmt, CreateStmt))
 						{
 							CreateStmt *cstmt = (CreateStmt *) stmt;
-							char		relKind = RELKIND_RELATION;
 							Datum		toast_options;
 							static char *validnsps[] = HEAP_RELOPT_NAMESPACES;
-
-							/*
-							 * If this T_CreateStmt was dispatched and we're a QE
-							 * receiving it, extract the relkind and relstorage from
-							 * it
-							 */
-							if (Gp_role == GP_ROLE_EXECUTE)
-							{
-								if (cstmt->relKind != 0)
-									relKind = cstmt->relKind;
-							}
-							else
-								cstmt->relKind = relKind;
-
-							/*
-							 * GPDB: Don't dispatch it yet, as we haven't
-							 * created the toast and other auxiliary tables
-							 * yet.
-							 */
 
 							/* Remember transformed RangeVar for LIKE */
 							table_rv = cstmt->relation;
 
 							/* Create the table itself */
 							address = DefineRelation(cstmt,
-													 relKind,
-													 ((CreateStmt *) stmt)->ownerid, NULL,
-													 queryString, false, true,
-													 cstmt->intoPolicy);
-
-							if (cstmt->partspec && cstmt->partspec->gpPartDef)
-							{
-								List *parts;
-								GpPartitionDefinition *gpPartDef = cstmt->partspec->gpPartDef;
-								Oid parentrelid = address.objectId;
-								List *ancestors = get_partition_ancestors(parentrelid);
-
-								if (!gpPartDef->fromCatalog)
-								{
-									gpPartDef = transformGpPartitionDefinition(parentrelid, queryString, gpPartDef);
-									if (gpPartDef->isTemplate)
-										StoreGpPartitionTemplate(ancestors ? llast_oid(ancestors) : parentrelid,
-																 list_length(ancestors), gpPartDef);
-								}
-
-								/*
-								 * Add to list of partitions for deferred
-								 * partition constraint validation, for
-								 * performance. See RelationValidatePartitionDesc()
-								 * for details on why we do this.
-								 */
-								if (pg_strcasecmp(cstmt->partspec->strategy, "range") == 0)
-									deferredValidationParts = lappend_oid(deferredValidationParts, parentrelid);
-
-								parts = generatePartitions(parentrelid,
-														   gpPartDef,
-														   cstmt->partspec->subPartSpec,
-														   queryString, cstmt->options,
-														   cstmt->accessMethod,
-														   cstmt->attr_encodings,
-														   ORIGIN_GP_CLASSIC_CREATE_GEN);
-								more_stmts = list_concat(more_stmts, parts);
-							}
-
+													 RELKIND_RELATION,
+													 InvalidOid, NULL,
+													 queryString);
 							EventTriggerCollectSimpleCommand(address,
 															 secondaryObject,
 															 stmt);
@@ -1302,54 +1089,22 @@ ProcessUtilitySlow(ParseState *pstate,
 							 */
 							CommandCounterIncrement();
 
-							if (relKind != RELKIND_COMPOSITE_TYPE)
-							{
-								/*
-								 * parse and validate reloptions for the toast
-								 * table
-								 */
-								toast_options = transformRelOptions((Datum) 0,
-																	cstmt->options,
-																	"toast",
-																	validnsps,
-																	true,
-																	false);
-								(void) heap_reloptions(RELKIND_TOASTVALUE,
-													   toast_options,
-													   true);
+							/*
+							 * parse and validate reloptions for the toast
+							 * table
+							 */
+							toast_options = transformRelOptions((Datum) 0,
+																cstmt->options,
+																"toast",
+																validnsps,
+																true,
+																false);
+							(void) heap_reloptions(RELKIND_TOASTVALUE,
+												   toast_options,
+												   true);
 
-								NewRelationCreateToastTable(address.objectId,
-															toast_options);
-							}
-
-							if (Gp_role == GP_ROLE_DISPATCH)
-							{
-								CdbDispatchUtilityStatement((Node *) stmt,
-															DF_CANCEL_ON_ERROR |
-															DF_NEED_TWO_PHASE |
-															DF_WITH_SNAPSHOT,
-															GetAssignedOidsForDispatch(),
-															NULL);
-							}
-							else
-							{
-								/*
-								 * Greenplum specific behavior
-								 * If intoQuery field is set, it means this is Create Matview.
-								 * To keep catalog consistent, QEs should also store the viewquery.
-								 * The call chain is:
-								 *   create_ctas_nodata()(QD) --> create_ctas_internal()(QD) -->
-								 *   dispatch create stmt(QD) --> ProcessUtilitySlow(on QE) --> StoreViewQuery()(QE).
-								 */
-								if (cstmt->intoQuery)
-								{
-									/* StoreViewQuery scribbles on tree, so make a copy */
-									Query	   *query = (Query *) copyObject(cstmt->intoQuery);
-
-									StoreViewQuery(address.objectId, query, false);
-									CommandCounterIncrement();
-								}
-							}
+							NewRelationCreateToastTable(address.objectId,
+														toast_options);
 						}
 						else if (IsA(stmt, CreateForeignTableStmt))
 						{
@@ -1362,13 +1117,8 @@ ProcessUtilitySlow(ParseState *pstate,
 							address = DefineRelation(&cstmt->base,
 													 RELKIND_FOREIGN_TABLE,
 													 InvalidOid, NULL,
-													 queryString,
-													 true,
-													 true,
-													 NULL);
-							CreateForeignTable(cstmt,
-											   address.objectId,
-											   false /* skip_permission_checks */);
+													 queryString);
+							CreateForeignTable(cstmt, address.objectId, false);
 							EventTriggerCollectSimpleCommand(address,
 															 secondaryObject,
 															 stmt);
@@ -1418,12 +1168,6 @@ ProcessUtilitySlow(ParseState *pstate,
 						if (stmts != NIL)
 							CommandCounterIncrement();
 					}
-					if (more_stmts)
-					{
-						stmts = more_stmts;
-						more_stmts = NIL;
-						goto process_more_stmts;
-					}
 
 					/*
 					 * The multiple commands generated here are stashed
@@ -1447,24 +1191,14 @@ ProcessUtilitySlow(ParseState *pstate,
 					 * lock on (for example) a relation on which we have no
 					 * permissions.
 					 */
-					if (Gp_role == GP_ROLE_EXECUTE)
-						lockmode = atstmt->lockmode;
-					else
-						lockmode = AlterTableGetLockLevel(atstmt->cmds);
+					lockmode = AlterTableGetLockLevel(atstmt->cmds);
 					relid = AlterTableLookupRelation(atstmt, lockmode);
 
 					if (OidIsValid(relid))
 					{
 						/* Run parse analysis ... */
-						/*
-						 * GPDB: Like for CREATE TABLE, only do parse analysis
-						 * in the Query Dispatcher.
-						 */
-						if (Gp_role == GP_ROLE_EXECUTE)
-							stmts = list_make1(parsetree);
-						else
-							stmts = transformAlterTableStmt(relid, atstmt,
-															queryString);
+						stmts = transformAlterTableStmt(relid, atstmt,
+														queryString);
 
 						/* ... ensure we have an event trigger context ... */
 						EventTriggerAlterTableStart(parsetree);
@@ -1520,8 +1254,7 @@ ProcessUtilitySlow(ParseState *pstate,
 						EventTriggerAlterTableEnd();
 					}
 					else
-						ereport((Gp_role == GP_ROLE_EXECUTE) ? DEBUG1 : NOTICE,
-
+						ereport(NOTICE,
 								(errmsg("relation \"%s\" does not exist, skipping",
 										atstmt->relation->relname)));
 				}
@@ -1583,16 +1316,6 @@ ProcessUtilitySlow(ParseState *pstate,
 								 (int) stmt->subtype);
 							break;
 					}
-					if (Gp_role == GP_ROLE_DISPATCH)
-					{
-						/* ADD CONSTRAINT will assign a new OID for the constraint */
-						CdbDispatchUtilityStatement((Node *) stmt,
-													DF_CANCEL_ON_ERROR|
-													DF_WITH_SNAPSHOT|
-													DF_NEED_TWO_PHASE,
-													GetAssignedOidsForDispatch(),
-													NULL);
-					}
 				}
 				break;
 
@@ -1651,64 +1374,10 @@ ProcessUtilitySlow(ParseState *pstate,
 													  stmt->definition,
 													  stmt->if_not_exists);
 							break;
-						case OBJECT_EXTPROTOCOL:
-							Assert(stmt->args == NIL);
-							DefineExtProtocol(stmt->defnames, stmt->definition, stmt->trusted);
-							break;						
 						default:
 							elog(ERROR, "unrecognized define stmt type: %d",
 								 (int) stmt->kind);
 							break;
-					}
-				}
-				break;
-
-			case T_CreateExternalStmt:
-				{
-					List *stmts;
-					ListCell   *l;
-
-					/* Run parse analysis ... */
-					/*
-					 * GPDB: Only do parse analysis in the Query Dispatcher. The Executor
-					 * nodes receive an already-transformed statement from the QD. We only
-					 * want to process the main CreateExternalStmt here, other such
-					 * statements that would be created from the main
-					 * CreateExternalStmt by parse analysis. The QD will dispatch
-					 * those other statements separately.
-					 */
-					if (Gp_role == GP_ROLE_EXECUTE)
-						stmts = list_make1(parsetree);
-					else
-						stmts = transformCreateExternalStmt((CreateExternalStmt *) parsetree, queryString);
-
-					/* ... and do it */
-					foreach(l, stmts)
-					{
-						Node	   *stmt = (Node *) lfirst(l);
-
-						if (IsA(stmt, CreateExternalStmt))
-							DefineExternalRelation((CreateExternalStmt *) stmt);
-						else
-						{
-							PlannedStmt *wrapper;
-
-							wrapper = makeNode(PlannedStmt);
-							wrapper->commandType = CMD_UTILITY;
-							wrapper->canSetTag = false;
-							wrapper->utilityStmt = stmt;
-							wrapper->stmt_location = pstmt->stmt_location;
-							wrapper->stmt_len = pstmt->stmt_len;
-
-							/* Recurse for anything else */
-							ProcessUtility(wrapper,
-										   queryString,
-										   PROCESS_UTILITY_SUBCOMMAND,
-										   params,
-										   NULL,
-										   None_Receiver,
-										   NULL);
-						}
 					}
 				}
 				break;
@@ -1718,6 +1387,7 @@ ProcessUtilitySlow(ParseState *pstate,
 					IndexStmt  *stmt = (IndexStmt *) parsetree;
 					Oid			relid;
 					LOCKMODE	lockmode;
+					bool		is_alter_table;
 
 					if (stmt->concurrent)
 						PreventInTransactionBlock(isTopLevel,
@@ -1734,19 +1404,14 @@ ProcessUtilitySlow(ParseState *pstate,
 					 */
 					lockmode = stmt->concurrent ? ShareUpdateExclusiveLock
 						: ShareLock;
-
-					/*
-					 * The QD might have looked up the OID of the base table
-					 * already, and stashed it in stmt->relid
-					 */
-					if (stmt->relationOid)
-						relid = stmt->relationOid;
-					else
-						relid =
-							RangeVarGetRelidExtended(stmt->relation, lockmode,
+					relid =
+						RangeVarGetRelidExtended(stmt->relation, lockmode,
 												 0,
 												 RangeVarCallbackOwnsRelation,
 												 NULL);
+
+					if (get_rel_relam(relid) == TILE_TABLE_AM_OID)
+						break;
 
 					/*
 					 * CREATE INDEX on partitioned tables (but not regular
@@ -1788,29 +1453,6 @@ ProcessUtilitySlow(ParseState *pstate,
 					}
 
 					/*
-					 * Greenplum specifi behavior:
-					 * Postgres will pass false for is_alter_table for DefineIndex.
-					 * This argument is only used at two places in DefineIndex (in original postgres code):
-					 *   1. the function index_check_primary_key
-					 *   2. print a debug log on what the statement is
-					 *
-					 * In fact when calling DefineIndex here, we can always pass
-					 * false for is_alter_table when it actually comes from expandTableLikeClause:
-					 *   for 1, we are sure relationHasPrimaryKey check will pass because we are
-					 *   building a new relation with index here.
-					 *   for 2, I do not think it will mislead the user if we print it as CreateStmt.
-					 *
-					 * But for Greenplum, is_alter_table matters a lot and has to be set false here:
-					 * DefineIndex need to dispatch, and if it is_alter_table is true, Greenplum will
-					 * take this as a sub command of AlterTable stmt, thus it will not dispatch and
-					 * lead to errors. Thus, we comment off the following code and pass false for
-					 * is_alter_table for DefineIndex here.
-					 *
-					 * See following discussion for details:
-					 * https://www.postgresql.org/message-id/CANerzActdrdFO1r4RSqK0M2d0Xtwu5t5bH%3DZOoLsAQ%3DHhZrB%3Dg%40mail.gmail.com
-					 */
-#if 0
-					/*
 					 * If the IndexStmt is already transformed, it must have
 					 * come from generateClonedIndexStmt, which in current
 					 * usage means it came from expandTableLikeClause rather
@@ -1820,7 +1462,6 @@ ProcessUtilitySlow(ParseState *pstate,
 					 * worth adding a separate bool field for the purpose.)
 					 */
 					is_alter_table = stmt->transformed;
-#endif
 
 					/* Run parse analysis ... */
 					stmt = transformIndexStmt(relid, stmt, queryString);
@@ -1833,12 +1474,11 @@ ProcessUtilitySlow(ParseState *pstate,
 									InvalidOid, /* no predefined OID */
 									InvalidOid, /* no parent index */
 									InvalidOid, /* no parent constraint */
-									false,  /* CDB: see comments above on is_alter_table */
+									is_alter_table,
 									true,	/* check_rights */
 									true,	/* check_not_in_use */
 									false,	/* skip_build */
-									false,	/* quiet */
-									false	/* is_new_table */);
+									false); /* quiet */
 
 					/*
 					 * Add the CREATE INDEX node itself to stash right away;
@@ -1987,15 +1627,6 @@ ProcessUtilitySlow(ParseState *pstate,
 										queryString, InvalidOid, InvalidOid,
 										InvalidOid, InvalidOid, InvalidOid,
 										InvalidOid, NULL, false, false);
-				if (Gp_role == GP_ROLE_DISPATCH)
-				{
-					CdbDispatchUtilityStatement((Node *) parsetree,
-												DF_CANCEL_ON_ERROR|
-												DF_WITH_SNAPSHOT|
-												DF_NEED_TWO_PHASE,
-												GetAssignedOidsForDispatch(),
-												NULL);
-				}
 				break;
 
 			case T_CreatePLangStmt:
@@ -2059,10 +1690,6 @@ ProcessUtilitySlow(ParseState *pstate,
 				AlterTableMoveAll((AlterTableMoveAllStmt *) parsetree);
 				/* commands are stashed in AlterTableMoveAll */
 				commandCollected = true;
-				break;
-
-			case T_AlterTypeStmt:
-				AlterType((AlterTypeStmt *) parsetree);
 				break;
 
 			case T_DropStmt:
@@ -2176,20 +1803,6 @@ ProcessUtilitySlow(ParseState *pstate,
 				break;
 		}
 
-		{
-			/*
-			 * Perform deferred partition constraint validation.
-			 */
-			ListCell *lc;
-			foreach(lc, deferredValidationParts)
-			{
-				Relation rel = relation_open(lfirst_oid(lc), AccessShareLock);
-				RelationValidatePartitionDesc(rel);
-				relation_close(rel, AccessShareLock);
-			}
-			list_free(deferredValidationParts);
-		}
-
 		/*
 		 * Remember the object so that ddl_command_end event triggers have
 		 * access to it.
@@ -2222,18 +1835,10 @@ ProcessUtilitySlow(ParseState *pstate,
 static void
 ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 {
-	DropStmt   *copyStmt;
-
-	/* stmt->objects could be modified (e.g.
-	 * CREATE TABLE test_exists(a int, b int);
-	 * DROP TRIGGER IF EXISTS test_trigger_exists ON test_exists;)
-	 * so copy for later use. */
-	copyStmt = copyObject(stmt);
-
 	switch (stmt->removeType)
 	{
 		case OBJECT_INDEX:
-			if (stmt->concurrent && Gp_role != GP_ROLE_EXECUTE)
+			if (stmt->concurrent)
 				PreventInTransactionBlock(isTopLevel,
 										  "DROP INDEX CONCURRENTLY");
 			/* fall through */
@@ -2248,40 +1853,6 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 		default:
 			RemoveObjects(stmt);
 			break;
-	}
-
-	/*
-	 * Dispatch the original, unmodified statement.
-	 *
-	 * Event triggers are not stored in QE nodes, so skip those.
-	 */
-	if (Gp_role == GP_ROLE_DISPATCH && shouldDispatchForObject(stmt->removeType))
-	{
-		int			flags;
-
-		flags = DF_CANCEL_ON_ERROR | DF_NEED_TWO_PHASE;
-
-		if (stmt->removeType == OBJECT_INDEX && stmt->concurrent)
-		{
-			/*
-			 * Don't send a snapshot in DROP INDEX CONCURRENTLY. The QE is
-			 * responsible for planning queries, so as soon as we have
-			 * finished the dance on QD to drop the index, none of the QEs
-			 * should need it either. So all the coordination we need across
-			 * nodes is to complete the command in QD first, and QEs only
-			 * after that.
-			 */
-		}
-		else
-		{
-			/* all other commands run normally, in a distributed transaction */
-			flags |= DF_WITH_SNAPSHOT;
-		}
-
-		CdbDispatchUtilityStatement((Node *) copyStmt,
-									flags,
-									NIL,
-									NULL);
 	}
 }
 
@@ -2337,9 +1908,6 @@ UtilityReturnsTuples(Node *parsetree)
 		case T_VariableShowStmt:
 			return true;
 
-		case T_RetrieveStmt:
-			return true;
-
 		default:
 			return false;
 	}
@@ -2393,13 +1961,6 @@ UtilityTupleDescriptor(Node *parsetree)
 				VariableShowStmt *n = (VariableShowStmt *) parsetree;
 
 				return GetPGVariableResultDesc(n->name);
-			}
-
-		case T_RetrieveStmt:
-			{
-				RetrieveStmt *n = (RetrieveStmt *) parsetree;
-
-				return CreateTupleDescCopy(GetRetrieveStmtTupleDesc(n));
 			}
 
 		default:
@@ -2620,9 +2181,6 @@ AlterObjectTypeCommandTag(ObjectType objtype)
 		case OBJECT_STATISTIC_EXT:
 			tag = "ALTER STATISTICS";
 			break;
-		case OBJECT_EXTPROTOCOL:
-			tag = "ALTER PROTOCOL";
-			break;
 		default:
 			tag = "???";
 			break;
@@ -2724,14 +2282,7 @@ CreateCommandTag(Node *parsetree)
 			break;
 
 		case T_DeclareCursorStmt:
-			{
-				DeclareCursorStmt *stmt = (DeclareCursorStmt *) parsetree;
-
-				if (stmt->options & CURSOR_OPT_PARALLEL_RETRIEVE)
-					tag = "DECLARE PARALLEL RETRIEVE CURSOR";
-				else
-					tag = "DECLARE CURSOR";
-			}
+			tag = "DECLARE CURSOR";
 			break;
 
 		case T_ClosePortalStmt:
@@ -2763,10 +2314,6 @@ CreateCommandTag(Node *parsetree)
 
 		case T_CreateStmt:
 			tag = "CREATE TABLE";
-			break;
-
-		case T_CreateExternalStmt:
-			tag = "CREATE EXTERNAL TABLE";
 			break;
 
 		case T_CreateTableSpaceStmt:
@@ -2865,9 +2412,6 @@ CreateCommandTag(Node *parsetree)
 				case OBJECT_TABLESPACE:
 					tag = "DROP TABLESPACE";
 					break;
-				case OBJECT_EXTPROTOCOL:
-					tag = "DROP PROTOCOL";
-					break;					
 				case OBJECT_TSPARSER:
 					tag = "DROP TEXT SEARCH PARSER";
 					break;
@@ -3040,9 +2584,6 @@ CreateCommandTag(Node *parsetree)
 					break;
 				case OBJECT_TYPE:
 					tag = "CREATE TYPE";
-					break;
-				case OBJECT_EXTPROTOCOL:
-					tag = "CREATE PROTOCOL";
 					break;
 				case OBJECT_TSPARSER:
 					tag = "CREATE TEXT SEARCH PARSER";
@@ -3250,30 +2791,6 @@ CreateCommandTag(Node *parsetree)
 
 		case T_CreatePLangStmt:
 			tag = "CREATE LANGUAGE";
-			break;
-
-		case T_CreateQueueStmt:
-			tag = "CREATE QUEUE";
-			break;
-
-		case T_AlterQueueStmt:
-			tag = "ALTER QUEUE";
-			break;
-
-		case T_DropQueueStmt:
-			tag = "DROP QUEUE";
-			break;
-
-		case T_CreateResourceGroupStmt:
-			tag = "CREATE RESOURCE GROUP";
-			break;
-
-		case T_DropResourceGroupStmt:
-			tag = "DROP RESOURCE GROUP";
-			break;
-
-		case T_AlterResourceGroupStmt:
-			tag = "ALTER RESOURCE GROUP";
 			break;
 
 		case T_CreateRoleStmt:
@@ -3527,18 +3044,9 @@ CreateCommandTag(Node *parsetree)
 			}
 			break;
 
-		case T_AlterTypeStmt:
-			tag = "ALTER TYPE";
-			break;
-
-		case T_RetrieveStmt:
-			tag = "RETRIEVE";
-			break;
-
 		default:
 			elog(WARNING, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
-			Assert(false);
 			tag = "???";
 			break;
 	}
@@ -3605,10 +3113,6 @@ GetCommandLogLevel(Node *parsetree)
 
 		case T_CreateStmt:
 		case T_CreateForeignTableStmt:
-			lev = LOGSTMT_DDL;
-			break;
-
-		case T_CreateExternalStmt:
 			lev = LOGSTMT_DDL;
 			break;
 
@@ -4062,15 +3566,6 @@ GetCommandLogLevel(Node *parsetree)
 			}
 			break;
 
-		case T_CreateResourceGroupStmt:
-		case T_AlterResourceGroupStmt:
-		case T_DropResourceGroupStmt:
-		case T_CreateQueueStmt:
-		case T_AlterQueueStmt:
-		case T_DropQueueStmt:
-			lev = LOGSTMT_DDL;
-			break;
-
 		default:
 			elog(WARNING, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
@@ -4079,10 +3574,4 @@ GetCommandLogLevel(Node *parsetree)
 	}
 
 	return lev;
-}
-
-bool
-utility_nested(void)
-{
-	return process_utility_nesting_level >= 2;
 }

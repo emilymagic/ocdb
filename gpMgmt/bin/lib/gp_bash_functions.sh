@@ -140,6 +140,7 @@ GPDOCDIR=${GPHOME}/docs/cli_help/
 INITDB=$PSQLBIN/initdb
 PG_CTL=$PSQLBIN/pg_ctl
 PSQL=$PSQLBIN/psql
+DOWNLOADCONF=$PSQLBIN/downloadconf
 
 #******************************************************************************
 # Greenplum OS Settings

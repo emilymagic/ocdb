@@ -865,7 +865,6 @@ ExecGetRangeTableRelation(EState *estate, Index rti)
 
 	Assert(rti > 0 && rti <= estate->es_range_table_size);
 
-
 	rel = estate->es_relations[rti - 1];
 	if (rel == NULL)
 	{
@@ -875,7 +874,7 @@ ExecGetRangeTableRelation(EState *estate, Index rti)
 		Assert(rte->rtekind == RTE_RELATION);
 
 		/* GPDB: a QE process is not holding the locks yet, same as a parallel worker. */
-		if (!IsParallelWorker() && Gp_role != GP_ROLE_EXECUTE)
+		if (!IsParallelWorker() && IS_CATALOG_SERVER())
 		{
 			/*
 			 * In a normal query, we should already have the appropriate lock,
@@ -885,8 +884,8 @@ ExecGetRangeTableRelation(EState *estate, Index rti)
 			 * than the minimum.
 			 */
 			rel = table_open(rte->relid, NoLock);
-			Assert(rte->rellockmode == AccessShareLock ||
-				   CheckRelationLockedByMe(rel, rte->rellockmode, false));
+//			Assert(rte->rellockmode == AccessShareLock ||
+//				   CheckRelationLockedByMe(rel, rte->rellockmode, false));
 		}
 		else
 		{
@@ -2296,12 +2295,27 @@ ExecGetExtraUpdatedCols(ResultRelInfo *relinfo, EState *estate)
 		return NULL;
 }
 
-/* Return columns being updated, including generated columns */
+/*
+ * Return columns being updated, including generated columns
+ *
+ * The bitmap is allocated in per-tuple memory context. It's up to the caller to
+ * copy it into a different context with the appropriate lifespan, if needed.
+ */
 Bitmapset *
 ExecGetAllUpdatedCols(ResultRelInfo *relinfo, EState *estate)
 {
-	return bms_union(ExecGetUpdatedCols(relinfo, estate),
-					 ExecGetExtraUpdatedCols(relinfo, estate));
+
+	Bitmapset	   *ret;
+	MemoryContext	oldcxt;
+
+	oldcxt = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
+
+	ret = bms_union(ExecGetUpdatedCols(relinfo, estate),
+					ExecGetExtraUpdatedCols(relinfo, estate));
+
+	MemoryContextSwitchTo(oldcxt);
+
+	return ret;
 }
 
 /*

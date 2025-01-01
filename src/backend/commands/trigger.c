@@ -64,6 +64,7 @@
 #include "utils/tuplestore.h"
 
 #include "catalog/oid_dispatch.h"
+#include "utils/dispatchcat.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbdisp_query.h"
 
@@ -201,11 +202,14 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	char	   *oldtablename = NULL;
 	char	   *newtablename = NULL;
 	bool		partition_recurse;
+	Oid 		parentId;
 
 	if (OidIsValid(relOid))
 		rel = table_open(relOid, ShareRowExclusiveLock);
 	else
 		rel = table_openrv(stmt->relation, ShareRowExclusiveLock);
+
+	parentId = RelationGetRelid(rel);
 
 	/*
 	 * Triggers must be on tables or views, and there are additional
@@ -266,20 +270,11 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("\"%s\" is a partitioned table",
 								RelationGetRelationName(rel)),
-						 errdetail("Triggers on partitioned tables cannot have transition tables.")));
+						 errdetail("ROW triggers with transition tables are not supported on partitioned tables.")));
 		}
 	}
 	else if (rel->rd_rel->relkind == RELKIND_VIEW)
 	{
-		/*
-		 * Greenplum cannot support INSTEAD OF triggers, see merge fixme in
-		 * CheckValidResultRel().
-		 */
-		if (stmt->timing == TRIGGER_TYPE_INSTEAD)
-			ereport(ERROR,
-					(errcode(ERRCODE_GP_FEATURE_NOT_YET),
-					 errmsg("INSTEAD OF triggers are not supported in Greenplum")));
-
 		/*
 		 * Views can have INSTEAD OF triggers (which we check below are
 		 * row-level), or statement-level BEFORE/AFTER triggers.
@@ -1180,7 +1175,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 	 */
 	if (partition_recurse)
 	{
-		PartitionDesc partdesc = RelationRetrievePartitionDesc(rel);
+		PartitionDesc partdesc = rel->rd_partdesc;
 		List	   *idxs = NIL;
 		List	   *childTbls = NIL;
 		ListCell   *l;
@@ -1282,6 +1277,19 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 
 	/* Keep lock on target rel until end of xact */
 	table_close(rel, NoLock);
+
+	{
+		while (parentId)
+		{
+			Relation parentRel;
+
+			parentRel = relation_open(parentId, AccessShareLock);
+			CacheInvalidateRelcache(parentRel);
+			relation_close(parentRel, AccessShareLock);
+
+			parentId = get_partition_parent_noerror(parentId);
+		}
+	}
 
 	return myself;
 }
@@ -1960,7 +1968,7 @@ EnableDisableTriggerNew(Relation rel, const char *tgname,
 			rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE &&
 			(TRIGGER_FOR_ROW(oldtrig->tgtype)))
 		{
-			PartitionDesc partdesc = RelationRetrievePartitionDesc(rel);
+			PartitionDesc partdesc = rel->rd_partdesc;
 			int			i;
 
 			for (i = 0; i < partdesc->nparts; i++)
@@ -2036,6 +2044,8 @@ RelationBuildTriggers(Relation relation)
 	MemoryContext oldContext;
 	int			i;
 
+	if (!IS_CATALOG_SERVER())
+		return;
 	/*
 	 * Allocate a working array to hold the triggers (the array is extended if
 	 * necessary)
@@ -2043,6 +2053,9 @@ RelationBuildTriggers(Relation relation)
 	maxtrigs = 16;
 	triggers = (Trigger *) palloc(maxtrigs * sizeof(Trigger));
 	numtrigs = 0;
+
+	if (relation->cdbCache)
+		BeginCacheCollect(relation->cdbCache);
 
 	/*
 	 * Note: since we scan the triggers using TriggerRelidNameIndexId, we will
@@ -2146,6 +2159,9 @@ RelationBuildTriggers(Relation relation)
 
 	systable_endscan(tgscan);
 	table_close(tgrel, AccessShareLock);
+
+	if (relation->cdbCache)
+		EndCacheCollect();
 
 	/* There might not be any triggers */
 	if (numtrigs == 0)
@@ -2489,6 +2505,8 @@ ExecCallTriggerFunc(TriggerData *trigdata,
 			!(trigdata->tg_event & AFTER_TRIGGER_INITDEFERRED)) ||
 		   (trigdata->tg_oldtable == NULL && trigdata->tg_newtable == NULL));
 
+	isInTrigger = true;
+
 	finfo += tgindx;
 
 	/*
@@ -2538,6 +2556,8 @@ ExecCallTriggerFunc(TriggerData *trigdata,
 	pgstat_end_function_usage(&fcusage, true);
 
 	MemoryContextSwitchTo(oldContext);
+
+	isInTrigger = false;
 
 	/*
 	 * Trigger protocol allows function to return a null pointer, but NOT to
@@ -3453,7 +3473,7 @@ GetTupleForTrigger(EState *estate,
 	if (RelationIsAppendOptimized(relation))
 		elog(ERROR, "UPDATE and DELETE triggers are not supported on append-only tables");
 
-	Assert(RelationIsHeap(relation));
+	// Assert(RelationIsHeap(relation));
 
 	if (epqslot != NULL)
 	{
@@ -4811,11 +4831,13 @@ GetAfterTriggersStoreSlot(AfterTriggersTableData *table,
 		MemoryContext	oldcxt;
 
 		/*
-		 * We only need this slot only until AfterTriggerEndQuery, but making
-		 * it last till end-of-subxact is good enough.  It'll be freed by
-		 * AfterTriggerFreeQuery().
+		 * We need this slot only until AfterTriggerEndQuery, but making it
+		 * last till end-of-subxact is good enough.  It'll be freed by
+		 * AfterTriggerFreeQuery().  However, the passed-in tupdesc might have
+		 * a different lifespan, so we'd better make a copy of that.
 		 */
 		oldcxt = MemoryContextSwitchTo(CurTransactionContext);
+		tupdesc = CreateTupleDescCopy(tupdesc);
 		table->storeslot = MakeSingleTupleTableSlot(tupdesc, &TTSOpsVirtual);
 		MemoryContextSwitchTo(oldcxt);
 	}
@@ -5111,7 +5133,12 @@ AfterTriggerFreeQuery(AfterTriggersQueryData *qs)
 		if (ts)
 			tuplestore_end(ts);
 		if (table->storeslot)
-			ExecDropSingleTupleTableSlot(table->storeslot);
+		{
+			TupleTableSlot *slot = table->storeslot;
+
+			table->storeslot = NULL;
+			ExecDropSingleTupleTableSlot(slot);
+		}
 	}
 
 	/*

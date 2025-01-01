@@ -1476,16 +1476,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"track_wal_io_timing", PGC_SUSET, STATS_COLLECTOR,
-			gettext_noop("Collects timing statistics for WAL I/O activity."),
-			NULL
-		},
-		&track_wal_io_timing,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"update_process_title", PGC_SUSET, PROCESS_TITLE,
 			gettext_noop("Updates the process title to show the active SQL command."),
 			gettext_noop("Enables updating of the process title every time a new SQL command is received by the server.")
@@ -2618,17 +2608,6 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
-		{"wal_keep_size", PGC_SIGHUP, REPLICATION_SENDING,
-			gettext_noop("Sets the size of WAL files held for standby servers."),
-			NULL,
-			GUC_UNIT_MB
-		},
-		&wal_keep_size_mb,
-		5 * (DEFAULT_XLOG_SEG_SIZE / (1024 * 1024)), 0, MAX_KILOBYTES,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"min_wal_size", PGC_SIGHUP, WAL_CHECKPOINTS,
 			gettext_noop("Sets the minimum size to shrink the WAL to."),
 			NULL,
@@ -2746,19 +2725,6 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&max_replication_slots,
 		10, 0, MAX_BACKENDS /* XXX? */ ,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"max_slot_wal_keep_size", PGC_SIGHUP, REPLICATION_SENDING,
-			gettext_noop("Sets the maximum WAL size that can be reserved by replication slots."),
-			gettext_noop("Replication slots will be marked as failed, and segments released "
-						 "for deletion or recycling, if this much space is occupied by WAL "
-						 "on disk."),
-			GUC_UNIT_MB
-		},
-		&max_slot_wal_keep_size_mb,
-		-1, -1, MAX_KILOBYTES,
 		NULL, NULL, NULL
 	},
 
@@ -3123,7 +3089,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_EXPLAIN
 		},
 		&max_parallel_workers_per_gather,
-		2, 0, MAX_PARALLEL_WORKER_LIMIT,
+		0, 0, MAX_PARALLEL_WORKER_LIMIT,
 		NULL, NULL, NULL
 	},
 
@@ -3314,6 +3280,17 @@ static struct config_int ConfigureNamesInt[] =
 		&client_connection_check_interval,
 		0, 0, INT_MAX,
 		check_client_connection_check_interval, NULL, NULL
+	},
+
+	{
+		{"cluster_id", PGC_USERSET, CLIENT_CONN_OTHER,
+		 gettext_noop("Sets the cluster id of warehouse."),
+		 NULL,
+		 GUC_UNIT_MS
+		},
+		&myClusterId,
+		0, 0, 100,
+		NULL, NULL, NULL
 	},
 
 	/* End-of-list marker */
@@ -3539,7 +3516,7 @@ static struct config_real ConfigureNamesReal[] =
 		},
 		&CheckPointCompletionTarget,
 		0.5, 0.0, 1.0,
-		NULL, NULL, NULL
+		NULL, assign_checkpoint_completion_target, NULL
 	},
 
 	{
@@ -4550,7 +4527,7 @@ static struct config_enum ConfigureNamesEnum[] =
 			NULL
 		},
 		&wal_level,
-		WAL_LEVEL_REPLICA, wal_level_options,
+		WAL_LEVEL_LOGICAL, wal_level_options,
 		NULL, NULL, NULL
 	},
 
@@ -8568,7 +8545,7 @@ ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel)
 		stmt->kind == VAR_RESET ||
 		stmt->kind == VAR_RESET_ALL)
 	{
-		if (Gp_role == GP_ROLE_DISPATCH)
+		if (Gp_role == GP_ROLE_DISPATCH && !IS_CATALOG_SERVER())
 		{
 			/*
 			 * RESET must be dispatched different, because it can't
@@ -8644,7 +8621,7 @@ DispatchSetPGVariable(const char *name, List *args, bool is_local)
 	ListCell   *l;
 	StringInfoData buffer;
 
-	if (Gp_role != GP_ROLE_DISPATCH || IsBootstrapProcessingMode())
+	if (Gp_role != GP_ROLE_DISPATCH || IsBootstrapProcessingMode() || IS_CATALOG_SERVER())
 		return;
 
 	/*
@@ -11333,6 +11310,9 @@ call_string_check_hook(struct config_string *conf, char **newval, void **extra,
 					   GucSource source, int elevel)
 {
 	volatile bool result = true;
+
+	if (Gp_role == GP_ROLE_EXECUTE)
+		elevel = LOG;
 
 	/* Quick success if no hook */
 	if (!conf->check_hook)

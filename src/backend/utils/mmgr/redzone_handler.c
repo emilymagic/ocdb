@@ -20,6 +20,8 @@
 #include "cdb/cdbvars.h"
 #include "miscadmin.h"
 #include "port/atomics.h"
+#include "storage/lwlock.h"
+#include "storage/shmem.h"
 #include "utils/vmem_tracker.h"
 #include "utils/session_state.h"
 #include "utils/resgroup.h"

@@ -1301,7 +1301,7 @@ palloc(Size size)
 	AssertNotInCriticalSection(context);
 
 	if (!AllocSizeIsValid(size))
-		elog(ERROR, "invalid memory alloc request size %zu", size);
+		elog(PANIC, "invalid memory alloc request size %zu", size);
 
 	context->isReset = false;
 

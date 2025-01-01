@@ -15,6 +15,7 @@
 
 #include "access/table.h"
 #include "access/tableam.h"
+#include "access/tileam.h"
 #include "catalog/partition.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_type.h"
@@ -33,9 +34,6 @@
 #include "utils/rel.h"
 #include "utils/rls.h"
 #include "utils/ruleutils.h"
-
-#include "cdb/cdbaocsam.h"
-#include "cdb/cdbappendonlyam.h"
 
 /*-----------------------
  * PartitionTupleRouting - Encapsulates all information required to
@@ -185,7 +183,8 @@ static void FormPartitionKeyDatum(PartitionDispatch pd,
 								  EState *estate,
 								  Datum *values,
 								  bool *isnull);
-
+static int	get_partition_for_tuple(PartitionDispatch pd, Datum *values,
+									bool *isnull);
 static char *ExecBuildSlotPartitionKeyDescription(Relation rel,
 												  Datum *values,
 												  bool *isnull,
@@ -331,7 +330,7 @@ ExecFindPartition(ModifyTableState *mtstate,
 		 * these values, error out.
 		 */
 		if (partdesc->nparts == 0 ||
-			(partidx = get_partition_for_tuple(dispatch->key, dispatch->partdesc, values, isnull)) < 0)
+			(partidx = get_partition_for_tuple(dispatch, values, isnull)) < 0)
 		{
 			char	   *val_desc;
 
@@ -339,13 +338,7 @@ ExecFindPartition(ModifyTableState *mtstate,
 															values, isnull, 64);
 			Assert(OidIsValid(RelationGetRelid(rel)));
 			ereport(ERROR,
-					/*
-					 * GPDB: use dedicated error code for this, not the generic
-					 * ERRCODE_CHECK_VIOLATION as in upstream. The SREH stuff
-					 * only catches errors in the ERRCODE_DATA_EXCEPTION class,
-					 * so without this, this error would not be caught by SREH.
-					 */
-					(errcode(ERRCODE_NO_PARTITION_FOR_PARTITIONING_KEY),
+					(errcode(ERRCODE_CHECK_VIOLATION),
 					 errmsg("no partition of relation \"%s\" found for row",
 							RelationGetRelationName(rel)),
 					 val_desc ?
@@ -585,18 +578,9 @@ ExecInitPartitionInfo(ModifyTableState *mtstate, EState *estate,
 	partrel = table_open(dispatch->partdesc->oids[partidx], RowExclusiveLock);
 
 	leaf_part_rri = makeNode(ResultRelInfo);
-
-    /*
-     * Init leaf partition ResultRelInfo
-     * Here ResultRelInfo->ri_RangeTableIndex is a dummy element, because we
-     * will rebuild ri_RelationDesc later. So we assign 1 for it instead of 0
-     * which cause failure in EPQ process, and fwd scenarios should still keep 0
-     * since it will handle 0 in their own fwd process.
-     * related issue https://github.com/greenplum-db/gpdb/issues/14935
-     */ 
-    InitResultRelInfo(leaf_part_rri,
+	InitResultRelInfo(leaf_part_rri,
 					  partrel,
-					  partrel->rd_rel->relkind != RELKIND_FOREIGN_TABLE ? 1 : 0,
+					  0,
 					  rootResultRelInfo,
 					  estate->es_instrument);
 
@@ -1030,12 +1014,6 @@ ExecInitRoutingInfo(ModifyTableState *mtstate,
 	partRelInfo->ri_CopyMultiInsertBuffer = NULL;
 
 	/*
-	 * If junkFilter is NULL then we try to inherit it from rootRelInfo.
-	 */
-	if (partRelInfo->ri_junkFilter == NULL)
-		partRelInfo->ri_junkFilter = rootRelInfo->ri_junkFilter;
-
-	/*
 	 * Keep track of it in the PartitionTupleRouting->partitions array.
 	 */
 	Assert(dispatch->indexes[partidx] == -1);
@@ -1107,7 +1085,7 @@ ExecInitPartitionDispatchInfo(EState *estate,
 	pd = (PartitionDispatch) palloc(offsetof(PartitionDispatchData, indexes) +
 									partdesc->nparts * sizeof(int));
 	pd->reldesc = rel;
-	pd->key = RelationRetrievePartitionKey(rel);
+	pd->key = RelationGetPartitionKey(rel);
 	pd->keystate = NIL;
 	pd->partdesc = partdesc;
 	if (parent_pd != NULL)
@@ -1330,72 +1308,21 @@ FormPartitionKeyDatum(PartitionDispatch pd,
 }
 
 /*
- * The number of times the same partition must be found in a row before we
- * switch from a binary search for the given values to just checking if the
- * values belong to the last found partition.  This must be above 0.
- */
-#define PARTITION_CACHED_FIND_THRESHOLD			16
-
-/*
  * get_partition_for_tuple
  *		Finds partition of relation which accepts the partition key specified
- *		in values and isnull.
- *
- * Calling this function can be quite expensive when LIST and RANGE
- * partitioned tables have many partitions.  This is due to the binary search
- * that's done to find the correct partition.  Many of the use cases for LIST
- * and RANGE partitioned tables make it likely that the same partition is
- * found in subsequent ExecFindPartition() calls.  This is especially true for
- * cases such as RANGE partitioned tables on a TIMESTAMP column where the
- * partition key is the current time.  When asked to find a partition for a
- * RANGE or LIST partitioned table, we record the partition index and datum
- * offset we've found for the given 'values' in the PartitionDesc (which is
- * stored in relcache), and if we keep finding the same partition
- * PARTITION_CACHED_FIND_THRESHOLD times in a row, then we'll enable caching
- * logic and instead of performing a binary search to find the correct
- * partition, we'll just double-check that 'values' still belong to the last
- * found partition, and if so, we'll return that partition index, thus
- * skipping the need for the binary search.  If we fail to match the last
- * partition when double checking, then we fall back on doing a binary search.
- * In this case, unless we find 'values' belong to the DEFAULT partition,
- * we'll reset the number of times we've hit the same partition so that we
- * don't attempt to use the cache again until we've found that partition at
- * least PARTITION_CACHED_FIND_THRESHOLD times in a row.
- *
- * For cases where the partition changes on each lookup, the amount of
- * additional work required just amounts to recording the last found partition
- * and bound offset then resetting the found counter.  This is cheap and does
- * not appear to cause any meaningful slowdowns for such cases.
- *
- * No caching of partitions is done when the last found partition is the
- * DEFAULT or NULL partition.  For the case of the DEFAULT partition, there
- * is no bound offset storing the matching datum, so we cannot confirm the
- * indexes match.  For the NULL partition, this is just so cheap, there's no
- * sense in caching.
+ *		in values and isnull
  *
  * Return value is index of the partition (>= 0 and < partdesc->nparts) if one
  * found or -1 if none found.
  */
-int
-get_partition_for_tuple(PartitionKey key, PartitionDesc partdesc, Datum *values, bool *isnull)
+static int
+get_partition_for_tuple(PartitionDispatch pd, Datum *values, bool *isnull)
 {
-	int			bound_offset = -1;
+	int			bound_offset;
 	int			part_index = -1;
+	PartitionKey key = pd->key;
+	PartitionDesc partdesc = pd->partdesc;
 	PartitionBoundInfo boundinfo = partdesc->boundinfo;
-
-	if (partdesc->nparts == 0)
-		return part_index;
-	/*
-	 * In the switch statement below, when we perform a cached lookup for
-	 * RANGE and LIST partitioned tables, if we find that the last found
-	 * partition matches the 'values', we return the partition index right
-	 * away.  We do this instead of breaking out of the switch as we don't
-	 * want to execute the code about the DEFAULT partition or do any updates
-	 * for any of the cache-related fields.  That would be a waste of effort
-	 * as we already know it's not the DEFAULT partition and have no need to
-	 * increment the number of times we found the same partition any higher
-	 * than PARTITION_CACHED_FIND_THRESHOLD.
-	 */
 
 	/* Route as appropriate based on partitioning strategy. */
 	switch (key->strategy)
@@ -1404,59 +1331,24 @@ get_partition_for_tuple(PartitionKey key, PartitionDesc partdesc, Datum *values,
 			{
 				uint64		rowHash;
 
-				/* hash partitioning is too cheap to bother caching */
 				rowHash = compute_partition_hash_value(key->partnatts,
 													   key->partsupfunc,
 													   key->partcollation,
 													   values, isnull);
 
-				/*
-				 * HASH partitions can't have a DEFAULT partition and we don't
-				 * do any caching work for them, so just return the part index
-				 */
-				return boundinfo->indexes[rowHash % boundinfo->nindexes];
+				part_index = boundinfo->indexes[rowHash % boundinfo->nindexes];
 			}
+			break;
 
 		case PARTITION_STRATEGY_LIST:
 			if (isnull[0])
 			{
-				/* this is far too cheap to bother doing any caching */
 				if (partition_bound_accepts_nulls(boundinfo))
-				{
-					/*
-					 * When there is a NULL partition we just return that
-					 * directly.  We don't have a bound_offset so it's not
-					 * valid to drop into the code after the switch which
-					 * checks and updates the cache fields.  We perhaps should
-					 * be invalidating the details of the last cached
-					 * partition but there's no real need to.  Keeping those
-					 * fields set gives a chance at matching to the cached
-					 * partition on the next lookup.
-					 */
-					return boundinfo->null_index;
-				}
+					part_index = boundinfo->null_index;
 			}
 			else
 			{
-				bool		equal;
-
-				if (partdesc->last_found_count >= PARTITION_CACHED_FIND_THRESHOLD)
-				{
-					int			last_datum_offset = partdesc->last_found_datum_index;
-					Datum		lastDatum = boundinfo->datums[last_datum_offset][0];
-					int32		cmpval;
-
-					/* does the last found datum index match this datum? */
-					cmpval = DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[0],
-															 key->partcollation[0],
-															 lastDatum,
-															 values[0]));
-
-					if (cmpval == 0)
-						return boundinfo->indexes[last_datum_offset];
-
-					/* fall-through and do a manual lookup */
-				}
+				bool		equal = false;
 
 				bound_offset = partition_list_bsearch(key->partsupfunc,
 													  key->partcollation,
@@ -1486,64 +1378,23 @@ get_partition_for_tuple(PartitionKey key, PartitionDesc partdesc, Datum *values,
 					}
 				}
 
-				/* NULLs belong in the DEFAULT partition */
-				if (range_partkey_has_null)
-					break;
-
-				if (partdesc->last_found_count >= PARTITION_CACHED_FIND_THRESHOLD)
+				if (!range_partkey_has_null)
 				{
-					int			last_datum_offset = partdesc->last_found_datum_index;
-					Datum	   *lastDatums = boundinfo->datums[last_datum_offset];
-					PartitionRangeDatumKind *kind = boundinfo->kind[last_datum_offset];
-					int32		cmpval;
-
-					/* check if the value is >= to the lower bound */
-					cmpval = partition_rbound_datum_cmp(key->partsupfunc,
-														key->partcollation,
-														lastDatums,
-														kind,
-														values,
-														key->partnatts);
+					bound_offset = partition_range_datum_bsearch(key->partsupfunc,
+																 key->partcollation,
+																 boundinfo,
+																 key->partnatts,
+																 values,
+																 &equal);
 
 					/*
-					 * If it's equal to the lower bound then no need to check
-					 * the upper bound.
+					 * The bound at bound_offset is less than or equal to the
+					 * tuple value, so the bound at offset+1 is the upper
+					 * bound of the partition we're looking for, if there
+					 * actually exists one.
 					 */
-					if (cmpval == 0)
-						return boundinfo->indexes[last_datum_offset + 1];
-
-					if (cmpval < 0 && last_datum_offset + 1 < boundinfo->ndatums)
-					{
-						/* check if the value is below the upper bound */
-						lastDatums = boundinfo->datums[last_datum_offset + 1];
-						kind = boundinfo->kind[last_datum_offset + 1];
-						cmpval = partition_rbound_datum_cmp(key->partsupfunc,
-															key->partcollation,
-															lastDatums,
-															kind,
-															values,
-															key->partnatts);
-
-						if (cmpval > 0)
-							return boundinfo->indexes[last_datum_offset + 1];
-					}
-					/* fall-through and do a manual lookup */
+					part_index = boundinfo->indexes[bound_offset + 1];
 				}
-
-				bound_offset = partition_range_datum_bsearch(key->partsupfunc,
-															 key->partcollation,
-															 boundinfo,
-															 key->partnatts,
-															 values,
-															 &equal);
-
-				/*
-				 * The bound at bound_offset is less than or equal to the
-				 * tuple value, so the bound at offset+1 is the upper bound of
-				 * the partition we're looking for, if there actually exists
-				 * one.
-				 */
-				part_index = boundinfo->indexes[bound_offset + 1];
 			}
 			break;
 
@@ -1557,34 +1408,7 @@ get_partition_for_tuple(PartitionKey key, PartitionDesc partdesc, Datum *values,
 	 * the default partition, if there is one.
 	 */
 	if (part_index < 0)
-	{
-		/*
-		 * No need to reset the cache fields here.  The next set of values
-		 * might end up belonging to the cached partition, so leaving the
-		 * cache alone improves the chances of a cache hit on the next lookup.
-		 */
-		return boundinfo->default_index;
-	}
-
-	/* we should only make it here when the code above set bound_offset */
-	Assert(bound_offset >= 0);
-
-	/*
-	 * Attend to the cache fields.  If the bound_offset matches the last
-	 * cached bound offset then we've found the same partition as last time,
-	 * so bump the count by one.  If all goes well, we'll eventually reach
-	 * PARTITION_CACHED_FIND_THRESHOLD and try the cache path next time
-	 * around.  Otherwise, we'll reset the cache count back to 1 to mark that
-	 * we've found this partition for the first time.
-	 */
-	if (bound_offset == partdesc->last_found_datum_index)
-		partdesc->last_found_count++;
-	else
-	{
-		partdesc->last_found_count = 1;
-		partdesc->last_found_part_index = part_index;
-		partdesc->last_found_datum_index = bound_offset;
-	}
+		part_index = boundinfo->default_index;
 
 	return part_index;
 }
@@ -1603,7 +1427,7 @@ ExecBuildSlotPartitionKeyDescription(Relation rel,
 									 int maxfieldlen)
 {
 	StringInfoData buf;
-	PartitionKey key = RelationRetrievePartitionKey(rel);
+	PartitionKey key = RelationGetPartitionKey(rel);
 	int			partnatts = get_partition_natts(key);
 	int			i;
 	Oid			relid = RelationGetRelid(rel);
@@ -1900,7 +1724,7 @@ ExecCreatePartitionPruneState(PlanState *planstate,
 			 * duration of this executor run.
 			 */
 			partrel = ExecGetRangeTableRelation(estate, pinfo->rtindex);
-			partkey = RelationRetrievePartitionKey(partrel);
+			partkey = RelationGetPartitionKey(partrel);
 			partdesc = PartitionDirectoryLookup(estate->es_partition_directory,
 												partrel);
 
@@ -2284,7 +2108,7 @@ ExecAddMatchingSubPlans(PartitionPruneState *prunestate, Bitmapset *result)
 {
 	Bitmapset *thisresult;
 
-	thisresult = ExecFindMatchingSubPlans(prunestate, NULL, -1, NIL);
+	thisresult = ExecFindMatchingSubPlans(prunestate);
 
 	result = bms_add_members(result, thisresult);
 
@@ -2299,62 +2123,13 @@ ExecAddMatchingSubPlans(PartitionPruneState *prunestate, Bitmapset *result)
  *		'prunestate' for the current comparison expression values.
  *
  * Here we assume we may evaluate PARAM_EXEC Params.
- *
- * GPDB: 'join_prune_paramids' can contain a list of PARAM_EXEC Param IDs
- * containing results that were computed earlier by PartitionSelector
- * nodes.
  */
 Bitmapset *
-ExecFindMatchingSubPlans(PartitionPruneState *prunestate,
-						 EState *estate,
-						 int nplans, List *join_prune_paramids)
+ExecFindMatchingSubPlans(PartitionPruneState *prunestate)
 {
 	Bitmapset  *result = NULL;
 	MemoryContext oldcontext;
 	int			i;
-	Bitmapset  *join_selected = NULL;
-
-	if (join_prune_paramids)
-	{
-		ListCell   *lc;
-
-		join_selected = bms_add_range(join_selected, 0, nplans - 1);
-
-		foreach (lc, join_prune_paramids)
-		{
-			int			paramid = lfirst_int(lc);
-			ParamExecData *param;
-			PartitionSelectorState *psstate;
-
-			param = &(estate->es_param_exec_vals[paramid]);
-			Assert(param->execPlan == NULL);
-			Assert(!param->isnull);
-			psstate = (PartitionSelectorState *) DatumGetPointer(param->value);
-
-			if (psstate == NULL)
-			{
-				/*
-				 * The planner should have ensured that the Partition Selector
-				 * is fully executed before the Append.
-				 */
-				elog(WARNING, "partition selector was not fully executed");
-			}
-			else
-			{
-				Assert(IsA(psstate, PartitionSelectorState));
-
-				join_selected = bms_intersect(join_selected,
-											  psstate->part_prune_result);
-			}
-		}
-
-
-		if (!prunestate)
-		{
-			/* rely entirely on partition selectors */
-			return join_selected;
-		}
-	}
 
 	/*
 	 * If !do_exec_prune, we've got problems because
@@ -2395,11 +2170,6 @@ ExecFindMatchingSubPlans(PartitionPruneState *prunestate,
 
 	/* Copy result out of the temp context before we reset it */
 	result = bms_copy(result);
-
-	if (join_prune_paramids)
-	{
-		result = bms_intersect(result, join_selected);
-	}
 
 	MemoryContextReset(prunestate->prune_context);
 
@@ -2471,5 +2241,19 @@ find_matching_subplans_recurse(PartitionPruningData *prunedata,
 				 */
 			}
 		}
+	}
+}
+
+void
+PartitionDmlFinish(PartitionTupleRouting *proute)
+{
+	for (int i = 0; i < proute->num_partitions; ++i)
+	{
+		ResultRelInfo *partRel;
+
+		partRel = proute->partitions[i];
+
+		if (partRel->ri_RelationDesc->rd_tableam)
+			table_dml_finish(partRel->ri_RelationDesc);
 	}
 }

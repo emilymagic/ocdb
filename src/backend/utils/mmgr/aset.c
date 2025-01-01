@@ -777,15 +777,6 @@ AllocSetDelete(MemoryContext context, MemoryContext parent)
 	/* Make sure all children have been deleted */
 	Assert(context->firstchild == NULL);
 	MEMORY_ACCOUNT_DEC_ALLOCATED(set, set->localAllocated);
-	if (IS_MEMORY_ACCOUNT(set))
-	{
-		/* Roll up our peak value to the parent, before this context goes away. */
-		AllocSet	parentset = (AllocSet) parent;
-
-		parentset->accountingParent->peakAllocated =
-			Max(set->peakAllocated,
-				parentset->accountingParent->peakAllocated);
-	}
 
 	/*
 	 * If the context is a candidate for a freelist, put it into that freelist

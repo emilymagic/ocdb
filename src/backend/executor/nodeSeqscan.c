@@ -138,6 +138,7 @@ ExecInitSeqScan(SeqScan *node, EState *estate, int eflags)
 	 */
 	currentRelation = ExecOpenScanRelation(estate, node->scanrelid, eflags);
 
+
 	return ExecInitSeqScanForPartition(node, estate, currentRelation);
 }
 
@@ -153,6 +154,8 @@ ExecInitSeqScanForPartition(SeqScan *node, EState *estate,
 	 */
 	Assert(outerPlan(node) == NULL);
 	Assert(innerPlan(node) == NULL);
+
+	table_scan_prepare_dispatch(currentRelation, estate->es_snapshot);
 
 	/*
 	 * create state structure
