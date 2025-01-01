@@ -60,40 +60,40 @@ declare -a PORTS=(`expr $DEMO_PORT_BASE` \
 # Loop over all ports and all tables, printing out their
 # contents
 #***********************************************************
-
-for ((i=PORT_MIN; i<PORT_MAX+1; i++)); do
-    echo "======================================================================"
-    echo "Probing segment instance at port number ${PORTS[$i]}"
-    echo "======================================================================"
-    if [ ${i} -eq 0 ]; then 
-        for table in ${TABLESQD[@]}; do
-            echo ""
-            echo "----------------------------------------"
-            echo "Table: gp_$table"
-            echo "----------------------------------------"
-            PGOPTIONS="-c gp_role=utility" $GPPATH/psql --pset pager=off -p ${PORTS[$i]} -d template1 -c  "select * from gp_"$table
-            RETVAL=$?
-            if [ $RETVAL -ne 0 ]; then
-                echo "$0 failed."
-                exit 1
-            fi
-        done
-    else
-        for table in ${TABLES[@]}; do
-            echo ""
-            echo "----------------------------------------"
-            echo "Table: gp_$table"
-            echo "----------------------------------------"
-            PGOPTIONS="-c gp_role=utility" $GPPATH/psql --pset pager=off -p ${PORTS[$i]} -d template1 -c \
-                "select * from gp_"$table
-            RETVAL=$?
-            if [ $RETVAL -ne 0 ]; then
-                echo "$0 failed."
-                exit 1
-            fi
-        done
-    fi
-done
+#
+#for ((i=PORT_MIN; i<PORT_MAX+1; i++)); do
+#    echo "======================================================================"
+#    echo "Probing segment instance at port number ${PORTS[$i]}"
+#    echo "======================================================================"
+#    if [ ${i} -eq 0 ]; then
+#        for table in ${TABLESQD[@]}; do
+#            echo ""
+#            echo "----------------------------------------"
+#            echo "Table: gp_$table"
+#            echo "----------------------------------------"
+#            $GPPATH/psql --pset pager=off -p ${PORTS[$i]} -d template1 -c  "select * from gp_"$table
+#            RETVAL=$?
+#            if [ $RETVAL -ne 0 ]; then
+#                echo "$0 failed."
+#                exit 1
+#            fi
+#        done
+#    else
+#        for table in ${TABLES[@]}; do
+#            echo ""
+#            echo "----------------------------------------"
+#            echo "Table: gp_$table"
+#            echo "----------------------------------------"
+#            $GPPATH/psql --pset pager=off -p ${PORTS[$i]} -d template1 -c \
+#                "select * from gp_"$table
+#            RETVAL=$?
+#            if [ $RETVAL -ne 0 ]; then
+#                echo "$0 failed."
+#                exit 1
+#            fi
+#        done
+#    fi
+#done
 
 echo "**********************************************************************"
 

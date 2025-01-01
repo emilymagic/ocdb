@@ -91,6 +91,7 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
+
 /*
  * Defines for MultiXactOffset page sizes.  A page is the same BLCKSZ as is
  * used everywhere else in Postgres.
@@ -191,8 +192,8 @@ static SlruCtlData MultiXactMemberCtlData;
 
 /*
  * MultiXact state shared across all backends.  All this state is protected
- * by MultiXactGenLock.  (We also use MultiXactOffsetSLRULock and
- * MultiXactMemberSLRULock to guard accesses to the two sets of SLRU
+ * by MultiXactGenLock.  (We also use MultiXactOffsetControlLock and
+ * MultiXactMemberControlLock to guard accesses to the two sets of SLRU
  * buffers.  For concurrency's sake, we avoid holding more than one of these
  * locks at a time.)
  */
@@ -778,7 +779,8 @@ MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 			if (ISUPDATE_from_mxstatus(members[i].status))
 			{
 				if (has_update)
-					elog(ERROR, "new multixact has more than one updating member");
+					elog(ERROR, "new multixact has more than one updating member: %s",
+						 mxid_to_string(InvalidMultiXactId, nmembers, members));
 				has_update = true;
 			}
 		}
@@ -847,7 +849,7 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 	MultiXactOffset *offptr;
 	int			i;
 
-	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 	pageno = MultiXactIdToOffsetPage(multi);
 	entryno = MultiXactIdToOffsetEntry(multi);
@@ -868,9 +870,9 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 	MultiXactOffsetCtl->shared->page_dirty[slotno] = true;
 
 	/* Exchange our lock */
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 
-	LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactMemberControlLock, LW_EXCLUSIVE);
 
 	prev_pageno = -1;
 
@@ -912,7 +914,7 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 		MultiXactMemberCtl->shared->page_dirty[slotno] = true;
 	}
 
-	LWLockRelease(MultiXactMemberSLRULock);
+	LWLockRelease(MultiXactMemberControlLock);
 }
 
 /*
@@ -1318,7 +1320,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	 * time on every multixact creation.
 	 */
 retry:
-	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 	pageno = MultiXactIdToOffsetPage(multi);
 	entryno = MultiXactIdToOffsetEntry(multi);
@@ -1364,7 +1366,7 @@ retry:
 		if (nextMXOffset == 0)
 		{
 			/* Corner case 2: next multixact is still being filled in */
-			LWLockRelease(MultiXactOffsetSLRULock);
+			LWLockRelease(MultiXactOffsetControlLock);
 			CHECK_FOR_INTERRUPTS();
 			pg_usleep(1000L);
 			goto retry;
@@ -1373,12 +1375,12 @@ retry:
 		length = nextMXOffset - offset;
 	}
 
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 
 	ptr = (MultiXactMember *) palloc(length * sizeof(MultiXactMember));
 
 	/* Now get the members themselves. */
-	LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactMemberControlLock, LW_EXCLUSIVE);
 
 	truelength = 0;
 	prev_pageno = -1;
@@ -1418,7 +1420,7 @@ retry:
 		truelength++;
 	}
 
-	LWLockRelease(MultiXactMemberSLRULock);
+	LWLockRelease(MultiXactMemberControlLock);
 
 	/* A multixid with zero members should not happen */
 	Assert(truelength > 0);
@@ -1812,8 +1814,8 @@ MultiXactShmemSize(void)
 			 mul_size(sizeof(MultiXactId) * 2, MaxOldestSlot))
 
 	size = SHARED_MULTIXACT_STATE_SIZE;
-	size = add_size(size, SimpleLruShmemSize(NUM_MULTIXACTOFFSET_BUFFERS, 0));
-	size = add_size(size, SimpleLruShmemSize(NUM_MULTIXACTMEMBER_BUFFERS, 0));
+	size = add_size(size, SimpleLruShmemSize(NUM_MXACTOFFSET_BUFFERS, 0));
+	size = add_size(size, SimpleLruShmemSize(NUM_MXACTMEMBER_BUFFERS, 0));
 
 	return size;
 }
@@ -1829,14 +1831,14 @@ MultiXactShmemInit(void)
 	MultiXactMemberCtl->PagePrecedes = MultiXactMemberPagePrecedes;
 
 	SimpleLruInit(MultiXactOffsetCtl,
-				  "MultiXactOffset", NUM_MULTIXACTOFFSET_BUFFERS, 0,
-				  MultiXactOffsetSLRULock, "pg_multixact/offsets",
-				  LWTRANCHE_MULTIXACTOFFSET_BUFFER);
+				  "multixact_offset", NUM_MXACTOFFSET_BUFFERS, 0,
+				  MultiXactOffsetControlLock, "pg_multixact/offsets",
+				  LWTRANCHE_MXACTOFFSET_BUFFERS);
 	SlruPagePrecedesUnitTests(MultiXactOffsetCtl, MULTIXACT_OFFSETS_PER_PAGE);
 	SimpleLruInit(MultiXactMemberCtl,
-				  "MultiXactMember", NUM_MULTIXACTMEMBER_BUFFERS, 0,
-				  MultiXactMemberSLRULock, "pg_multixact/members",
-				  LWTRANCHE_MULTIXACTMEMBER_BUFFER);
+				  "multixact_member", NUM_MXACTMEMBER_BUFFERS, 0,
+				  MultiXactMemberControlLock, "pg_multixact/members",
+				  LWTRANCHE_MXACTMEMBER_BUFFERS);
 	/* doesn't call SimpleLruTruncate() or meet criteria for unit tests */
 
 	/* Initialize our shared state struct */
@@ -1871,7 +1873,7 @@ BootStrapMultiXact(void)
 {
 	int			slotno;
 
-	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 	/* Create and zero the first page of the offsets log */
 	slotno = ZeroMultiXactOffsetPage(0, false);
@@ -1880,9 +1882,9 @@ BootStrapMultiXact(void)
 	SimpleLruWritePage(MultiXactOffsetCtl, slotno);
 	Assert(!MultiXactOffsetCtl->shared->page_dirty[slotno]);
 
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 
-	LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactMemberControlLock, LW_EXCLUSIVE);
 
 	/* Create and zero the first page of the members log */
 	slotno = ZeroMultiXactMemberPage(0, false);
@@ -1891,7 +1893,7 @@ BootStrapMultiXact(void)
 	SimpleLruWritePage(MultiXactMemberCtl, slotno);
 	Assert(!MultiXactMemberCtl->shared->page_dirty[slotno]);
 
-	LWLockRelease(MultiXactMemberSLRULock);
+	LWLockRelease(MultiXactMemberControlLock);
 }
 
 /*
@@ -1954,7 +1956,7 @@ MaybeExtendOffsetSlru(void)
 
 	pageno = MultiXactIdToOffsetPage(MultiXactState->nextMXact);
 
-	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 	if (!SimpleLruDoesPhysicalPageExist(MultiXactOffsetCtl, pageno))
 	{
@@ -1969,7 +1971,7 @@ MaybeExtendOffsetSlru(void)
 		SimpleLruWritePage(MultiXactOffsetCtl, slotno);
 	}
 
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 }
 
 /*
@@ -2022,7 +2024,7 @@ TrimMultiXact(void)
 	LWLockRelease(MultiXactGenLock);
 
 	/* Clean up offsets state */
-	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 	/*
 	 * (Re-)Initialize our idea of the latest page number for offsets.
@@ -2053,10 +2055,10 @@ TrimMultiXact(void)
 		MultiXactOffsetCtl->shared->page_dirty[slotno] = true;
 	}
 
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 
 	/* And the same for members */
-	LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactMemberControlLock, LW_EXCLUSIVE);
 
 	/*
 	 * (Re-)Initialize our idea of the latest page number for members.
@@ -2091,7 +2093,7 @@ TrimMultiXact(void)
 		MultiXactMemberCtl->shared->page_dirty[slotno] = true;
 	}
 
-	LWLockRelease(MultiXactMemberSLRULock);
+	LWLockRelease(MultiXactMemberControlLock);
 
 	/* signal that we're officially up */
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
@@ -2112,7 +2114,6 @@ ShutdownMultiXact(void)
 	TRACE_POSTGRESQL_MULTIXACT_CHECKPOINT_START(false);
 	SimpleLruFlush(MultiXactOffsetCtl, false);
 	SimpleLruFlush(MultiXactMemberCtl, false);
-
 	TRACE_POSTGRESQL_MULTIXACT_CHECKPOINT_DONE(false);
 }
 
@@ -2120,7 +2121,7 @@ ShutdownMultiXact(void)
  * Get the MultiXact data to save in a checkpoint record
  */
 void
-MultiXactGetCheckptMulti(bool is_shutdown pg_attribute_unused() ,
+MultiXactGetCheckptMulti(bool is_shutdown,
 						 MultiXactId *nextMulti,
 						 MultiXactOffset *nextMultiOffset,
 						 MultiXactId *oldestMulti,
@@ -2405,12 +2406,12 @@ ExtendMultiXactOffset(MultiXactId multi)
 
 	pageno = MultiXactIdToOffsetPage(multi);
 
-	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+	LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 	/* Zero the page and make an XLOG entry about it */
 	ZeroMultiXactOffsetPage(pageno, true);
 
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 }
 
 /*
@@ -2446,12 +2447,12 @@ ExtendMultiXactMember(MultiXactOffset offset, int nmembers)
 
 			pageno = MXOffsetToMemberPage(offset);
 
-			LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
+			LWLockAcquire(MultiXactMemberControlLock, LW_EXCLUSIVE);
 
 			/* Zero the page and make an XLOG entry about it */
 			ZeroMultiXactMemberPage(pageno, true);
 
-			LWLockRelease(MultiXactMemberSLRULock);
+			LWLockRelease(MultiXactMemberControlLock);
 		}
 
 		/*
@@ -2752,7 +2753,7 @@ find_multixact_start(MultiXactId multi, MultiXactOffset *result)
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 	offset = *offptr;
-	LWLockRelease(MultiXactOffsetSLRULock);
+	LWLockRelease(MultiXactOffsetControlLock);
 
 	*result = offset;
 	return true;
@@ -3241,13 +3242,13 @@ multixact_redo(XLogReaderState *record)
 
 		memcpy(&pageno, XLogRecGetData(record), sizeof(int));
 
-		LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
+		LWLockAcquire(MultiXactOffsetControlLock, LW_EXCLUSIVE);
 
 		slotno = ZeroMultiXactOffsetPage(pageno, false);
 		SimpleLruWritePage(MultiXactOffsetCtl, slotno);
 		Assert(!MultiXactOffsetCtl->shared->page_dirty[slotno]);
 
-		LWLockRelease(MultiXactOffsetSLRULock);
+		LWLockRelease(MultiXactOffsetControlLock);
 	}
 	else if (info == XLOG_MULTIXACT_ZERO_MEM_PAGE)
 	{
@@ -3256,13 +3257,13 @@ multixact_redo(XLogReaderState *record)
 
 		memcpy(&pageno, XLogRecGetData(record), sizeof(int));
 
-		LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
+		LWLockAcquire(MultiXactMemberControlLock, LW_EXCLUSIVE);
 
 		slotno = ZeroMultiXactMemberPage(pageno, false);
 		SimpleLruWritePage(MultiXactMemberCtl, slotno);
 		Assert(!MultiXactMemberCtl->shared->page_dirty[slotno]);
 
-		LWLockRelease(MultiXactMemberSLRULock);
+		LWLockRelease(MultiXactMemberControlLock);
 	}
 	else if (info == XLOG_MULTIXACT_CREATE_ID)
 	{

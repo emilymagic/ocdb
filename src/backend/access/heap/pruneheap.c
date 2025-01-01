@@ -78,7 +78,7 @@ heap_page_prune_opt(Relation relation, Buffer buffer)
 
 	/*
 	 * We can't write WAL in recovery mode, so there's no point trying to
-	 * clean the page. The primary will likely issue a cleaning WAL record soon
+	 * clean the page. The master will likely issue a cleaning WAL record soon
 	 * anyway, so this is no particular loss.
 	 */
 	if (RecoveryInProgress())
@@ -401,7 +401,7 @@ heap_prune_chain(Relation relation, Buffer buffer, OffsetNumber rootoffnum,
 			 * either here or while following a chain below.  Whichever path
 			 * gets there first will mark the tuple unused.
 			 */
-			if (HeapTupleSatisfiesVacuum(relation, &tup, OldestXmin, buffer)
+			if (HeapTupleSatisfiesVacuum(&tup, OldestXmin, buffer)
 				== HEAPTUPLE_DEAD && !HeapTupleHeaderIsHotUpdated(htup))
 			{
 				heap_prune_record_unused(prstate, rootoffnum);
@@ -485,7 +485,7 @@ heap_prune_chain(Relation relation, Buffer buffer, OffsetNumber rootoffnum,
 		 */
 		tupdead = recent_dead = false;
 
-		switch (HeapTupleSatisfiesVacuum(relation, &tup, OldestXmin, buffer))
+		switch (HeapTupleSatisfiesVacuum(&tup, OldestXmin, buffer))
 		{
 			case HEAPTUPLE_DEAD:
 				tupdead = true;

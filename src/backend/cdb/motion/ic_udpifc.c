@@ -3024,26 +3024,14 @@ SetupUDPIFCInterconnect_Internal(SliceTable *sliceTable)
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
 		CursorICHistoryTable *ich_table = &rx_control_info.cursorHistoryTable;
-		DistributedTransactionId distTransId = getDistributedTransactionId();
 
 		if (ich_table->count > (2 * ich_table->size))
 		{
 			/*
-			 * distTransId != lastDXatId
-			 * Means the last transaction is finished, it's ok to make a prune.
-			 */
-			if (distTransId != rx_control_info.lastDXatId)
-			{
-				if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
-					elog(DEBUG1, "prune cursor history table (count %d), icid %d, prune_id %d",
-						 ich_table->count, sliceTable->ic_instance_id, sliceTable->ic_instance_id);
-				pruneCursorIcEntry(ich_table, sliceTable->ic_instance_id);
-			}
-			/*
 			 * distTransId == lastDXatId and they are not InvalidTransactionId(0)
 			 * Means current (non Read-Only) transaction isn't finished, should not prune.
 			 */
-			else if (rx_control_info.lastDXatId != InvalidTransactionId)
+			if (rx_control_info.lastDXatId != InvalidTransactionId)
 			{
 				;
 			}
@@ -3078,8 +3066,6 @@ SetupUDPIFCInterconnect_Internal(SliceTable *sliceTable)
 		}
 
 		addCursorIcEntry(ich_table, sliceTable->ic_instance_id, gp_command_count);
-		/* save the latest transaction id */
-		rx_control_info.lastDXatId = distTransId;
 	}
 
 	/* now we'll do some setup for each of our Receiving Motion Nodes. */

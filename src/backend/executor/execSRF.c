@@ -30,6 +30,7 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/pickcat.h"
 #include "utils/typcache.h"
 
 
@@ -794,6 +795,12 @@ init_sexpr(Oid foid, Oid input_collation, Expr *node,
 	sexpr->funcResultStore = NULL;
 	sexpr->funcResultSlot = NULL;
 	sexpr->shutdown_reg = false;
+
+	/*
+	 * Catalog collect
+	 */
+	PickFunctionCall(sexpr->fcinfo->flinfo, sexpr->fcinfo->nargs,
+					 sexpr->fcinfo->args);
 }
 
 /*

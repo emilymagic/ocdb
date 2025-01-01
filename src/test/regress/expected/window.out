@@ -625,19 +625,13 @@ explain (costs off)
 select first_value(max(x)) over (), y
   from (select unique1 as x, ten+four as y from tenk1) ss
   group by y;
-                            QUERY PLAN                            
-------------------------------------------------------------------
+                 QUERY PLAN                  
+---------------------------------------------
  WindowAgg
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         ->  Finalize HashAggregate
-               Group Key: ((tenk1.ten + tenk1.four))
-               ->  Redistribute Motion 3:3  (slice2; segments: 3)
-                     Hash Key: ((tenk1.ten + tenk1.four))
-                     ->  Partial HashAggregate
-                           Group Key: (tenk1.ten + tenk1.four)
-                           ->  Seq Scan on tenk1
- Optimizer: Postgres query optimizer
-(10 rows)
+   ->  HashAggregate
+         Group Key: (tenk1.ten + tenk1.four)
+         ->  Seq Scan on tenk1
+(4 rows)
 
 -- test non-default frame specifications
 SELECT four, ten,
@@ -785,14 +779,14 @@ SELECT sum(unique1) over (order by four range between current row and unbounded 
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  45 |       0 |    0
   45 |       8 |    0
   45 |       4 |    0
-  33 |       5 |    1
-  33 |       1 |    1
+  45 |       0 |    0
   33 |       9 |    1
-  18 |       2 |    2
+  33 |       1 |    1
+  33 |       5 |    1
   18 |       6 |    2
+  18 |       2 |    2
   10 |       7 |    3
   10 |       3 |    3
 (10 rows)
@@ -803,16 +797,16 @@ SELECT sum(unique1) over (rows between current row and unbounded following),
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  45 |       4 |    0
-  41 |       2 |    2
-  39 |       1 |    1
-  38 |       6 |    2
-  32 |       9 |    1
-  23 |       8 |    0
-  15 |       5 |    1
-  10 |       3 |    3
-   7 |       7 |    3
-   0 |       0 |    0
+  45 |       0 |    0
+  45 |       1 |    1
+  44 |       2 |    2
+  42 |       3 |    3
+  39 |       4 |    0
+  35 |       5 |    1
+  30 |       6 |    2
+  24 |       7 |    3
+  17 |       8 |    0
+   9 |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between 2 preceding and 2 following),
@@ -820,16 +814,16 @@ SELECT sum(unique1) over (rows between 2 preceding and 2 following),
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-   7 |       4 |    0
-  13 |       2 |    2
-  22 |       1 |    1
-  26 |       6 |    2
-  29 |       9 |    1
-  31 |       8 |    0
-  32 |       5 |    1
-  23 |       3 |    3
-  15 |       7 |    3
-  10 |       0 |    0
+   3 |       0 |    0
+   6 |       1 |    1
+  10 |       2 |    2
+  15 |       3 |    3
+  20 |       4 |    0
+  25 |       5 |    1
+  30 |       6 |    2
+  35 |       7 |    3
+  30 |       8 |    0
+  24 |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude no others),
@@ -837,16 +831,16 @@ SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude no ot
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-   7 |       4 |    0
-  13 |       2 |    2
-  22 |       1 |    1
-  26 |       6 |    2
-  29 |       9 |    1
-  31 |       8 |    0
-  32 |       5 |    1
-  23 |       3 |    3
-  15 |       7 |    3
-  10 |       0 |    0
+   3 |       0 |    0
+   6 |       1 |    1
+  10 |       2 |    2
+  15 |       3 |    3
+  20 |       4 |    0
+  25 |       5 |    1
+  30 |       6 |    2
+  35 |       7 |    3
+  30 |       8 |    0
+  24 |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude current row),
@@ -854,16 +848,16 @@ SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude curre
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-   3 |       4 |    0
-  11 |       2 |    2
-  21 |       1 |    1
-  20 |       6 |    2
-  20 |       9 |    1
-  23 |       8 |    0
-  27 |       5 |    1
-  20 |       3 |    3
-   8 |       7 |    3
-  10 |       0 |    0
+   3 |       0 |    0
+   5 |       1 |    1
+   8 |       2 |    2
+  12 |       3 |    3
+  16 |       4 |    0
+  20 |       5 |    1
+  24 |       6 |    2
+  28 |       7 |    3
+  22 |       8 |    0
+  15 |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude group),
@@ -871,16 +865,16 @@ SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude group
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       4 |    0
-     |       2 |    2
-     |       1 |    1
-     |       6 |    2
-     |       9 |    1
-     |       8 |    0
-     |       5 |    1
-     |       3 |    3
-     |       7 |    3
      |       0 |    0
+     |       1 |    1
+     |       2 |    2
+     |       3 |    3
+     |       4 |    0
+     |       5 |    1
+     |       6 |    2
+     |       7 |    3
+     |       8 |    0
+     |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude ties),
@@ -888,16 +882,16 @@ SELECT sum(unique1) over (rows between 2 preceding and 2 following exclude ties)
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-   4 |       4 |    0
-   2 |       2 |    2
-   1 |       1 |    1
-   6 |       6 |    2
-   9 |       9 |    1
-   8 |       8 |    0
-   5 |       5 |    1
-   3 |       3 |    3
-   7 |       7 |    3
    0 |       0 |    0
+   1 |       1 |    1
+   2 |       2 |    2
+   3 |       3 |    3
+   4 |       4 |    0
+   5 |       5 |    1
+   6 |       6 |    2
+   7 |       7 |    3
+   8 |       8 |    0
+   9 |       9 |    1
 (10 rows)
 
 SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude current row),
@@ -905,16 +899,16 @@ SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 f
 FROM tenk1 WHERE unique1 < 10;
  first_value | unique1 | four 
 -------------+---------+------
-           8 |       0 |    0
            4 |       8 |    0
-           5 |       4 |    0
-           9 |       5 |    1
+           0 |       4 |    0
+           9 |       0 |    0
            1 |       9 |    1
-           6 |       1 |    1
+           5 |       1 |    1
+           6 |       5 |    1
            2 |       6 |    2
-           3 |       2 |    2
-           7 |       3 |    3
-             |       7 |    3
+           7 |       2 |    2
+           3 |       7 |    3
+             |       3 |    3
 (10 rows)
 
 SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude group),
@@ -922,16 +916,16 @@ SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 f
 FROM tenk1 WHERE unique1 < 10;
  first_value | unique1 | four 
 -------------+---------+------
-             |       0 |    0
-           5 |       8 |    0
-           5 |       4 |    0
-             |       5 |    1
-           6 |       9 |    1
+             |       8 |    0
+           9 |       4 |    0
+           9 |       0 |    0
+             |       9 |    1
            6 |       1 |    1
-           3 |       6 |    2
-           3 |       2 |    2
-             |       3 |    3
+           6 |       5 |    1
+           7 |       6 |    2
+           7 |       2 |    2
              |       7 |    3
+             |       3 |    3
 (10 rows)
 
 SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 following exclude ties),
@@ -939,16 +933,16 @@ SELECT first_value(unique1) over (ORDER BY four rows between current row and 2 f
 FROM tenk1 WHERE unique1 < 10;
  first_value | unique1 | four 
 -------------+---------+------
-           0 |       0 |    0
            8 |       8 |    0
            4 |       4 |    0
-           5 |       5 |    1
+           0 |       0 |    0
            9 |       9 |    1
            1 |       1 |    1
+           5 |       5 |    1
            6 |       6 |    2
            2 |       2 |    2
-           3 |       3 |    3
            7 |       7 |    3
+           3 |       3 |    3
 (10 rows)
 
 SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude current row),
@@ -956,16 +950,16 @@ SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 fo
 FROM tenk1 WHERE unique1 < 10;
  last_value | unique1 | four 
 ------------+---------+------
-          4 |       0 |    0
-          5 |       8 |    0
+          0 |       8 |    0
           9 |       4 |    0
-          1 |       5 |    1
-          6 |       9 |    1
-          2 |       1 |    1
-          3 |       6 |    2
-          7 |       2 |    2
-          7 |       3 |    3
-            |       7 |    3
+          1 |       0 |    0
+          5 |       9 |    1
+          6 |       1 |    1
+          2 |       5 |    1
+          7 |       6 |    2
+          3 |       2 |    2
+          3 |       7 |    3
+            |       3 |    3
 (10 rows)
 
 SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude group),
@@ -973,16 +967,16 @@ SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 fo
 FROM tenk1 WHERE unique1 < 10;
  last_value | unique1 | four 
 ------------+---------+------
-            |       0 |    0
-          5 |       8 |    0
+            |       8 |    0
           9 |       4 |    0
-            |       5 |    1
-          6 |       9 |    1
-          2 |       1 |    1
-          3 |       6 |    2
-          7 |       2 |    2
-            |       3 |    3
+          1 |       0 |    0
+            |       9 |    1
+          6 |       1 |    1
+          2 |       5 |    1
+          7 |       6 |    2
+          3 |       2 |    2
             |       7 |    3
+            |       3 |    3
 (10 rows)
 
 SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 following exclude ties),
@@ -990,16 +984,16 @@ SELECT last_value(unique1) over (ORDER BY four rows between current row and 2 fo
 FROM tenk1 WHERE unique1 < 10;
  last_value | unique1 | four 
 ------------+---------+------
-          0 |       0 |    0
-          5 |       8 |    0
+          8 |       8 |    0
           9 |       4 |    0
-          5 |       5 |    1
-          6 |       9 |    1
-          2 |       1 |    1
-          3 |       6 |    2
-          7 |       2 |    2
-          3 |       3 |    3
+          1 |       0 |    0
+          9 |       9 |    1
+          6 |       1 |    1
+          2 |       5 |    1
+          7 |       6 |    2
+          3 |       2 |    2
           7 |       7 |    3
+          3 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (rows between 2 preceding and 1 preceding),
@@ -1007,16 +1001,16 @@ SELECT sum(unique1) over (rows between 2 preceding and 1 preceding),
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       4 |    0
-   4 |       2 |    2
-   6 |       1 |    1
-   3 |       6 |    2
-   7 |       9 |    1
-  15 |       8 |    0
-  17 |       5 |    1
-  13 |       3 |    3
-   8 |       7 |    3
-  10 |       0 |    0
+     |       0 |    0
+   0 |       1 |    1
+   1 |       2 |    2
+   3 |       3 |    3
+   5 |       4 |    0
+   7 |       5 |    1
+   9 |       6 |    2
+  11 |       7 |    3
+  13 |       8 |    0
+  15 |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between 1 following and 3 following),
@@ -1024,16 +1018,16 @@ SELECT sum(unique1) over (rows between 1 following and 3 following),
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-   9 |       4 |    0
-  16 |       2 |    2
-  23 |       1 |    1
-  22 |       6 |    2
-  16 |       9 |    1
-  15 |       8 |    0
-  10 |       5 |    1
-   7 |       3 |    3
-   0 |       7 |    3
-     |       0 |    0
+   6 |       0 |    0
+   9 |       1 |    1
+  12 |       2 |    2
+  15 |       3 |    3
+  18 |       4 |    0
+  21 |       5 |    1
+  24 |       6 |    2
+  17 |       7 |    3
+   9 |       8 |    0
+     |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (rows between unbounded preceding and 1 following),
@@ -1041,16 +1035,16 @@ SELECT sum(unique1) over (rows between unbounded preceding and 1 following),
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-   6 |       4 |    0
-   7 |       2 |    2
-  13 |       1 |    1
-  22 |       6 |    2
-  30 |       9 |    1
-  35 |       8 |    0
-  38 |       5 |    1
-  45 |       3 |    3
-  45 |       7 |    3
-  45 |       0 |    0
+   1 |       0 |    0
+   3 |       1 |    1
+   6 |       2 |    2
+  10 |       3 |    3
+  15 |       4 |    0
+  21 |       5 |    1
+  28 |       6 |    2
+  36 |       7 |    3
+  45 |       8 |    0
+  45 |       9 |    1
 (10 rows)
 
 SELECT sum(unique1) over (w range between current row and unbounded following),
@@ -1058,14 +1052,14 @@ SELECT sum(unique1) over (w range between current row and unbounded following),
 FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four);
  sum | unique1 | four 
 -----+---------+------
-  45 |       0 |    0
   45 |       8 |    0
   45 |       4 |    0
-  33 |       5 |    1
+  45 |       0 |    0
   33 |       9 |    1
   33 |       1 |    1
-  18 |       2 |    2
+  33 |       5 |    1
   18 |       6 |    2
+  18 |       2 |    2
   10 |       7 |    3
   10 |       3 |    3
 (10 rows)
@@ -1075,16 +1069,16 @@ SELECT sum(unique1) over (w range between unbounded preceding and current row ex
 FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four);
  sum | unique1 | four 
 -----+---------+------
-  12 |       0 |    0
    4 |       8 |    0
    8 |       4 |    0
-  22 |       5 |    1
+  12 |       0 |    0
   18 |       9 |    1
   26 |       1 |    1
+  22 |       5 |    1
   29 |       6 |    2
   33 |       2 |    2
-  42 |       3 |    3
   38 |       7 |    3
+  42 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (w range between unbounded preceding and current row exclude group),
@@ -1092,16 +1086,16 @@ SELECT sum(unique1) over (w range between unbounded preceding and current row ex
 FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four);
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  35 |       3 |    3
   35 |       7 |    3
+  35 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (w range between unbounded preceding and current row exclude ties),
@@ -1109,16 +1103,16 @@ SELECT sum(unique1) over (w range between unbounded preceding and current row ex
 FROM tenk1 WHERE unique1 < 10 WINDOW w AS (order by four);
  sum | unique1 | four 
 -----+---------+------
-   0 |       0 |    0
    8 |       8 |    0
    4 |       4 |    0
-  17 |       5 |    1
+   0 |       0 |    0
   21 |       9 |    1
   13 |       1 |    1
+  17 |       5 |    1
   33 |       6 |    2
   29 |       2 |    2
-  38 |       3 |    3
   42 |       7 |    3
+  38 |       3 |    3
 (10 rows)
 
 SELECT first_value(unique1) over w,
@@ -1128,16 +1122,16 @@ FROM tenk1 WHERE unique1 < 10
 WINDOW w AS (order by four range between current row and unbounded following);
  first_value | nth_2 | last_value | unique1 | four 
 -------------+-------+------------+---------+------
-           0 |     8 |          7 |       0 |    0
-           0 |     8 |          7 |       8 |    0
-           0 |     8 |          7 |       4 |    0
-           5 |     9 |          7 |       5 |    1
-           5 |     9 |          7 |       9 |    1
-           5 |     9 |          7 |       1 |    1
-           6 |     2 |          7 |       6 |    2
-           6 |     2 |          7 |       2 |    2
-           3 |     7 |          7 |       3 |    3
-           3 |     7 |          7 |       7 |    3
+           8 |     4 |          3 |       8 |    0
+           8 |     4 |          3 |       4 |    0
+           8 |     4 |          3 |       0 |    0
+           9 |     1 |          3 |       9 |    1
+           9 |     1 |          3 |       1 |    1
+           9 |     1 |          3 |       5 |    1
+           6 |     2 |          3 |       6 |    2
+           6 |     2 |          3 |       2 |    2
+           7 |     3 |          3 |       7 |    3
+           7 |     3 |          3 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over
@@ -1333,16 +1327,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four desc range between 2::int8 preceding and 1::int2 preceding),
@@ -1350,16 +1344,16 @@ SELECT sum(unique1) over (order by four desc range between 2::int8 preceding and
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       3 |    3
      |       7 |    3
-  10 |       6 |    2
+     |       3 |    3
   10 |       2 |    2
+  10 |       6 |    2
   18 |       9 |    1
-  18 |       5 |    1
   18 |       1 |    1
-  23 |       0 |    0
-  23 |       8 |    0
+  18 |       5 |    1
   23 |       4 |    0
+  23 |       8 |    0
+  23 |       0 |    0
 (10 rows)
 
 SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude no others),
@@ -1367,16 +1361,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude current row),
@@ -1384,16 +1378,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude group),
@@ -1401,16 +1395,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::int2 preceding exclude ties),
@@ -1418,16 +1412,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 1::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::int2 following exclude ties),
@@ -1435,16 +1429,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  33 |       0 |    0
   41 |       8 |    0
   37 |       4 |    0
-  35 |       5 |    1
+  33 |       0 |    0
   39 |       9 |    1
   31 |       1 |    1
+  35 |       5 |    1
   43 |       6 |    2
   39 |       2 |    2
-  26 |       3 |    3
   30 |       7 |    3
+  26 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::int2 following exclude group),
@@ -1452,16 +1446,16 @@ SELECT sum(unique1) over (order by four range between 2::int8 preceding and 6::i
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  33 |       0 |    0
   33 |       8 |    0
   33 |       4 |    0
-  30 |       5 |    1
+  33 |       0 |    0
   30 |       9 |    1
   30 |       1 |    1
+  30 |       5 |    1
   37 |       6 |    2
   37 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (partition by four order by unique1 range between 5::int8 preceding and 6::int2 following),
@@ -2110,10 +2104,10 @@ window w as (order by f_time desc range between
  10 | 20:00:00 |          10 |          8
   9 | 19:00:00 |          10 |          7
   8 | 18:00:00 |           9 |          7
-  7 | 17:00:00 |           8 |          6
-  5 | 15:00:00 |           5 |          3
-  6 | 15:00:00 |           5 |          3
-  4 | 14:00:00 |           5 |          2
+  7 | 17:00:00 |           8 |          5
+  6 | 15:00:00 |           6 |          3
+  5 | 15:00:00 |           6 |          3
+  4 | 14:00:00 |           6 |          2
   3 | 13:00:00 |           4 |          1
   2 | 12:00:00 |           3 |          1
   1 | 11:00:00 |           2 |          1
@@ -2146,10 +2140,10 @@ window w as (order by f_timetz desc range between
  10 | 20:00:00+01 |          10 |          8
   9 | 19:00:00+01 |          10 |          7
   8 | 18:00:00+01 |           9 |          7
-  7 | 17:00:00+01 |           8 |          6
-  6 | 15:00:00+01 |           5 |          3
-  5 | 15:00:00+01 |           5 |          3
-  4 | 14:00:00+01 |           5 |          2
+  7 | 17:00:00+01 |           8 |          5
+  6 | 15:00:00+01 |           6 |          3
+  5 | 15:00:00+01 |           6 |          3
+  4 | 14:00:00+01 |           6 |          2
   3 | 13:00:00+01 |           4 |          1
   2 | 12:00:00+01 |           3 |          1
   1 | 11:00:00+01 |           2 |          1
@@ -2183,9 +2177,9 @@ window w as (order by f_interval desc range between
   9 | @ 9 years  |          10 |          8
   8 | @ 8 years  |           9 |          7
   7 | @ 7 years  |           8 |          7
-  6 | @ 5 years  |           5 |          4
-  5 | @ 5 years  |           5 |          4
-  4 | @ 4 years  |           5 |          3
+  6 | @ 5 years  |           6 |          4
+  5 | @ 5 years  |           6 |          4
+  4 | @ 4 years  |           6 |          3
   3 | @ 3 years  |           4 |          2
   2 | @ 2 years  |           3 |          1
   1 | @ 1 year   |           2 |          1
@@ -2221,10 +2215,10 @@ window w as (order by f_timestamptz desc range between
   7 | Wed Oct 19 02:23:54 2005 PDT |           8 |          6
   6 | Tue Oct 19 02:23:54 2004 PDT |           7 |          5
   5 | Sun Oct 19 02:23:54 2003 PDT |           6 |          4
-  4 | Sat Oct 19 02:23:54 2002 PDT |           5 |          3
+  4 | Sat Oct 19 02:23:54 2002 PDT |           5 |          2
   3 | Fri Oct 19 02:23:54 2001 PDT |           4 |          1
   2 | Fri Oct 19 02:23:54 2001 PDT |           4 |          1
-  1 | Thu Oct 19 02:23:54 2000 PDT |           2 |          1
+  1 | Thu Oct 19 02:23:54 2000 PDT |           3 |          1
 (10 rows)
 
 select id, f_timestamp, first_value(id) over w, last_value(id) over w
@@ -2257,10 +2251,10 @@ window w as (order by f_timestamp desc range between
   7 | Wed Oct 19 10:23:54 2005 |           8 |          6
   6 | Tue Oct 19 10:23:54 2004 |           7 |          5
   5 | Sun Oct 19 10:23:54 2003 |           6 |          4
-  4 | Sat Oct 19 10:23:54 2002 |           5 |          3
+  4 | Sat Oct 19 10:23:54 2002 |           5 |          2
   3 | Fri Oct 19 10:23:54 2001 |           4 |          1
   2 | Fri Oct 19 10:23:54 2001 |           4 |          1
-  1 | Thu Oct 19 10:23:54 2000 |           2 |          1
+  1 | Thu Oct 19 10:23:54 2000 |           3 |          1
 (10 rows)
 
 -- RANGE offset PRECEDING/FOLLOWING error cases
@@ -2306,16 +2300,16 @@ SELECT sum(unique1) over (order by four groups between unbounded preceding and c
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  12 |       0 |    0
   12 |       8 |    0
   12 |       4 |    0
-  27 |       5 |    1
+  12 |       0 |    0
   27 |       9 |    1
   27 |       1 |    1
+  27 |       5 |    1
   35 |       6 |    2
   35 |       2 |    2
-  45 |       3 |    3
   45 |       7 |    3
+  45 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between unbounded preceding and unbounded following),
@@ -2323,16 +2317,16 @@ SELECT sum(unique1) over (order by four groups between unbounded preceding and u
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  45 |       0 |    0
   45 |       8 |    0
   45 |       4 |    0
-  45 |       5 |    1
+  45 |       0 |    0
   45 |       9 |    1
   45 |       1 |    1
+  45 |       5 |    1
   45 |       6 |    2
   45 |       2 |    2
-  45 |       3 |    3
   45 |       7 |    3
+  45 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between current row and unbounded following),
@@ -2340,16 +2334,16 @@ SELECT sum(unique1) over (order by four groups between current row and unbounded
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  45 |       0 |    0
   45 |       8 |    0
   45 |       4 |    0
-  33 |       5 |    1
+  45 |       0 |    0
   33 |       9 |    1
   33 |       1 |    1
+  33 |       5 |    1
   18 |       6 |    2
   18 |       2 |    2
-  10 |       3 |    3
   10 |       7 |    3
+  10 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 1 preceding and unbounded following),
@@ -2357,16 +2351,16 @@ SELECT sum(unique1) over (order by four groups between 1 preceding and unbounded
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  45 |       0 |    0
   45 |       8 |    0
   45 |       4 |    0
-  45 |       5 |    1
+  45 |       0 |    0
   45 |       9 |    1
   45 |       1 |    1
+  45 |       5 |    1
   33 |       6 |    2
   33 |       2 |    2
-  18 |       3 |    3
   18 |       7 |    3
+  18 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 1 following and unbounded following),
@@ -2374,16 +2368,16 @@ SELECT sum(unique1) over (order by four groups between 1 following and unbounded
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  33 |       0 |    0
   33 |       8 |    0
   33 |       4 |    0
-  18 |       5 |    1
+  33 |       0 |    0
   18 |       9 |    1
   18 |       1 |    1
+  18 |       5 |    1
   10 |       6 |    2
   10 |       2 |    2
-     |       3 |    3
      |       7 |    3
+     |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between unbounded preceding and 2 following),
@@ -2391,16 +2385,16 @@ SELECT sum(unique1) over (order by four groups between unbounded preceding and 2
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  35 |       0 |    0
   35 |       8 |    0
   35 |       4 |    0
-  45 |       5 |    1
+  35 |       0 |    0
   45 |       9 |    1
   45 |       1 |    1
+  45 |       5 |    1
   45 |       6 |    2
   45 |       2 |    2
-  45 |       3 |    3
   45 |       7 |    3
+  45 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 2 preceding and 1 preceding),
@@ -2408,16 +2402,16 @@ SELECT sum(unique1) over (order by four groups between 2 preceding and 1 precedi
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-     |       0 |    0
      |       8 |    0
      |       4 |    0
-  12 |       5 |    1
+     |       0 |    0
   12 |       9 |    1
   12 |       1 |    1
+  12 |       5 |    1
   27 |       6 |    2
   27 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following),
@@ -2425,16 +2419,16 @@ SELECT sum(unique1) over (order by four groups between 2 preceding and 1 followi
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  27 |       0 |    0
   27 |       8 |    0
   27 |       4 |    0
-  35 |       5 |    1
+  27 |       0 |    0
   35 |       9 |    1
   35 |       1 |    1
+  35 |       5 |    1
   45 |       6 |    2
   45 |       2 |    2
-  33 |       3 |    3
   33 |       7 |    3
+  33 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 0 preceding and 0 following),
@@ -2442,16 +2436,16 @@ SELECT sum(unique1) over (order by four groups between 0 preceding and 0 followi
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  12 |       0 |    0
   12 |       8 |    0
   12 |       4 |    0
-  15 |       5 |    1
+  12 |       0 |    0
   15 |       9 |    1
   15 |       1 |    1
+  15 |       5 |    1
    8 |       6 |    2
    8 |       2 |    2
-  10 |       3 |    3
   10 |       7 |    3
+  10 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following
@@ -2459,16 +2453,16 @@ SELECT sum(unique1) over (order by four groups between 2 preceding and 1 followi
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  27 |       0 |    0
   19 |       8 |    0
   23 |       4 |    0
-  30 |       5 |    1
+  27 |       0 |    0
   26 |       9 |    1
   34 |       1 |    1
+  30 |       5 |    1
   39 |       6 |    2
   43 |       2 |    2
-  30 |       3 |    3
   26 |       7 |    3
+  30 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following
@@ -2476,16 +2470,16 @@ SELECT sum(unique1) over (order by four groups between 2 preceding and 1 followi
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  15 |       0 |    0
   15 |       8 |    0
   15 |       4 |    0
-  20 |       5 |    1
+  15 |       0 |    0
   20 |       9 |    1
   20 |       1 |    1
+  20 |       5 |    1
   37 |       6 |    2
   37 |       2 |    2
-  23 |       3 |    3
   23 |       7 |    3
+  23 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following
@@ -2493,16 +2487,16 @@ SELECT sum(unique1) over (order by four groups between 2 preceding and 1 followi
 FROM tenk1 WHERE unique1 < 10;
  sum | unique1 | four 
 -----+---------+------
-  15 |       0 |    0
   23 |       8 |    0
   19 |       4 |    0
-  25 |       5 |    1
+  15 |       0 |    0
   29 |       9 |    1
   21 |       1 |    1
+  25 |       5 |    1
   43 |       6 |    2
   39 |       2 |    2
-  26 |       3 |    3
   30 |       7 |    3
+  26 |       3 |    3
 (10 rows)
 
 SELECT sum(unique1) over (partition by ten
@@ -2861,18 +2855,16 @@ explain (costs off)
 select f1, sum(f1) over (partition by f1 order by f2
                          range between 1 preceding and 1 following)
 from t1 where f1 = f2;
-                QUERY PLAN                
-------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  WindowAgg
-         Partition By: f1
-         Order By: f2
-         ->  Sort
-               Sort Key: f1
-               ->  Seq Scan on t1
-                     Filter: (f1 = f2)
- Optimizer: Postgres query optimizer
-(9 rows)
+           QUERY PLAN            
+---------------------------------
+ WindowAgg
+   Partition By: f1
+   Order By: f2
+   ->  Sort
+         Sort Key: f1
+         ->  Seq Scan on t1
+               Filter: (f1 = f2)
+(7 rows)
 
 select f1, sum(f1) over (partition by f1 order by f2
                          range between 1 preceding and 1 following)
@@ -2911,18 +2903,16 @@ explain (costs off)
 select f1, sum(f1) over (partition by f1 order by f2
                          groups between 1 preceding and 1 following)
 from t1 where f1 = f2;
-                QUERY PLAN                
-------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   ->  WindowAgg
-         Partition By: f1
-         Order By: f2
-         ->  Sort
-               Sort Key: f1
-               ->  Seq Scan on t1
-                     Filter: (f1 = f2)
- Optimizer: Postgres query optimizer
-(9 rows)
+           QUERY PLAN            
+---------------------------------
+ WindowAgg
+   Partition By: f1
+   Order By: f2
+   ->  Sort
+         Sort Key: f1
+         ->  Seq Scan on t1
+               Filter: (f1 = f2)
+(7 rows)
 
 select f1, sum(f1) over (partition by f1 order by f2
                          groups between 1 preceding and 1 following)
@@ -3038,21 +3028,18 @@ SELECT * FROM
           min(salary) OVER (PARTITION BY depname || 'A', depname) depminsalary
    FROM empsalary) emp
 WHERE depname = 'sales';
-                                           QUERY PLAN                                            
--------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Subquery Scan on emp
-   ->  Gather Motion 1:1  (slice1; segments: 1)
-         Merge Key: (((empsalary.depname)::text || 'A'::text))
+   ->  WindowAgg
+         Partition By: empsalary.depname
          ->  WindowAgg
-               Partition By: empsalary.depname
-               ->  WindowAgg
-                     Partition By: (((empsalary.depname)::text || 'A'::text)), empsalary.depname
-                     ->  Sort
-                           Sort Key: (((empsalary.depname)::text || 'A'::text))
-                           ->  Seq Scan on empsalary
-                                 Filter: ((depname)::text = 'sales'::text)
- Optimizer: Postgres query optimizer
-(12 rows)
+               Partition By: (((empsalary.depname)::text || 'A'::text)), empsalary.depname
+               ->  Sort
+                     Sort Key: (((empsalary.depname)::text || 'A'::text))
+                     ->  Seq Scan on empsalary
+                           Filter: ((depname)::text = 'sales'::text)
+(9 rows)
 
 -- pushdown is unsafe because there's a PARTITION BY clause without depname:
 EXPLAIN (COSTS OFF)
@@ -3062,25 +3049,20 @@ SELECT * FROM
           min(salary) OVER (PARTITION BY depname) depminsalary
    FROM empsalary) emp
 WHERE depname = 'sales';
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+                      QUERY PLAN                       
+-------------------------------------------------------
  Subquery Scan on emp
    Filter: ((emp.depname)::text = 'sales'::text)
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         Merge Key: empsalary.enroll_date
-         ->  WindowAgg
-               Partition By: empsalary.enroll_date
-               ->  Sort
-                     Sort Key: empsalary.enroll_date
-                     ->  Redistribute Motion 3:3  (slice2; segments: 3)
-                           Hash Key: empsalary.enroll_date
-                           ->  WindowAgg
-                                 Partition By: empsalary.depname
-                                 ->  Sort
-                                       Sort Key: empsalary.depname
-                                       ->  Seq Scan on empsalary
- Optimizer: Postgres query optimizer
-(16 rows)
+   ->  WindowAgg
+         Partition By: empsalary.enroll_date
+         ->  Sort
+               Sort Key: empsalary.enroll_date
+               ->  WindowAgg
+                     Partition By: empsalary.depname
+                     ->  Sort
+                           Sort Key: empsalary.depname
+                           ->  Seq Scan on empsalary
+(11 rows)
 
 -- pushdown is unsafe because the subquery contains window functions and the qual is volatile:
 EXPLAIN (COSTS OFF)
@@ -3090,23 +3072,20 @@ SELECT * FROM
           min(salary) OVER (PARTITION BY depname || 'A', depname) depminsalary
    FROM empsalary) emp
 WHERE depname = 'sales' OR RANDOM() > 0.5;
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
  Subquery Scan on emp
    Filter: (((emp.depname)::text = 'sales'::text) OR (random() > '0.5'::double precision))
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         Merge Key: empsalary.depname
-         ->  WindowAgg
-               Partition By: empsalary.depname
-               ->  Sort
-                     Sort Key: empsalary.depname
-                     ->  WindowAgg
-                           Partition By: (((empsalary.depname)::text || 'A'::text)), empsalary.depname
-                           ->  Sort
-                                 Sort Key: (((empsalary.depname)::text || 'A'::text)), empsalary.depname
-                                 ->  Seq Scan on empsalary
- Optimizer: Postgres query optimizer
-(14 rows)
+   ->  WindowAgg
+         Partition By: empsalary.depname
+         ->  Sort
+               Sort Key: empsalary.depname
+               ->  WindowAgg
+                     Partition By: (((empsalary.depname)::text || 'A'::text)), empsalary.depname
+                     ->  Sort
+                           Sort Key: (((empsalary.depname)::text || 'A'::text)), empsalary.depname
+                           ->  Seq Scan on empsalary
+(11 rows)
 
 -- Test Sort node collapsing
 EXPLAIN (COSTS OFF)
@@ -3116,23 +3095,20 @@ SELECT * FROM
           min(salary) OVER (PARTITION BY depname, empno order by enroll_date) depminsalary
    FROM empsalary) emp
 WHERE depname = 'sales';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
+                              QUERY PLAN                              
+----------------------------------------------------------------------
  Subquery Scan on emp
-   ->  Gather Motion 1:1  (slice1; segments: 1)
-         Merge Key: empsalary.empno, empsalary.enroll_date
+   ->  WindowAgg
+         Partition By: empsalary.depname
+         Order By: empsalary.empno
          ->  WindowAgg
-               Partition By: empsalary.depname
-               Order By: empsalary.empno
-               ->  WindowAgg
-                     Partition By: empsalary.depname, empsalary.empno
-                     Order By: empsalary.enroll_date
-                     ->  Sort
-                           Sort Key: empsalary.empno, empsalary.enroll_date
-                           ->  Seq Scan on empsalary
-                                 Filter: ((depname)::text = 'sales'::text)
- Optimizer: Postgres query optimizer
-(14 rows)
+               Partition By: empsalary.depname, empsalary.empno
+               Order By: empsalary.enroll_date
+               ->  Sort
+                     Sort Key: empsalary.empno, empsalary.enroll_date
+                     ->  Seq Scan on empsalary
+                           Filter: ((depname)::text = 'sales'::text)
+(11 rows)
 
 -- Test Sort node reordering
 EXPLAIN (COSTS OFF)
@@ -3140,20 +3116,18 @@ SELECT
   lead(1) OVER (PARTITION BY depname ORDER BY salary, enroll_date),
   lag(1) OVER (PARTITION BY depname ORDER BY salary,enroll_date,empno)
 FROM empsalary;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ WindowAgg
+   Partition By: depname
+   Order By: salary, enroll_date
    ->  WindowAgg
          Partition By: depname
-         Order By: salary, enroll_date
-         ->  WindowAgg
-               Partition By: depname
-               Order By: salary, enroll_date, empno
-               ->  Sort
-                     Sort Key: depname, salary, enroll_date, empno
-                     ->  Seq Scan on empsalary
- Optimizer: Postgres query optimizer
-(11 rows)
+         Order By: salary, enroll_date, empno
+         ->  Sort
+               Sort Key: depname, salary, enroll_date, empno
+               ->  Seq Scan on empsalary
+(9 rows)
 
 -- cleanup
 DROP TABLE empsalary;
@@ -4042,7 +4016,7 @@ EXPLAIN (costs off) SELECT * FROM pg_temp.f(2);
          ->  Sort
                Sort Key: s.s
                ->  Function Scan on generate_series s
-(5 rows)
+(6 rows)
 
 SELECT * FROM pg_temp.f(2);
     f    

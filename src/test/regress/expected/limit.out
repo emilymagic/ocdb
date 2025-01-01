@@ -198,19 +198,13 @@ create temp sequence testseq;
 explain (verbose, costs off)
 select unique1, unique2, nextval('testseq')
   from tenk1 order by unique2 limit 10;
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
+                           QUERY PLAN                           
+----------------------------------------------------------------
  Limit
    Output: unique1, unique2, (nextval('testseq'::regclass))
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         Output: unique1, unique2, (nextval('testseq'::regclass))
-         Merge Key: unique2
-         ->  Limit
-               Output: unique1, unique2, (nextval('testseq'::regclass))
-               ->  Index Scan using tenk1_unique2 on public.tenk1
-                     Output: unique1, unique2, nextval('testseq'::regclass)
- Optimizer: Postgres query optimizer
-(10 rows)
+   ->  Index Scan using tenk1_unique2 on public.tenk1
+         Output: unique1, unique2, nextval('testseq'::regclass)
+(4 rows)
 
 -- In gpdb, our sequence can only promise monotonicity due to MPP structure
 -- The follow case does not make sence for us.
@@ -232,22 +226,15 @@ select unique1, unique2, nextval('testseq')
 explain (verbose, costs off)
 select unique1, unique2, generate_series(1,10)
   from tenk1 order by unique2 limit 7;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: unique1, unique2, (generate_series(1, 10))
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         Output: unique1, unique2, (generate_series(1, 10))
-         Merge Key: unique2
-         ->  Limit
-               Output: unique1, unique2, (generate_series(1, 10))
-               ->  ProjectSet
-                     Output: unique1, unique2, generate_series(1, 10)
-                     ->  Index Scan using tenk1_unique2 on public.tenk1
-                           Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
- Optimizer: Postgres query optimizer
- Settings: optimizer=off
-(13 rows)
+   ->  ProjectSet
+         Output: unique1, unique2, generate_series(1, 10)
+         ->  Index Scan using tenk1_unique2 on public.tenk1
+               Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+(6 rows)
 
 select unique1, unique2, generate_series(1,10)
   from tenk1 order by unique2 limit 7;
@@ -265,25 +252,18 @@ select unique1, unique2, generate_series(1,10)
 explain (verbose, costs off)
 select unique1, unique2, generate_series(1,10)
   from tenk1 order by tenthous limit 7;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                             QUERY PLAN                             
+--------------------------------------------------------------------
  Limit
    Output: unique1, unique2, (generate_series(1, 10)), tenthous
-   ->  Gather Motion 3:1  (slice1; segments: 3)
-         Output: unique1, unique2, (generate_series(1, 10)), tenthous
-         Merge Key: tenthous
-         ->  Limit
-               Output: unique1, unique2, (generate_series(1, 10)), tenthous
-               ->  ProjectSet
-                     Output: unique1, unique2, generate_series(1, 10), tenthous
-                     ->  Sort
-                           Output: unique1, unique2, tenthous
-                           Sort Key: tenk1.tenthous
-                           ->  Seq Scan on public.tenk1
-                                 Output: unique1, unique2, tenthous
- Optimizer: Postgres query optimizer
- Settings: optimizer=off
-(16 rows)
+   ->  ProjectSet
+         Output: unique1, unique2, generate_series(1, 10), tenthous
+         ->  Sort
+               Output: unique1, unique2, tenthous
+               Sort Key: tenk1.tenthous
+               ->  Seq Scan on public.tenk1
+                     Output: unique1, unique2, tenthous
+(9 rows)
 
 select unique1, unique2, generate_series(1,10)
   from tenk1 order by tenthous limit 7;
@@ -342,23 +322,16 @@ order by s2 desc;
 explain (verbose, costs off)
 select sum(tenthous) as s1, sum(tenthous) + random()*0 as s2
   from tenk1 group by thousand order by thousand limit 3;
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (sum(tenthous)), (((sum(tenthous))::double precision + (random() * '0'::double precision))), thousand
-   ->  Finalize GroupAggregate
+   ->  GroupAggregate
          Output: sum(tenthous), ((sum(tenthous))::double precision + (random() * '0'::double precision)), thousand
          Group Key: tenk1.thousand
-         ->  Gather Motion 3:1  (slice1; segments: 3)
-               Output: thousand, (PARTIAL sum(tenthous))
-               Merge Key: thousand
-               ->  Partial GroupAggregate
-                     Output: thousand, PARTIAL sum(tenthous)
-                     Group Key: tenk1.thousand
-                     ->  Index Only Scan using tenk1_thous_tenthous on public.tenk1
-                           Output: thousand, tenthous
- Optimizer: Postgres query optimizer
-(14 rows)
+         ->  Index Scan using tenk1_thous_tenthous on public.tenk1
+               Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+(7 rows)
 
 select sum(tenthous) as s1, sum(tenthous) + random()*0 as s2
   from tenk1 group by thousand order by thousand limit 3;

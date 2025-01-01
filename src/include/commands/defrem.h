@@ -20,8 +20,6 @@
 #include "tcop/dest.h"
 #include "utils/array.h"
 
-struct HTAB;  /* utils/hsearch.h */
-
 /* commands/dropcmds.c */
 extern void RemoveObjects(DropStmt *stmt);
 
@@ -35,10 +33,9 @@ extern ObjectAddress DefineIndex(Oid relationId,
 								 bool check_rights,
 								 bool check_not_in_use,
 								 bool skip_build,
-								 bool quiet,
-								 bool is_new_table);
-extern void ReindexIndex(ReindexStmt *stmt, bool isTopLevel);
-extern Oid	ReindexTable(ReindexStmt *stmt, bool isTopLevel);
+								 bool quiet);
+extern void ReindexIndex(RangeVar *indexRelation, int options, bool concurrent);
+extern Oid	ReindexTable(RangeVar *relation, int options, bool concurrent);
 extern void ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,
 								  int options, bool concurrent);
 extern char *makeObjectName(const char *name1, const char *name2,
@@ -46,11 +43,6 @@ extern char *makeObjectName(const char *name1, const char *name2,
 extern char *ChooseRelationName(const char *name1, const char *name2,
 								const char *label, Oid namespaceid,
 								bool isconstraint);
-extern char *ChooseRelationNameWithCache(const char *name1, const char *name2,
-										 const char *label, Oid namespaceid,
-										 bool isconstraint,
-										 struct HTAB *cache);
-extern List *ChooseIndexColumnNames(List *indexElems);
 extern bool CheckIndexCompatible(Oid oldId,
 								 const char *accessMethodName,
 								 List *attributeList,
@@ -153,7 +145,8 @@ extern ObjectAddress CreateUserMapping(CreateUserMappingStmt *stmt);
 extern ObjectAddress AlterUserMapping(AlterUserMappingStmt *stmt);
 extern Oid	RemoveUserMapping(DropUserMappingStmt *stmt);
 extern void RemoveUserMappingById(Oid umId);
-extern void CreateForeignTable(CreateForeignTableStmt *stmt, Oid relid, bool skip_permission_check);
+extern void CreateForeignTable(CreateForeignTableStmt *stmt, Oid relid,
+							   bool skip_permission_check);
 extern void ImportForeignSchema(ImportForeignSchemaStmt *stmt);
 extern Datum transformGenericOptions(Oid catalogId,
 									 Datum oldOptions,

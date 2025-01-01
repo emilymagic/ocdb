@@ -35,7 +35,6 @@ typedef struct xl_smgr_create
 {
 	RelFileNode rnode;
 	ForkNumber	forkNum;
-	SMgrImpl	impl;
 } xl_smgr_create;
 
 /* flags for xl_smgr_truncate */
@@ -52,7 +51,7 @@ typedef struct xl_smgr_truncate
 	int			flags;
 } xl_smgr_truncate;
 
-extern void log_smgrcreate(const RelFileNode *rnode, ForkNumber forkNum, SMgrImpl impl);
+extern void log_smgrcreate(const RelFileNode *rnode, ForkNumber forkNum);
 
 extern void smgr_redo(XLogReaderState *record);
 extern void smgr_desc(StringInfo buf, XLogReaderState *record);

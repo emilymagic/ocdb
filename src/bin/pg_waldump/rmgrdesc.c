@@ -33,7 +33,6 @@
 #include "utils/relmapper.h"
 
 #include "access/bitmap_xlog.h"
-#include "access/distributedlog.h"
 #include "cdb/cdbappendonlyxlog.h"
 
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup,mask) \

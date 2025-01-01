@@ -81,7 +81,7 @@ autostats_issue_analyze(Oid relationOid)
 	pstate = make_parsestate(NULL);
 	pstate->p_sourcetext = NULL;
 
-	ExecVacuum(pstate, analyzeStmt, false, true);
+	ExecVacuum(pstate, analyzeStmt, false);
 
 	free_parsestate(pstate);
 	pfree(analyzeStmt);

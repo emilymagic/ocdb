@@ -1817,9 +1817,10 @@ cdbpath_motion_for_join(PlannerInfo *root,
 		CdbpathMfjRel *single = &outer;
 		CdbpathMfjRel *other = &inner;
 		bool		single_immovable = (outer.require_existing_order &&
-										!outer_pathkeys) || outer.has_wts;
-		bool		other_immovable = inner.require_existing_order &&
-		!inner_pathkeys;
+										!outer_pathkeys) || outer.has_wts ||
+										CdbPathLocus_IsEntry(outer.locus);
+		bool		other_immovable = (inner.require_existing_order && !inner_pathkeys) ||
+									   CdbPathLocus_IsEntry(inner.locus);
 
 		/*
 		 * If each of the sources has a single-process locus, then assign both

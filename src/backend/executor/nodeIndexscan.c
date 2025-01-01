@@ -43,6 +43,7 @@
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/pickcat.h"
 #include "utils/rel.h"
 
 /*

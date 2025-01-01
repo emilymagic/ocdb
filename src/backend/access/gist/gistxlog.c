@@ -81,7 +81,7 @@ gistRedoPageUpdateRecord(XLogReaderState *record)
 		char	   *begin;
 		char	   *data;
 		Size		datalen;
-		int			ninserted = 0;
+		int			ninserted PG_USED_FOR_ASSERTS_ONLY = 0;
 
 		data = begin = XLogRecGetBlockData(record, 0, &datalen);
 
@@ -391,7 +391,7 @@ gistRedoPageReuse(XLogReaderState *record)
 	 * RecentGlobalXmin test in gistPageRecyclable() conceptually mirrors the
 	 * pgxact->xmin > limitXmin test in GetConflictingVirtualXIDs().
 	 * Consequently, one XID value achieves the same exclusion effect on
-	 * primary and standby.
+	 * master and standby.
 	 */
 	if (InHotStandby)
 	{

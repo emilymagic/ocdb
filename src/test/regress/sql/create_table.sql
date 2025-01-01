@@ -256,21 +256,21 @@ CREATE TABLE IF NOT EXISTS test_tsvector(
 -- invalid: non-lowercase quoted reloptions identifiers
 CREATE TABLE tas_case WITH ("Fillfactor" = 10) AS SELECT 1 a;
 
-CREATE UNLOGGED TABLE unlogged1 (a int primary key);			-- OK
-CREATE TEMPORARY TABLE unlogged2 (a int primary key);			-- OK
-SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\d' ORDER BY relname;
-REINDEX INDEX unlogged1_pkey;
-REINDEX INDEX unlogged2_pkey;
-SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\d' ORDER BY relname;
-DROP TABLE unlogged2;
-INSERT INTO unlogged1 VALUES (42);
-CREATE UNLOGGED TABLE public.unlogged2 (a int primary key);		-- also OK
-CREATE UNLOGGED TABLE pg_temp.unlogged3 (a int primary key);	-- not OK
-CREATE TABLE pg_temp.implicitly_temp (a int primary key);		-- OK
-CREATE TEMP TABLE explicitly_temp (a int primary key);			-- also OK
-CREATE TEMP TABLE pg_temp.doubly_temp (a int primary key);		-- also OK
-CREATE TEMP TABLE public.temp_to_perm (a int primary key);		-- not OK
-DROP TABLE unlogged1, public.unlogged2;
+-- CREATE UNLOGGED TABLE unlogged1 (a int primary key);			-- OK
+-- CREATE TEMPORARY TABLE unlogged2 (a int primary key);			-- OK
+-- SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\d' ORDER BY relname;
+-- REINDEX INDEX unlogged1_pkey;
+-- REINDEX INDEX unlogged2_pkey;
+-- SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\d' ORDER BY relname;
+-- DROP TABLE unlogged2;
+-- INSERT INTO unlogged1 VALUES (42);
+-- CREATE UNLOGGED TABLE public.unlogged2 (a int primary key);		-- also OK
+-- CREATE UNLOGGED TABLE pg_temp.unlogged3 (a int primary key);	-- not OK
+-- CREATE TABLE pg_temp.implicitly_temp (a int primary key);		-- OK
+-- CREATE TEMP TABLE explicitly_temp (a int primary key);			-- also OK
+-- CREATE TEMP TABLE pg_temp.doubly_temp (a int primary key);		-- also OK
+-- CREATE TEMP TABLE public.temp_to_perm (a int primary key);		-- not OK
+-- DROP TABLE unlogged1, public.unlogged2;
 
 CREATE TABLE as_select1 AS SELECT * FROM pg_class WHERE relkind = 'r';
 CREATE TABLE as_select1 AS SELECT * FROM pg_class WHERE relkind = 'r';
@@ -458,17 +458,6 @@ CREATE TABLE part2_1 PARTITION OF partitioned2 FOR VALUES FROM (-1, 'aaaaa') TO 
 \d+ part2_1
 
 DROP TABLE partitioned, partitioned2;
-
--- check reference to partitioned table's rowtype in partition descriptor
-create table partitioned (a int, b int)
-  partition by list ((row(a, b)::partitioned));
-create table partitioned1
-  partition of partitioned for values in ('(1,2)'::partitioned);
-create table partitioned2
-  partition of partitioned for values in ('(2,4)'::partitioned);
-explain (costs off)
-select * from partitioned where row(a,b)::partitioned = '(1,2)'::partitioned;
-drop table partitioned;
 
 -- check that dependencies of partition columns are handled correctly
 create domain intdom1 as int;

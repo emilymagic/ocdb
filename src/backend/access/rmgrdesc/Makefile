@@ -13,6 +13,6 @@ OBJS = brindesc.o clogdesc.o committsdesc.o dbasedesc.o genericdesc.o \
 	   mxactdesc.o nbtdesc.o relmapdesc.o replorigindesc.o seqdesc.o \
 	   smgrdesc.o spgdesc.o standbydesc.o tblspcdesc.o xactdesc.o xlogdesc.o
 
-OBJS += appendonlydesc.o bitmapdesc.o distributedlogdesc.o
+OBJS += appendonlydesc.o bitmapdesc.o
 
 include $(top_srcdir)/src/backend/common.mk

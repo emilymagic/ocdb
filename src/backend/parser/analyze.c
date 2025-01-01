@@ -458,6 +458,10 @@ analyze_requires_snapshot(RawStmt *parseTree)
 			result = true;
 			break;
 
+		case T_CopyStmt:
+			result = true;
+			break;
+
 		default:
 			/* other utility statements don't have any real parse analysis */
 			result = false;
