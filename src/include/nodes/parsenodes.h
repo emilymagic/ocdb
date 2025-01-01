@@ -3393,6 +3393,7 @@ typedef struct CallContext
 {
 	NodeTag		type;
 	bool		atomic;
+	bool		prepare;
 } CallContext;
 
 /* ----------------------

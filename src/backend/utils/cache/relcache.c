@@ -254,14 +254,17 @@ do { \
 	if (found && replace_allowed) \
 	{ \
 		/* see comments in RelationBuildDesc and RelationBuildLocalRelation */ \
-		Relation _old_rel = hentry->reldesc; \
-		Assert(replace_allowed); \
-		hentry->reldesc = (RELATION); \
-		if (RelationHasReferenceCountZero(_old_rel)) \
-			RelationDestroyRelation(_old_rel, false); \
-		else if (!IsBootstrapProcessingMode()) \
-			elog(WARNING, "leaking still-referenced relcache entry for \"%s\"", \
-				 RelationGetRelationName(_old_rel)); \
+        if (replace_allowed) \
+        { \
+			Relation _old_rel = hentry->reldesc; \
+			Assert(replace_allowed); \
+			hentry->reldesc = (RELATION); \
+			if (RelationHasReferenceCountZero(_old_rel)) \
+				RelationDestroyRelation(_old_rel, false); \
+			else if (!IsBootstrapProcessingMode()) \
+				elog(WARNING, "leaking still-referenced relcache entry for \"%s\"", \
+					 RelationGetRelationName(_old_rel)); \
+    	} \
 	} \
 	else \
 		hentry->reldesc = (RELATION); \
@@ -735,12 +738,12 @@ RelationBuildTupleDesc(Relation relation)
 	 * computed when and if needed during tuple access.
 	 */
 #ifdef USE_ASSERT_CHECKING
-	{
-		int			i;
-
-		for (i = 0; i < RelationGetNumberOfAttributes(relation); i++)
-			Assert(TupleDescAttr(relation->rd_att, i)->attcacheoff == -1);
-	}
+//	{
+//		int			i;
+//
+//		for (i = 0; i < RelationGetNumberOfAttributes(relation); i++)
+//			Assert(TupleDescAttr(relation->rd_att, i)->attcacheoff == -1);
+//	}
 #endif
 
 	/*

@@ -5,7 +5,6 @@
 #include "nodes/execnodes.h"
 #include "utils/dispatchcat.h"
 
-
 extern void PickSomeExtraData(HeapTuple heapTuple);
 extern void PickRelation(Relation relation);
 extern void PickRelationOid(Oid relationId);

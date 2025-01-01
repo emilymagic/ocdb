@@ -75,7 +75,6 @@ uninstall:
 NAME = regress
 OBJS = $(WIN32RES)
 
-
 SHLIB_LINK_INTERNAL = $(libpq)
 
 include $(top_srcdir)/src/Makefile.shlib
@@ -116,13 +115,14 @@ installdirs-tests: installdirs
 
 all: refint$(DLSUFFIX) autoinc$(DLSUFFIX) regress$(DLSUFFIX)
 
+
 refint$(DLSUFFIX): $(top_builddir)/contrib/spi/refint$(DLSUFFIX)
 	cp $< $@
 
 autoinc$(DLSUFFIX): $(top_builddir)/contrib/spi/autoinc$(DLSUFFIX)
 	cp $< $@
 
-regress$(DLSUFFIX): ../regress/regress.so 
+regress$(DLSUFFIX): ../regress/regress.so
 	cp $< $@
 
 $(top_builddir)/contrib/spi/refint$(DLSUFFIX): | submake-contrib-spi ;
@@ -226,6 +226,7 @@ clean maintainer-clean: clean-lib
 	rm -f pg_regress_main.o pg_regress.o pg_regress$(X)
 	rm -f twophase_pqexecparams
 	$(MAKE) -C $(top_builddir)/contrib/spi clean
+
 # things created by various check targets
 	rm -f $(output_files) $(input_files)
 	rm -rf ./testtablespace ./testtablespace_*
