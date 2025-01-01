@@ -22,8 +22,6 @@
 #include "storage/sinvaladt.h"
 #include "utils/inval.h"
 
-#include "cdb/cdbtm.h"          /* DtxContext */
-
 uint64		SharedInvalidMessageCounter;
 
 
@@ -184,15 +182,6 @@ ProcessCatchupInterrupt(void)
 	while (catchupInterruptPending)
 	{
 		/*
-		 * Funny indentation to keep the code inside identical to upstream
-		 * while at the same time supporting CMockery which has problems with
-		 * multiple bracing on column 1.
-		 */
-		PG_TRY();
-		{
-		in_process_catchup_event = 1;
-
-		/*
 		 * What we need to do here is cause ReceiveSharedInvalidMessages() to
 		 * run, which will do the necessary work and also reset the
 		 * catchupInterruptPending flag.  If we are inside a transaction we
@@ -213,30 +202,8 @@ ProcessCatchupInterrupt(void)
 		else
 		{
 			elog(DEBUG4, "ProcessCatchupEvent outside transaction");
-
-			/*
-			 * GPDB disallow a new transaction if the distributed transaction
-			 * is undering certain states like DTX_CONTEXT_QE_PREPARED, here
-			 * temporarily set context to DTX_CONTEXT_LOCAL_ONLY to workaround
-			 * the restriction.
-			 */
-			DtxContext  saveDistributedTransactionContext;
-			saveDistributedTransactionContext = DistributedTransactionContext;
-			setDistributedTransactionContext(DTX_CONTEXT_LOCAL_ONLY);
-
 			StartTransactionCommand();
 			CommitTransactionCommand();
-
-			setDistributedTransactionContext(saveDistributedTransactionContext);
 		}
-
-		in_process_catchup_event = 0;
-		}
-		PG_CATCH();
-		{
-			in_process_catchup_event = 0;
-			PG_RE_THROW();
-		}
-		PG_END_TRY();
 	}
 }

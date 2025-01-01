@@ -36,7 +36,9 @@
 typedef struct ItemPointerData
 {
 	BlockIdData ip_blkid;
-	OffsetNumber ip_posid;
+    OffsetNumber ip_posid;
+	uint64		xid;
+	uint64		seq;
 }
 
 /* If compiler understands packed and aligned pragmas, use those */
@@ -47,6 +49,8 @@ typedef struct ItemPointerData
 ItemPointerData;
 
 typedef ItemPointerData *ItemPointer;
+
+#define ItemPointerMaxSeq		0xffffffffffffffff
 
 /* ----------------
  *		special values used in heap tuples (t_ctid)
@@ -69,6 +73,7 @@ typedef ItemPointerData *ItemPointer;
 #define MovedPartitionsOffsetNumber 0xfffd
 #define MovedPartitionsBlockNumber	InvalidBlockNumber
 
+#define FirstItemPointerSeq 1
 
 /* ----------------
  *		support macros

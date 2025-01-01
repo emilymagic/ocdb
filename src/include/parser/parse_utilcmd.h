@@ -27,7 +27,8 @@ extern IndexStmt *transformIndexStmt(Oid relid, IndexStmt *stmt,
 									 const char *queryString);
 extern void transformRuleStmt(RuleStmt *stmt, const char *queryString,
 							  List **actions, Node **whereClause);
-extern List *transformCreateSchemaStmt(CreateSchemaStmt *stmt);
+extern List *transformCreateSchemaStmtElements(List *schemaElts,
+											   const char *schemaName);
 extern PartitionBoundSpec *transformPartitionBound(ParseState *pstate, Relation parent,
 												   PartitionBoundSpec *spec);
 extern List *expandTableLikeClause(RangeVar *heapRel,
@@ -44,32 +45,5 @@ extern GpPolicy *getPolicyForDistributedBy(DistributedBy *distributedBy, TupleDe
 extern Const *transformPartitionBoundValue(ParseState *pstate, Node *val,
 										   const char *colName, Oid colType, int32 colTypmod,
 										   Oid partCollation);
-extern List *generatePartitions(Oid parentrelid, GpPartitionDefinition *gpPartSpec,
-								PartitionSpec *subPartSpec,
-								const char *queryString, List *parentoptions,
-								const char *parentaccessmethod,
-								List *parentattenc, CreateStmtOrigin origin);
-GpPartitionDefinition *
-transformGpPartitionDefinition(Oid parentrelid, const char *queryString,
-							   GpPartitionDefinition *gpPartDef_orig);
-extern void convert_exclusive_start_inclusive_end(Const *constval, Oid part_col_typid,
-												  int32 part_col_typmod, bool is_exclusive_start);
-
-typedef struct partname_comp
-{
-	const char *tablename;
-	int level;
-	int partnum;
-} partname_comp;
-
-extern CreateStmt *makePartitionCreateStmt(Relation parentrel, char *partname,
-										   PartitionBoundSpec *boundspec,
-										   PartitionSpec *subPart,
-										   GpPartDefElem *elem,
-										   partname_comp *partnamecomp,
-										   CreateStmtOrigin origin);
-extern char *ChoosePartitionName(const char *parentname, int level,
-								 Oid naemspaceId, const char *partname,
-								 int partnum);
 
 #endif							/* PARSE_UTILCMD_H */

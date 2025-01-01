@@ -140,11 +140,11 @@ class GpSegStart:
 
         expected_gpversion         = gpversion
         actual_gpversion           = gp.GpVersion.local('local GP software version check', os.path.abspath(os.pardir))
-        if actual_gpversion != expected_gpversion:
-            raise Exception("Local Software Version does not match what is expected.\n"
-                            "The local software version is: '%s'\n"
-                            "But we were expecting it to be: '%s'\n"
-                            "Please review and correct" % (actual_gpversion, expected_gpversion))
+        # if actual_gpversion != expected_gpversion:
+        #     raise Exception("Local Software Version does not match what is expected.\n"
+        #                     "The local software version is: '%s'\n"
+        #                     "But we were expecting it to be: '%s'\n"
+        #                     "Please review and correct" % (actual_gpversion, expected_gpversion))
 
         self.mirroringMode         = mirroringMode
         self.num_cids              = num_cids

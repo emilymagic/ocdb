@@ -81,6 +81,7 @@
 #include "catalog/pg_user_mapping.h"
 #include "catalog/pg_resgroup.h"
 #include "catalog/pg_extprotocol.h"
+#include "utils/dispatchcat.h"
 #include "utils/rel.h"
 #include "utils/catcache.h"
 #include "utils/syscache.h"
@@ -1509,12 +1510,19 @@ struct catclist *
 SearchSysCacheList(int cacheId, int nkeys,
 				   Datum key1, Datum key2, Datum key3)
 {
+	CatCList *catCList;
+
 	if (cacheId < 0 || cacheId >= SysCacheSize ||
 		!PointerIsValid(SysCache[cacheId]))
 		elog(ERROR, "invalid cache ID: %d", cacheId);
 
-	return SearchCatCacheList(SysCache[cacheId], nkeys,
-							  key1, key2, key3);
+	catCList = SearchCatCacheList(SysCache[cacheId], nkeys,
+								  key1, key2, key3);
+
+	for (int i = 0; i < catCList->n_members; ++i)
+		CdbGetTuple(&catCList->members[i]->tuple);
+
+	return catCList;
 }
 
 /*

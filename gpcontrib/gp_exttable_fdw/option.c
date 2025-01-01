@@ -311,8 +311,8 @@ is_valid_locationuris(List *location_list, bool is_writable)
 
 				aclresult = pg_extprotocol_aclcheck(ptcId, ownerId, mode);
 
-				if (aclresult != ACLCHECK_OK)
-					aclcheck_error(aclresult, OBJECT_EXTPROTOCOL, protname);
+				// if (aclresult != ACLCHECK_OK)
+				// 	aclcheck_error(aclresult, OBJECT_EXTPROTOCOL, protname);
 			}
 		}
 		else

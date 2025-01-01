@@ -181,12 +181,11 @@ _bitmap_create_lov_heapandindex(Relation rel,
 								 rel->rd_rel->relpersistence,
 								 rel->rd_rel->relisshared,
 								 false, /* mapped_relation */
-								 ONCOMMIT_NOOP, NULL /* GP Policy */,
+								 ONCOMMIT_NOOP,
 								 (Datum)0, false, true,
 								 true, /* is_internal */
 								 InvalidOid, /* relrewrite */
-								 NULL, /* typeaddress */
-								 /* valid_opts */ true);
+								 NULL /* typeaddress */);
 	*lovHeapOid = heapid;
 
 	/*

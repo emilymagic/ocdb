@@ -71,27 +71,6 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString,
 	AclResult	aclresult;
 	ObjectAddress address;
 	StringInfoData pathbuf;
-	bool		shouldDispatch = (Gp_role == GP_ROLE_DISPATCH && 
-								  !IsBootstrapProcessingMode());
-
-	/*
-	 * GPDB: Creation of temporary namespaces is a special case. This statement
-	 * is dispatched by the dispatcher node the first time a temporary table is
-	 * created. It bypasses all the normal checks and logic of schema creation,
-	 * and is routed to the internal routine for creating temporary namespaces,
-	 * instead.
-	 */
-	if (stmt->istemp)
-	{
-		Assert(Gp_role == GP_ROLE_EXECUTE);
-
-		Assert(stmt->schemaname == NULL);
-		Assert(stmt->authrole == NULL);
-		Assert(stmt->schemaElts == NIL);
-
-		InitTempTableNamespace();
-		return InvalidOid;
-	}
 
 	GetUserIdAndSecContext(&saved_uid, &save_sec_context);
 
@@ -168,40 +147,7 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString,
 		}
 	}
 
-	/* Create the schema's namespace */
-	if (shouldDispatch || Gp_role != GP_ROLE_EXECUTE)
-	{
-		namespaceId = NamespaceCreate(schemaName, owner_uid, false);
-
-		if (shouldDispatch)
-		{
-			elog(DEBUG5, "shouldDispatch = true, namespaceOid = %d", namespaceId);
-
-			/*
-			 * Dispatch the command to all primary and mirror segment dbs.
-			 * Starts a global transaction and reconfigures cluster if needed.
-			 * Waits for QEs to finish.  Exits via ereport(ERROR,...) if error.
-			 */
-			CdbDispatchUtilityStatement((Node *) stmt,
-										DF_CANCEL_ON_ERROR |
-										DF_WITH_SNAPSHOT |
-										DF_NEED_TWO_PHASE,
-										GetAssignedOidsForDispatch(),
-										NULL);
-		}
-
-		/* MPP-6929: metadata tracking */
-		if (Gp_role == GP_ROLE_DISPATCH)
-			MetaTrackAddObject(NamespaceRelationId,
-							   namespaceId,
-							   saved_uid,
-							   "CREATE", "SCHEMA"
-					);
-	}
-	else
-	{
-		namespaceId = NamespaceCreate(schemaName, owner_uid, false);
-	}
+	namespaceId = NamespaceCreate(schemaName, owner_uid, false);
 
 	/*
 	 * If the requested authorization is different from the current user,
@@ -260,7 +206,8 @@ CreateSchemaCommand(CreateSchemaStmt *stmt, const char *queryString,
 	 * we cannot, in general, run parse analysis on one statement until we
 	 * have actually executed the prior ones.
 	 */
-	parsetree_list = transformCreateSchemaStmt(stmt);
+	parsetree_list = transformCreateSchemaStmtElements(stmt->schemaElts,
+													   schemaName);
 
 	/*
 	 * Execute each command contained in the CREATE SCHEMA.  Since the grammar
@@ -331,10 +278,6 @@ RemoveSchemaById(Oid schemaOid)
 	 * Remove all persistent error logs belonging to the the schema.
 	 */
 	PersistentErrorLogDelete(MyDatabaseId, schemaOid, NULL);
-
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackDropObject(NamespaceRelationId, schemaOid);
 }
 
 
@@ -399,14 +342,6 @@ RenameSchema(const char *oldname, const char *newname)
 	/* rename */
 	namestrcpy(&nspform->nspname, newname);
 	CatalogTupleUpdate(rel, &tup->t_self, tup);
-
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackUpdObject(NamespaceRelationId,
-						   nspOid,
-						   GetUserId(),
-						   "ALTER", "RENAME"
-				);
 
 	InvokeObjectPostAlterHook(NamespaceRelationId, nspOid, 0);
 
@@ -552,14 +487,6 @@ AlterSchemaOwner_internal(HeapTuple tup, Relation rel, Oid newOwnerId)
 		newtuple = heap_modify_tuple(tup, RelationGetDescr(rel), repl_val, repl_null, repl_repl);
 
 		CatalogTupleUpdate(rel, &newtuple->t_self, newtuple);
-
-		/* MPP-6929: metadata tracking */
-		if (Gp_role == GP_ROLE_DISPATCH)
-			MetaTrackUpdObject(NamespaceRelationId,
-							   nspForm->oid,
-							   GetUserId(),
-							   "ALTER", "OWNER"
-					);
 
 		heap_freetuple(newtuple);
 

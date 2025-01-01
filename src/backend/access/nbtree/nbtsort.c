@@ -83,7 +83,6 @@
 #define PARALLEL_KEY_TUPLESORT_SPOOL2	UINT64CONST(0xA000000000000003)
 #define PARALLEL_KEY_QUERY_TEXT			UINT64CONST(0xA000000000000004)
 #define PARALLEL_KEY_BUFFER_USAGE		UINT64CONST(0xA000000000000005)
-#define PARALLEL_KEY_WAL_USAGE			UINT64CONST(0xA000000000000006)
 
 /*
  * DISABLE_LEADER_PARTICIPATION disables the leader's participation in
@@ -98,7 +97,7 @@
  */
 typedef struct BTSpool
 {
-	void *sortstate;	/* state data for tuplesort.c */
+	Tuplesortstate *sortstate;	/* state data for tuplesort.c */
 	Relation	heap;
 	Relation	index;
 	bool		isunique;
@@ -207,7 +206,6 @@ typedef struct BTLeader
 	Sharedsort *sharedsort2;
 	Snapshot	snapshot;
 	BufferUsage *bufferusage;
-	WalUsage   *walusage;
 } BTLeader;
 
 /*
@@ -283,7 +281,7 @@ static void _bt_spooldestroy(BTSpool *btspool);
 static void _bt_spool(BTSpool *btspool, ItemPointer self,
 					  Datum *values, bool *isnull);
 static void _bt_leafbuild(BTSpool *btspool, BTSpool *btspool2);
-static void _bt_build_callback(Relation index, ItemPointer tupleId, Datum *values,
+static void _bt_build_callback(Relation index, HeapTuple htup, Datum *values,
 							   bool *isnull, bool tupleIsAlive, void *state);
 static Page _bt_blnewpage(uint32 level);
 static BTPageState *_bt_pagestate(BTWriteState *wstate, uint32 level);
@@ -600,7 +598,7 @@ _bt_leafbuild(BTSpool *btspool, BTSpool *btspool2)
  */
 static void
 _bt_build_callback(Relation index,
-				   ItemPointer tupleId,
+				   HeapTuple htup,
 				   Datum *values,
 				   bool *isnull,
 				   bool tupleIsAlive,
@@ -613,12 +611,12 @@ _bt_build_callback(Relation index,
 	 * processing
 	 */
 	if (tupleIsAlive || buildstate->spool2 == NULL)
-		_bt_spool(buildstate->spool, tupleId, values, isnull);
+		_bt_spool(buildstate->spool, &htup->t_self, values, isnull);
 	else
 	{
 		/* dead tuples are put into spool2 */
 		buildstate->havedead = true;
-		_bt_spool(buildstate->spool2, tupleId, values, isnull);
+		_bt_spool(buildstate->spool2, &htup->t_self, values, isnull);
 	}
 
 	buildstate->indtuples += 1;
@@ -657,9 +655,6 @@ _bt_blnewpage(uint32 level)
 static void
 _bt_blwritepage(BTWriteState *wstate, Page page, BlockNumber blkno)
 {
-	/* Ensure rd_smgr is open (could have been closed by relcache flush!) */
-	RelationOpenSmgr(wstate->index);
-
 	/* XLOG stuff */
 	if (wstate->btws_use_wal)
 	{
@@ -679,7 +674,7 @@ _bt_blwritepage(BTWriteState *wstate, Page page, BlockNumber blkno)
 		if (!wstate->btws_zeropage)
 			wstate->btws_zeropage = (Page) palloc0(BLCKSZ);
 		/* don't set checksum for all-zero page */
-		smgrextend(wstate->index->rd_smgr, MAIN_FORKNUM,
+		smgrextend(RelationGetSmgr(wstate->index), MAIN_FORKNUM,
 				   wstate->btws_pages_written++,
 				   (char *) wstate->btws_zeropage,
 				   true);
@@ -694,14 +689,14 @@ _bt_blwritepage(BTWriteState *wstate, Page page, BlockNumber blkno)
 	if (blkno == wstate->btws_pages_written)
 	{
 		/* extending the file... */
-		smgrextend(wstate->index->rd_smgr, MAIN_FORKNUM, blkno,
+		smgrextend(RelationGetSmgr(wstate->index), MAIN_FORKNUM, blkno,
 				   (char *) page, true);
 		wstate->btws_pages_written++;
 	}
 	else
 	{
 		/* overwriting a block we zero-filled before */
-		smgrwrite(wstate->index->rd_smgr, MAIN_FORKNUM, blkno,
+		smgrwrite(RelationGetSmgr(wstate->index), MAIN_FORKNUM, blkno,
 				  (char *) page, true);
 	}
 
@@ -1307,10 +1302,7 @@ _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
 	 * occurs.
 	 */
 	if (RelationNeedsWAL(wstate->index))
-	{
-		RelationOpenSmgr(wstate->index);
-		smgrimmedsync(wstate->index->rd_smgr, MAIN_FORKNUM);
-	}
+		smgrimmedsync(RelationGetSmgr(wstate->index), MAIN_FORKNUM);
 }
 
 /*
@@ -1343,7 +1335,6 @@ _bt_begin_parallel(BTBuildState *buildstate, bool isconcurrent, int request)
 	BTSpool    *btspool = buildstate->spool;
 	BTLeader   *btleader = (BTLeader *) palloc0(sizeof(BTLeader));
 	BufferUsage *bufferusage;
-	WalUsage   *walusage;
 	bool		leaderparticipates = true;
 	int			querylen;
 
@@ -1404,18 +1395,6 @@ _bt_begin_parallel(BTBuildState *buildstate, bool isconcurrent, int request)
 	 */
 	shm_toc_estimate_chunk(&pcxt->estimator,
 						   mul_size(sizeof(BufferUsage), pcxt->nworkers));
-	shm_toc_estimate_keys(&pcxt->estimator, 1);
-
-	/*
-	 * Estimate space for WalUsage -- PARALLEL_KEY_WAL_USAGE
-	 *
-	 * WalUsage during execution of maintenance command can be used by an
-	 * extension that reports the WAL usage, such as pg_stat_statements. We
-	 * have no way of knowing whether anyone's looking at pgWalUsage, so do it
-	 * unconditionally.
-	 */
-	shm_toc_estimate_chunk(&pcxt->estimator,
-						   mul_size(sizeof(WalUsage), pcxt->nworkers));
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 
 	/* Finally, estimate PARALLEL_KEY_QUERY_TEXT space */
@@ -1504,11 +1483,6 @@ _bt_begin_parallel(BTBuildState *buildstate, bool isconcurrent, int request)
 								   mul_size(sizeof(BufferUsage), pcxt->nworkers));
 	shm_toc_insert(pcxt->toc, PARALLEL_KEY_BUFFER_USAGE, bufferusage);
 
-	/* Allocate space for each worker's WalUsage; no need to initialize */
-	walusage = shm_toc_allocate(pcxt->toc,
-								mul_size(sizeof(WalUsage), pcxt->nworkers));
-	shm_toc_insert(pcxt->toc, PARALLEL_KEY_WAL_USAGE, walusage);
-
 	/* Launch workers, saving status for leader/caller */
 	LaunchParallelWorkers(pcxt);
 	btleader->pcxt = pcxt;
@@ -1520,7 +1494,6 @@ _bt_begin_parallel(BTBuildState *buildstate, bool isconcurrent, int request)
 	btleader->sharedsort2 = sharedsort2;
 	btleader->snapshot = snapshot;
 	btleader->bufferusage = bufferusage;
-	btleader->walusage = walusage;
 
 	/* If no workers were successfully launched, back out (do serial build) */
 	if (pcxt->nworkers_launched == 0)
@@ -1555,13 +1528,11 @@ _bt_end_parallel(BTLeader *btleader)
 	WaitForParallelWorkersToFinish(btleader->pcxt);
 
 	/*
-	 * Next, accumulate buffer/WAL usage.  (This must wait for the workers to
+	 * Next, accumulate buffer usage.  (This must wait for the workers to
 	 * finish, or we might get incomplete data.)
 	 */
 	for (i = 0; i < btleader->pcxt->nworkers_launched; i++)
-	{
-		InstrAccumParallelQuery(&btleader->bufferusage[i], &btleader->walusage[i]);
-	}
+		InstrAccumParallelQuery(&btleader->bufferusage[i], NULL);
 
 	/* Free last reference to MVCC snapshot, if one was used */
 	if (IsMVCCSnapshot(btleader->snapshot))
@@ -1694,7 +1665,6 @@ _bt_parallel_build_main(dsm_segment *seg, shm_toc *toc)
 	LOCKMODE	heapLockmode;
 	LOCKMODE	indexLockmode;
 	BufferUsage *bufferusage;
-	WalUsage   *walusage;
 	int			sortmem;
 
 #ifdef BTREE_BUILD_STATS
@@ -1764,10 +1734,9 @@ _bt_parallel_build_main(dsm_segment *seg, shm_toc *toc)
 	_bt_parallel_scan_and_sort(btspool, btspool2, btshared, sharedsort,
 							   sharedsort2, sortmem, false);
 
-	/* Report buffer/WAL usage during parallel execution */
+	/* Report buffer usage during parallel execution */
 	bufferusage = shm_toc_lookup(toc, PARALLEL_KEY_BUFFER_USAGE, false);
-	walusage = shm_toc_lookup(toc, PARALLEL_KEY_WAL_USAGE, false);
-	InstrEndParallelQuery(&bufferusage[ParallelWorkerNumber], &walusage[ParallelWorkerNumber]);
+	InstrEndParallelQuery(&bufferusage[ParallelWorkerNumber], NULL);
 
 #ifdef BTREE_BUILD_STATS
 	if (log_btree_build_stats)

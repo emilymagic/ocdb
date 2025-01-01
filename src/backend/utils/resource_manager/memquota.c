@@ -903,12 +903,9 @@ ResourceManagerGetQueryMemoryLimit(PlannedStmt* stmt)
 	if (!IsUnderPostmaster)
 		return 0;
 
-	Assert(gp_session_id > -1);
 	Assert(ActivePortal != NULL);
 
-	if (IsResQueueEnabled())
-		return ResourceQueueGetQueryMemoryLimit(stmt, ActivePortal->queueId);
-	else if (IsResGroupEnabled())
+	if (IsResGroupEnabled())
 		return ResourceGroupGetQueryMemoryLimit();
 
 	/*

@@ -179,10 +179,7 @@ ExecDynamicSeqScan(PlanState *pstate)
 	{
 		node->did_pruning = true;
 		node->as_valid_subplans =
-			ExecFindMatchingSubPlans(node->as_prune_state,
-									 node->ss.ps.state,
-									 list_length(plan->partOids),
-									 plan->join_prune_paramids);
+			ExecFindMatchingSubPlans(node->as_prune_state);
 
 		int i = 0;
 		int partOidIdx = -1;

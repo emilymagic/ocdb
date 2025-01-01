@@ -3418,13 +3418,10 @@ describeOneTableDetails(const char *schemaname,
 				goto error_return;
 			}
 
-			if (strcmp(PQgetvalue(result, 0, 0), GP_EXTTABLE_SERVER_NAME) != 0)
-			{
-				/* Print server name */
-				printfPQExpBuffer(&buf, _("Server: %s"),
-								  PQgetvalue(result, 0, 0));
-				printTableAddFooter(&cont, buf.data);
-			}
+			/* Print server name */
+			printfPQExpBuffer(&buf, _("Server: %s"),
+							  PQgetvalue(result, 0, 0));
+			printTableAddFooter(&cont, buf.data);
 
 			/* Print per-table FDW options, if any */
 			ftoptions = PQgetvalue(result, 0, 1);

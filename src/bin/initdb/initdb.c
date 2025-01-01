@@ -290,7 +290,7 @@ void		setup_text_search(void);
 void		create_data_directory(void);
 void		create_xlog_or_symlink(void);
 void		warn_on_mount_point(int error);
-void		initialize_data_directory(void);
+void		initialize_data_directory(bool isSegment);
 
 /*
  * macros for running pipes to postgres
@@ -3194,7 +3194,7 @@ warn_on_mount_point(int error)
 
 
 void
-initialize_data_directory(void)
+initialize_data_directory(bool isSegment)
 {
 	PG_CMD_DECL;
 	int			i;
@@ -3249,6 +3249,9 @@ initialize_data_directory(void)
 	/* Now create all the text config files */
 	setup_config();
 
+
+	if (isSegment)
+		return;
 	/* Bootstrap template1 */
 	bootstrap_template1();
 
@@ -3294,10 +3297,10 @@ initialize_data_directory(void)
 
 	load_plpgsql(cmdfd);
 
-	load_exttable(cmdfd);
+	//load_exttable(cmdfd);
 
 	/* sets up the Greenplum Database admin schema */
-	setup_cdb_schema(cmdfd);
+	//setup_cdb_schema(cmdfd);
 
 	vacuum_db(cmdfd);
 
@@ -3359,6 +3362,7 @@ main(int argc, char *argv[])
 	char	   *effective_user;
 	PQExpBuffer start_db_cmd;
 	char		pg_ctl_path[MAXPGPATH];
+	bool		isSegment = false;
 
 	/*
 	 * Ensure that buffering behavior of stdout matches what it is in
@@ -3393,10 +3397,13 @@ main(int argc, char *argv[])
 
 	/* process command-line options */
 
-	while ((c = getopt_long(argc, argv, "A:dD:E:gkL:nNsST:U:WX:", long_options, &option_index)) != -1)
+	while ((c = getopt_long(argc, argv, "A:dD:E:gkL:nNsST:U:WX:J:", long_options, &option_index)) != -1)
 	{
 		switch (c)
 		{
+			case 'J':
+				isSegment = true;
+				break;
 			case 'A':
 				authmethodlocal = authmethodhost = pg_strdup(optarg);
 
@@ -3623,7 +3630,7 @@ main(int argc, char *argv[])
 
 	printf("\n");
 
-	initialize_data_directory();
+	initialize_data_directory(isSegment);
 
 	if (do_sync)
 	{
