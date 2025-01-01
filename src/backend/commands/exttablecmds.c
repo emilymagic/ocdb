@@ -271,9 +271,6 @@ DefineExternalRelation(CreateExternalStmt *createExtStmt)
 							 RELKIND_FOREIGN_TABLE,
 							 InvalidOid,
 							 NULL,
-							 NULL,
-							 false, /* dispatch */
-							 true,
 							 NULL);
 	reloid = objAddr.objectId;
 
@@ -302,8 +299,7 @@ DefineExternalRelation(CreateExternalStmt *createExtStmt)
 
 	createForeignTableStmt->servername = GP_EXTTABLE_SERVER_NAME;
 	createForeignTableStmt->options = list_concat(formatOpts, entryOptions);
-	CreateForeignTable(createForeignTableStmt, reloid,
-					   true /* skip permission checks, we checked them ourselves */);
+	CreateForeignTable(createForeignTableStmt, reloid, false);
 
 	/*
 	 * DefineRelation loaded the new relation into relcache, but the relcache

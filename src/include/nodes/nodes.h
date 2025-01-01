@@ -639,6 +639,15 @@ typedef enum NodeTag
     T_CdbExplain_StatHdr = 1000,             /* in cdb/cdbexplain.c */
 	T_GpPolicy,					/* in catalog/gp_distribution_policy.h */
 	T_RetrieveStmt,
+	T_BlockDesc,
+	T_BlockListNode,
+	T_AuxNode,
+	T_CdbCatalogNode,
+	T_CdbCatalogAuxNode,
+	T_BlockDesc2,
+	T_CatalogTableNode,
+	T_CsQuery,
+	T_NextValNode,
 
 } NodeTag;
 

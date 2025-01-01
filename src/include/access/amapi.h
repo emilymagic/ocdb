@@ -132,7 +132,7 @@ typedef bool (*amgettuple_function) (IndexScanDesc scan,
 
 /* fetch all valid tuples */
 typedef int64 (*amgetbitmap_function) (IndexScanDesc scan,
-									   Node **bmNodeP);
+									   TIDBitmap *tbm);
 
 /* end index scan */
 typedef void (*amendscan_function) (IndexScanDesc scan);

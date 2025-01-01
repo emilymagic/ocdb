@@ -2,9 +2,8 @@
 -- VACUUM
 --
 
-CREATE TABLE vactst (j INT DEFAULT 1,i INT);
-INSERT INTO vactst(i) VALUES (1);
-ANALYZE vactst;
+CREATE TABLE vactst (i INT);
+INSERT INTO vactst VALUES (1);
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
@@ -16,10 +15,10 @@ INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
-INSERT INTO vactst(i) VALUES (0);
+INSERT INTO vactst VALUES (0);
 SELECT count(*) FROM vactst;
 DELETE FROM vactst WHERE i != 0;
-SELECT i FROM vactst ORDER BY 1;
+SELECT * FROM vactst;
 VACUUM FULL vactst;
 UPDATE vactst SET i = i + 1;
 INSERT INTO vactst SELECT * FROM vactst;
@@ -33,12 +32,12 @@ INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
 INSERT INTO vactst SELECT * FROM vactst;
-INSERT INTO vactst(i) VALUES (0);
+INSERT INTO vactst VALUES (0);
 SELECT count(*) FROM vactst;
 DELETE FROM vactst WHERE i != 0;
 VACUUM (FULL) vactst;
 DELETE FROM vactst;
-SELECT i FROM vactst ORDER BY 1;
+SELECT * FROM vactst;
 
 VACUUM (FULL, FREEZE) vactst;
 VACUUM (ANALYZE, FULL) vactst;
@@ -52,9 +51,6 @@ CREATE FUNCTION do_analyze() RETURNS VOID VOLATILE LANGUAGE SQL
 CREATE FUNCTION wrap_do_analyze(c INT) RETURNS INT IMMUTABLE LANGUAGE SQL
 	AS 'SELECT $1 FROM do_analyze()';
 CREATE INDEX ON vaccluster(wrap_do_analyze(i));
--- GPDB_94_MERGE_FIXME: GPDB does not support this but I do not think we will
--- support that in short time. Note this causes "ANALYZE/VACUUM FULL vaccluster"
--- succeed (On PG it fails: "ERROR:  ANALYZE cannot be executed from VACUUM or ANALYZE")
 INSERT INTO vaccluster VALUES (1), (2);
 ANALYZE vaccluster;
 
@@ -86,7 +82,6 @@ CREATE INDEX no_index_cleanup_idx ON no_index_cleanup(t);
 ALTER TABLE no_index_cleanup ALTER COLUMN t SET STORAGE EXTERNAL;
 INSERT INTO no_index_cleanup(i, t) VALUES (generate_series(1,30),
     repeat('1234567890',269));
-ANALYZE no_index_cleanup;
 -- index cleanup option is ignored if VACUUM FULL
 VACUUM (INDEX_CLEANUP TRUE, FULL TRUE) no_index_cleanup;
 VACUUM (FULL TRUE) no_index_cleanup;
@@ -184,13 +179,6 @@ BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 ANALYZE vactst;
 COMMIT;
 
--- SKIP_DATABASE_STATS option
-VACUUM (SKIP_DATABASE_STATS) vactst;
-
--- ONLY_DATABASE_STATS option
-VACUUM (ONLY_DATABASE_STATS);
-VACUUM (ONLY_DATABASE_STATS) vactst;  -- error
-
 DROP TABLE vaccluster;
 DROP TABLE vactst;
 DROP TABLE vacparted;
@@ -230,7 +218,7 @@ VACUUM (ANALYZE) vacowned_part2;
 RESET ROLE;
 -- Partitioned table and one partition owned by other user.
 ALTER TABLE vacowned_parted OWNER TO regress_vacuum;
-ALTER TABLE vacowned_part2 OWNER TO CURRENT_USER;
+ALTER TABLE vacowned_part1 OWNER TO regress_vacuum;
 SET ROLE regress_vacuum;
 VACUUM vacowned_parted;
 VACUUM vacowned_part1;
@@ -244,7 +232,6 @@ VACUUM (ANALYZE) vacowned_part2;
 RESET ROLE;
 -- Only one partition owned by other user.
 ALTER TABLE vacowned_parted OWNER TO CURRENT_USER;
-ALTER TABLE vacowned_part1 OWNER TO regress_vacuum;
 SET ROLE regress_vacuum;
 VACUUM vacowned_parted;
 VACUUM vacowned_part1;
@@ -259,7 +246,6 @@ RESET ROLE;
 -- Only partitioned table owned by other user.
 ALTER TABLE vacowned_parted OWNER TO regress_vacuum;
 ALTER TABLE vacowned_part1 OWNER TO CURRENT_USER;
-ALTER TABLE vacowned_part2 OWNER TO CURRENT_USER;
 SET ROLE regress_vacuum;
 VACUUM vacowned_parted;
 VACUUM vacowned_part1;

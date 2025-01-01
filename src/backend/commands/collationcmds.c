@@ -503,7 +503,7 @@ cmpaliases(const void *a, const void *b)
 static void
 DispatchCollationCreate(char *alias, char *locale, Oid nspid, char* provider)
 {
-	Assert(Gp_role == GP_ROLE_DISPATCH);
+	Assert(Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_UTILITY);
 
 	List *names = NIL;
 	Value *schemaname = makeString(get_namespace_name(nspid));
@@ -608,7 +608,7 @@ pg_import_system_collations(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 (errmsg("must be superuser to import system collations"))));
 
-	if (Gp_role != GP_ROLE_DISPATCH)
+	if (Gp_role != GP_ROLE_DISPATCH && Gp_role != GP_ROLE_UTILITY)
 		ereport(ERROR,
 					(errmsg("must be dispatcher to import system collations")));
 

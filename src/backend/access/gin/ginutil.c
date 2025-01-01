@@ -623,7 +623,7 @@ ginoptions(Datum reloptions, bool validate)
 	fillRelOptions((void *) rdopts, sizeof(GinOptions), options, numoptions,
 				   validate, tab, lengthof(tab));
 
-	free_options_deep(options, numoptions);
+	pfree(options);
 
 	return (bytea *) rdopts;
 }

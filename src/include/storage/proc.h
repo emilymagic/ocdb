@@ -26,7 +26,6 @@
 #include "storage/proclist_types.h"
 
 #include "cdb/cdblocaldistribxact.h"  /* LocalDistribXactData */
-#include "cdb/cdbtm.h"  /* TMGXACT */
 #include "dsm.h"
 
 /*
@@ -67,7 +66,7 @@ struct XidCache
 
 /* flags reset at EOXact */
 #define		PROC_VACUUM_STATE_MASK \
-	(/* PROC_IN_VACUUM | */ PROC_IN_ANALYZE | PROC_VACUUM_FOR_WRAPAROUND)
+	(PROC_IN_VACUUM | PROC_IN_ANALYZE | PROC_VACUUM_FOR_WRAPAROUND)
 
 /*
  * We allow a small number of "weak" relation locks (AccessShareLock,
@@ -196,12 +195,6 @@ struct PGPROC
 	struct XidCache subxids;	/* cache for subtransaction XIDs */
 
 	/*
-	 * Info for Resource Scheduling, what portal (i.e statement) we might
-	 * be waiting on.
-	 */
-	uint32		waitPortalId;	/* portal id we are waiting on */
-
-	/*
 	 * Handle for our shared comboCids array (populated in writer/dispatcher
 	 * backends only)
 	 */
@@ -328,8 +321,6 @@ typedef struct PROC_HDR
 	PGPROC	   *allProcs;
 	/* Array of PGXACT structures (not including dummies for prepared txns) */
 	PGXACT	   *allPgXact;
-	/* Array of TMGXACT structures (not including dummies for prepared txns) */
-	TMGXACT	   *allTmGxact;
 	/* Length of allProcs array */
 	uint32		allProcCount;
 	/* Head of list of free PGPROC structures */
@@ -418,10 +409,6 @@ extern PGPROC *AuxiliaryPidGetProc(int pid);
 
 extern void BecomeLockGroupLeader(void);
 extern bool BecomeLockGroupMember(PGPROC *leader, int pid);
-
-extern int ResProcSleep(LOCKMODE lockmode, LOCALLOCK *locallock, void *incrementSet);
-
-extern void ResLockWaitCancel(void);
 extern bool ProcCanSetMppSessionId(void);
 extern void ProcNewMppSessionId(int *newSessionId);
 

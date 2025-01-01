@@ -33,6 +33,8 @@
 
 #include <math.h>
 
+#include "access/tileam.h"
+#include "utils/dispatchcat.h"
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
 #include "nodes/readfuncs.h"
@@ -1648,6 +1650,85 @@ _readGpPolicy(void)
 	READ_DONE();
 }
 
+static BlockDesc *
+_readBlockDesc(void)
+{
+	READ_LOCALS(BlockDesc);
+
+	READ_UINT_FIELD(block_size);
+	READ_UINT_FIELD(block_tuple_num);
+	READ_UINT_FIELD(blockid);
+	memcpy(local_node->block_name, read_str_ptr, TILE_KEY_SIZE * 2 + 1);
+	read_str_ptr += TILE_KEY_SIZE * 2 + 1;
+	READ_ENUM_FIELD(block_htsv_result, HTSV_Result);
+
+	READ_DONE();
+}
+
+static BlockListNode *
+_readBlockListNode(void)
+{
+	READ_LOCALS(BlockListNode);
+
+	READ_OID_FIELD(relid);
+	READ_OID_FIELD(relfilenode);
+	READ_NODE_FIELD(blockListInfo);
+
+	READ_DONE();
+}
+
+static AuxNode *
+_readAuxNode(void)
+{
+	READ_LOCALS(AuxNode);
+
+	READ_NODE_FIELD(tableList);
+
+	READ_DONE();
+}
+
+static CdbCatalogNode *
+_readCdbCatalogNode(void)
+{
+	READ_LOCALS(CdbCatalogNode);
+
+	READ_UINT64_FIELD(full_xid);
+	READ_UINT64_FIELD(seq);
+	READ_OID_FIELD(namespace_1);
+	READ_OID_FIELD(namespace_2);
+	READ_NODE_FIELD(tableList);
+
+	READ_DONE();
+}
+
+static CatalogTableNode *
+_readCatalogTableNode(void)
+{
+	READ_LOCALS(CatalogTableNode);
+
+	READ_OID_FIELD(relId);
+	READ_INT_FIELD(tupleDataSize);
+	local_node->tupleData = palloc(local_node->tupleDataSize);
+	memcpy(local_node->tupleData, read_str_ptr, local_node->tupleDataSize);
+	read_str_ptr += local_node->tupleDataSize;
+
+	READ_DONE();
+}
+
+static CdbCatalogAuxNode *
+_readCdbCatalogAuxNode(void)
+{
+	READ_LOCALS(CdbCatalogAuxNode);
+
+	memcpy(local_node->completionTag, read_str_ptr,
+		   sizeof(local_node->completionTag));
+	read_str_ptr += sizeof(local_node->completionTag);
+	READ_NODE_FIELD(catalog);
+	READ_NODE_FIELD(aux);
+	READ_NODE_FIELD(plan);
+
+	READ_DONE();
+}
 
 static void *
 readNodeBinary(void)
@@ -2417,6 +2498,9 @@ readNodeBinary(void)
 			case T_CreatePLangStmt:
 				return_value = _readCreatePLangStmt();
 				break;
+			case T_CreateTableAsStmt:
+				return_value = _readCreateTableAsStmt();
+				break;
 			case T_VacuumStmt:
 				return_value = _readVacuumStmt();
 				break;
@@ -2590,6 +2674,33 @@ readNodeBinary(void)
 				break;
 			case T_RowIdExpr:
 				return_value = _readRowIdExpr();
+				break;
+			case T_BlockDesc:
+				return_value = _readBlockDesc();
+				break;
+			case T_BlockListNode:
+				return_value = _readBlockListNode();
+				break;
+			case T_AuxNode:
+				return_value = _readAuxNode();
+				break;
+			case T_CdbCatalogNode:
+				return_value = _readCdbCatalogNode();
+				break;
+			case T_CatalogTableNode:
+				return_value = _readCatalogTableNode();
+				break;
+			case T_CdbCatalogAuxNode:
+				return_value = _readCdbCatalogAuxNode();
+				break;
+			case T_BlockDesc2:
+				return_value = _readBlockDesc2();
+				break;
+			case T_CsQuery:
+				return_value = _readCsQuery();
+				break;
+			case T_NextValNode:
+				return_value = _readNextValNode();
 				break;
 			default:
 				return_value = NULL; /* keep the compiler silent */

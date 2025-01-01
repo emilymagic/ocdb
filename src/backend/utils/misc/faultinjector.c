@@ -265,18 +265,6 @@ checkBgProcessSkipFault(const char* faultName)
 			return true;
 		}
 	}
-	else if (IsDtxRecoveryProcess())
-	{
-		/* dtx recovery process */
-		 if (0 != strcmp("before_orphaned_check", faultName) &&
-				0 != strcmp("after_orphaned_check", faultName) &&
-				0 != strcmp("post_in_doubt_tx_in_progress", faultName) &&
-				0 != strcmp("post_progress_recovery_comitted", faultName))
-		{
-			elog(LOG, "skipped fault '%s' in dtx recovery process", faultName);
-			return true;
-		}
-	}
 	return false;
 }
 

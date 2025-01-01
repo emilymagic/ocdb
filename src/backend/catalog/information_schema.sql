@@ -33,7 +33,7 @@
 CREATE SCHEMA information_schema;
 GRANT USAGE ON SCHEMA information_schema TO PUBLIC;
 SET search_path TO information_schema;
-
+SET default_table_access_method TO heap;
 
 /*
  * A few supporting functions first ...

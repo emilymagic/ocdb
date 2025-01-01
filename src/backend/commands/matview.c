@@ -18,6 +18,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/multixact.h"
+#include "access/tileam.h"
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "access/xlog.h"
@@ -70,7 +71,8 @@ typedef struct
 
 static int	matview_maintenance_depth = 0;
 
-static RefreshClause* MakeRefreshClause(bool concurrent, bool skipData, RangeVar *relation);
+static RefreshClause* MakeRefreshClause(bool concurrent, bool skipData,
+										RangeVar *relation, Oid oidNewHeap);
 static void transientrel_startup(DestReceiver *self, int operation, TupleDesc typeinfo);
 static bool transientrel_receive(TupleTableSlot *slot, DestReceiver *self);
 static void transientrel_shutdown(DestReceiver *self);
@@ -126,7 +128,7 @@ SetMatViewPopulatedState(Relation relation, bool newstate)
 }
 
 static RefreshClause*
-MakeRefreshClause(bool concurrent, bool skipData, RangeVar *relation)
+MakeRefreshClause(bool concurrent, bool skipData, RangeVar *relation, Oid oidNewHeap)
 {
 	RefreshClause *refreshClause;
 	refreshClause = makeNode(RefreshClause);
@@ -134,6 +136,7 @@ MakeRefreshClause(bool concurrent, bool skipData, RangeVar *relation)
 	refreshClause->concurrent = concurrent;
 	refreshClause->skipData = skipData;
 	refreshClause->relation = relation;
+	refreshClause->oidNewHeap = oidNewHeap;
 
 	return refreshClause;
 }
@@ -349,7 +352,8 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	 * In GPDB, we call refresh_matview_datafill() even when WITH NO DATA was
 	 * specified, because it will dispatch the operation to the segments.
 	 */
-	refreshClause = MakeRefreshClause(concurrent, stmt->skipData, stmt->relation);
+	refreshClause = MakeRefreshClause(concurrent, stmt->skipData, stmt->relation,
+									  OIDNewHeap);
 	dataQuery->intoPolicy = matviewRel->rd_cdbpolicy;
 
 	processed = refresh_matview_datafill(dest, dataQuery, queryString, refreshClause);
@@ -546,12 +550,9 @@ transientrel_init(QueryDesc *queryDesc)
 {
 	Oid			matviewOid;
 	Relation	matviewRel;
-	Oid			tableSpace;
-	Oid			OIDNewHeap;
 	bool		concurrent;
 	char		relpersistence;
 	LOCKMODE	lockmode;
-	bool		createAoBlockDirectory;
 	RefreshClause *refreshClause;
 
 	refreshClause = queryDesc->plannedstmt->refreshClause;
@@ -567,43 +568,24 @@ transientrel_init(QueryDesc *queryDesc)
 										  RangeVarCallbackOwnsTable, NULL);
 	matviewRel = heap_open(matviewOid, NoLock);
 
-	/*
-	 * Tentatively mark the matview as populated or not (this will roll back
-	 * if we fail later).
-	 */
-	SetMatViewPopulatedState(matviewRel, !refreshClause->skipData);
-
 	/* Concurrent refresh builds new data in temp tablespace, and does diff. */
 	if (concurrent)
 	{
-		tableSpace = GetDefaultTablespace(RELPERSISTENCE_TEMP, false);
 		relpersistence = RELPERSISTENCE_TEMP;
 	}
 	else
 	{
-		tableSpace = matviewRel->rd_rel->reltablespace;
 		relpersistence = matviewRel->rd_rel->relpersistence;
 	}
 
-	/* If an AO temp table has index, we need to create it. */
-	createAoBlockDirectory = matviewRel->rd_rel->relhasindex;
-
-	/*
-	 * Create the transient table that will receive the regenerated data. Lock
-	 * it against access by any other process until commit (by which time it
-	 * will be gone).
-	 */
-	OIDNewHeap = make_new_heap(matviewOid, tableSpace, matviewRel->rd_rel->relam,
-							   NULL,
-							   (Datum)0, /* newoptions */
-							   relpersistence,
-							   ExclusiveLock, createAoBlockDirectory, false);
-	LockRelationOid(OIDNewHeap, AccessExclusiveLock);
-
-	queryDesc->dest = CreateTransientRelDestReceiver(OIDNewHeap, matviewOid, concurrent,
-													 relpersistence, refreshClause->skipData);
+	queryDesc->dest = CreateTransientRelDestReceiver(refreshClause->oidNewHeap,
+													 matviewOid, concurrent,
+													 relpersistence,
+													 refreshClause->skipData);
 
 	heap_close(matviewRel, NoLock);
+
+	tile_access_initialization(NULL);
 }
 
 /*
@@ -616,6 +598,9 @@ transientrel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	Relation	transientrel;
 
 	transientrel = table_open(myState->transientoid, NoLock);
+
+	if (RelationIsTile(transientrel))
+		tile_access_initialization(transientrel);
 
 	/*
 	 * Fill private fields of myState for use by later routines
@@ -690,26 +675,6 @@ transientrel_shutdown(DestReceiver *self)
 	/* close transientrel, but keep lock until commit */
 	table_close(myState->transientrel, NoLock);
 	myState->transientrel = NULL;
-	if (Gp_role == GP_ROLE_EXECUTE && !myState->concurrent)
-	{
-		Relation	matviewRel;
-
-		matviewRel = table_open(myState->oldreloid, NoLock);
-		refresh_by_heap_swap(myState->oldreloid, myState->transientoid, myState->relpersistence);
-
-		/*
-		 * In GPDB, we should count the pgstat on segments and union them on
-		 * QD, so both the segments and coordinator will have pgstat for this
-		 * relation. See pgstat_combine_from_qe(pgstat.c) for more details.
-		 * Here each QE will count it's pgstat and report to QD if needed.
-		 * This related to issue: https://github.com/greenplum-db/gpdb/issues/11375
-		 */
-		pgstat_count_truncate(matviewRel);
-		if (!myState->skipData)
-			pgstat_count_heap_insert(matviewRel, myState->processed);
-
-		table_close(matviewRel, NoLock);
-	}
 }
 
 /*
@@ -1075,7 +1040,6 @@ refresh_by_heap_swap(Oid matviewOid, Oid OIDNewHeap, char relpersistence)
 	finish_heap_swap(matviewOid, OIDNewHeap,
 					 false, /* is_system_catalog */
 					 false, /* swap_toast_by_content */
-					 false, /* swap_stats */
 					 true, /* check_constraints */
 					 true, /* is_internal */
 					 RecentXmin, ReadNextMultiXactId(),

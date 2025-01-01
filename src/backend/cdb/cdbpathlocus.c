@@ -28,6 +28,7 @@
 #include "parser/parsetree.h"	/* rt_fetch() */
 #include "utils/lsyscache.h"
 
+#include "utils/dispatchcat.h"
 #include "cdb/cdbpath.h"
 #include "cdb/cdbutil.h"
 #include "cdb/cdbvars.h"
@@ -305,7 +306,7 @@ cdbpathlocus_from_policy(struct PlannerInfo *root, Index rti, GpPolicy *policy)
 {
 	CdbPathLocus result;
 
-	if (Gp_role != GP_ROLE_DISPATCH)
+	if (Gp_role != GP_ROLE_DISPATCH || isInTrigger)
 	{
 		CdbPathLocus_MakeEntry(&result);
 		return result;

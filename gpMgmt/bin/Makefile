@@ -13,7 +13,7 @@ SUBDIRS += ifaddrs
 $(recurse)
 
 PROGRAMS= analyzedb gpactivatestandby gpaddmirrors gpcheckcat gpcheckperf \
-	gpcheckresgroupimpl gpconfig gpdeletesystem gpexpand gpinitstandby \
+	gpcheckresgroupimpl gpconfig gpdeletesystem gpexpand gpinitcatalog gpinitstandby \
 	gpinitsystem gpload gpload.py gplogfilter gpmovemirrors \
 	gprecoverseg gpreload gpsync gpsd gpssh gpssh-exkeys gpstart \
 	gpstate gpstop minirepro gpmemwatcher gpmemreport gpcheckresgroupv2impl

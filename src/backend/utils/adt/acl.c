@@ -803,10 +803,6 @@ acldefault(ObjectType objtype, Oid ownerId)
 			world_default = ACL_NO_RIGHTS;
 			owner_default = ACL_ALL_RIGHTS_FOREIGN_SERVER;
 			break;
-		case OBJECT_EXTPROTOCOL:
-			world_default = ACL_NO_RIGHTS;
-			owner_default = ACL_ALL_RIGHTS_EXTPROTOCOL;
-			break;
 		case OBJECT_DOMAIN:
 		case OBJECT_TYPE:
 			world_default = ACL_USAGE;
@@ -905,9 +901,6 @@ acldefault_sql(PG_FUNCTION_ARGS)
 			break;
 		case 'T':
 			objtype = OBJECT_TYPE;
-			break;
-		case 'E':
-			objtype = OBJECT_EXTPROTOCOL;
 			break;
 		default:
 			elog(ERROR, "unrecognized objtype abbreviation: %c", objtypec);
@@ -5470,7 +5463,7 @@ get_rolespec_name(const RoleSpec *role)
 
 /*
  * Given a RoleSpec, throw an error if the name is reserved, using detail_msg,
- * if provided.
+ * if provided (which must be already translated).
  *
  * If node is NULL, no error is thrown.  If detail_msg is NULL then no detail
  * message is provided.
@@ -5491,7 +5484,7 @@ check_rolespec_name(const RoleSpec *role, const char *detail_msg)
 					(errcode(ERRCODE_RESERVED_NAME),
 					 errmsg("role name \"%s\" is reserved",
 							role->rolename),
-					 errdetail("%s", detail_msg)));
+					 errdetail_internal("%s", detail_msg)));
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_RESERVED_NAME),

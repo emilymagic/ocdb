@@ -45,11 +45,9 @@
 #include "replication/walsender.h"
 #include "storage/proc.h"
 #include "utils/builtins.h"
-#include "utils/gdd.h"
 #include "utils/gp_alloc.h"
 #include "utils/guc_tables.h"
 #include "utils/inval.h"
-#include "utils/resscheduler.h"
 #include "utils/resgroup.h"
 #include "utils/resource_manager.h"
 #include "utils/varlena.h"
@@ -83,10 +81,6 @@ static bool check_dispatch_log_stats(bool *newval, void **extra, GucSource sourc
 static bool check_gp_workfile_compression(bool *newval, void **extra, GucSource source);
 
 /* Helper function for guc setter */
-bool gpvars_check_gp_resqueue_priority_default_value(char **newval,
-													void **extra,
-													GucSource source);
-
 static bool check_gp_default_storage_options(char **newval, void **extra, GucSource source);
 static void assign_gp_default_storage_options(const char *newval, void *extra);
 
@@ -180,16 +174,6 @@ int rep_lag_avoidance_threshold = 0;
 bool		Debug_dtm_action_primary = DEBUG_DTM_ACTION_PRIMARY_DEFAULT;
 
 bool		gp_log_optimization_time = false;
-
-int			Debug_dtm_action = DEBUG_DTM_ACTION_NONE;
-
-#define DEBUG_DTM_ACTION_TARGET_DEFAULT DEBUG_DTM_ACTION_TARGET_NONE
-
-int			Debug_dtm_action_target = DEBUG_DTM_ACTION_TARGET_DEFAULT;
-
-#define DEBUG_DTM_ACTION_PROTOCOL_DEFAULT DTX_PROTOCOL_COMMAND_COMMIT_PREPARED
-
-int			Debug_dtm_action_protocol = DEBUG_DTM_ACTION_PROTOCOL_DEFAULT;
 
 #define DEBUG_DTM_ACTION_SEGMENT_DEFAULT -2
 #define DEBUG_DTM_ACTION_NESTINGLEVEL_DEFAULT 0
@@ -453,24 +437,6 @@ static const struct config_enum_entry gp_log_format_options[] = {
 	{NULL, 0}
 };
 
-static const struct config_enum_entry debug_dtm_action_protocol_options[] = {
-	{"none", DTX_PROTOCOL_COMMAND_NONE},
-	{"abort_no_prepared", DTX_PROTOCOL_COMMAND_ABORT_NO_PREPARED},
-	{"prepare", DTX_PROTOCOL_COMMAND_PREPARE},
-	{"abort_some_prepared", DTX_PROTOCOL_COMMAND_ABORT_SOME_PREPARED},
-	{"commit_onephase", DTX_PROTOCOL_COMMAND_COMMIT_ONEPHASE},
-	{"commit_prepared", DTX_PROTOCOL_COMMAND_COMMIT_PREPARED},
-	{"abort_prepared", DTX_PROTOCOL_COMMAND_ABORT_PREPARED},
-	{"retry_commit_prepared", DTX_PROTOCOL_COMMAND_RETRY_COMMIT_PREPARED},
-	{"retry_abort_prepared", DTX_PROTOCOL_COMMAND_RETRY_ABORT_PREPARED},
-	{"recovery_commit_prepared", DTX_PROTOCOL_COMMAND_RECOVERY_COMMIT_PREPARED},
-	{"recovery_abort_prepared", DTX_PROTOCOL_COMMAND_RECOVERY_ABORT_PREPARED},
-	{"subtransaction_begin", DTX_PROTOCOL_COMMAND_SUBTRANSACTION_BEGIN_INTERNAL},
-	{"subtransaction_release", DTX_PROTOCOL_COMMAND_SUBTRANSACTION_RELEASE_INTERNAL},
-	{"subtransaction_rollback", DTX_PROTOCOL_COMMAND_SUBTRANSACTION_ROLLBACK_INTERNAL},
-	{NULL, 0}
-};
-
 static const struct config_enum_entry optimizer_log_failure_options[] = {
 	{"all", OPTIMIZER_ALL_FAIL},
 	{"unexpected", OPTIMIZER_UNEXPECTED_FAIL},
@@ -495,22 +461,6 @@ static const struct config_enum_entry explain_memory_verbosity_options[] = {
 	{"suppress", EXPLAIN_MEMORY_VERBOSITY_SUPPRESS},
 	{"summary", EXPLAIN_MEMORY_VERBOSITY_SUMMARY},
 	{"detail", EXPLAIN_MEMORY_VERBOSITY_DETAIL},
-	{NULL, 0}
-};
-
-static const struct config_enum_entry debug_dtm_action_options[] = {
-	{"none", DEBUG_DTM_ACTION_NONE},
-	{"delay", DEBUG_DTM_ACTION_DELAY},
-	{"fail_begin_command", DEBUG_DTM_ACTION_FAIL_BEGIN_COMMAND},
-	{"fail_end_command", DEBUG_DTM_ACTION_FAIL_END_COMMAND},
-	{"panic_begin_command", DEBUG_DTM_ACTION_PANIC_BEGIN_COMMAND},
-	{NULL, 0}
-};
-
-static const struct config_enum_entry debug_dtm_action_target_options[] = {
-	{"none", DEBUG_DTM_ACTION_TARGET_NONE},
-	{"protocol", DEBUG_DTM_ACTION_TARGET_PROTOCOL},
-	{"sql", DEBUG_DTM_ACTION_TARGET_SQL},
 	{NULL, 0}
 };
 
@@ -1000,17 +950,6 @@ struct config_bool ConfigureNamesBool_gp[] =
 	},
 
 	{
-		{"gp_write_shared_snapshot", PGC_USERSET, UNGROUPED,
-			gettext_noop("Forces the writer gang to set the shared snapshot."),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NO_RESET_ALL | GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
-		},
-		&Gp_write_shared_snapshot,
-		false,
-		NULL, assign_gp_write_shared_snapshot, NULL
-	},
-
-	{
 		{"gp_workfile_compression", PGC_USERSET, RESOURCES_DISK,
 			gettext_noop("Enables compression of temporary files."),
 			NULL
@@ -1090,24 +1029,6 @@ struct config_bool ConfigureNamesBool_gp[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&ResourceScheduler,
-		true,
-		NULL, NULL, NULL
-	},
-	{
-		{"resource_select_only", PGC_POSTMASTER, RESOURCES_MGM,
-			gettext_noop("Enable resource locking of SELECT only."),
-			NULL
-		},
-		&ResourceSelectOnly,
-		false,
-		NULL, NULL, NULL
-	},
-	{
-		{"resource_cleanup_gangs_on_wait", PGC_USERSET, RESOURCES_MGM,
-			gettext_noop("Enable idle gang cleanup before resource lockwait."),
-			NULL
-		},
-		&ResourceCleanupIdleGangs,
 		true,
 		NULL, NULL, NULL
 	},
@@ -1554,24 +1475,6 @@ struct config_bool ConfigureNamesBool_gp[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"gp_statistics_pullup_from_child_partition", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("This guc enables the planner to utilize statistics from partitions in planning queries on the parent."),
-			NULL
-		},
-		&gp_statistics_pullup_from_child_partition,
-		false,
-		NULL, NULL, NULL
-	},
-	{
-		{"gp_statistics_use_fkeys", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("This guc enables the planner to utilize statistics derived from foreign key relationships."),
-			NULL
-		},
-		&gp_statistics_use_fkeys,
-		false,
-		NULL, NULL, NULL
-	},
-	{
 		{"gp_resqueue_priority", PGC_POSTMASTER, RESOURCES_MGM,
 			gettext_noop("Enables priority scheduling."),
 			NULL
@@ -1682,36 +1585,12 @@ struct config_bool ConfigureNamesBool_gp[] =
 
 	{
 
-		{"gp_log_resqueue_memory", PGC_USERSET, LOGGING_WHAT,
-			gettext_noop("Prints out messages related to resource queue's memory management."),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&gp_log_resqueue_memory,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-
 		{"gp_log_resgroup_memory", PGC_USERSET, LOGGING_WHAT,
 			gettext_noop("Prints out messages related to resource group's memory management."),
 			NULL,
 			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
 		},
 		&gp_log_resgroup_memory,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"gp_resqueue_print_operator_memory_limits", PGC_USERSET, LOGGING_WHAT,
-			gettext_noop("Prints out the memory limit for operators (in explain) assigned by resource queue's "
-						 "memory management."),
-			NULL,
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&gp_resqueue_print_operator_memory_limits,
 		false,
 		NULL, NULL, NULL
 	},
@@ -2943,16 +2822,6 @@ struct config_bool ConfigureNamesBool_gp[] =
 	},
 
 	{
-		{"gp_pause_on_restore_point_replay", PGC_SIGHUP, DEVELOPER_OPTIONS,
-		 gettext_noop("Pause recovery when a restore point is replayed."),
-		 NULL,
-		 GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&gp_pause_on_restore_point_replay,
-		false,
-		NULL, NULL, NULL
-	},
-	{
 		{"gp_autostats_allow_nonowner", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Allow automatic stats collection on tables even for users who are not the owner of the relation."),
 			gettext_noop("If disabled, table statistics will be updated only when tables are modified by the owners of the relations.")
@@ -3299,37 +3168,6 @@ struct config_int ConfigureNamesInt_gp[] =
 #endif
 		NULL, NULL, NULL
 	},
-
-	{
-		{"xid_stop_limit", PGC_POSTMASTER, WAL,
-			gettext_noop("Sets the number of XIDs before XID wraparound at which we will no longer allow the system to be started."),
-			NULL,
-			GUC_NOT_IN_SAMPLE | GUC_NO_SHOW_ALL
-		},
-		&xid_stop_limit,
-		100000000, 10000000, INT_MAX,
-		NULL, NULL, NULL
-	},
-	{
-		{"xid_warn_limit", PGC_POSTMASTER, WAL,
-			gettext_noop("Sets the number of XIDs before xid_stop_limit at which we will begin emitting warnings regarding XID wraparound."),
-			NULL,
-			GUC_NOT_IN_SAMPLE | GUC_NO_SHOW_ALL
-		},
-		&xid_warn_limit,
-		500000000, 10000000, INT_MAX,
-		NULL, NULL, NULL
-	},
-	{
-		{"gp_gxid_prefetch_num", PGC_POSTMASTER, WAL,
-			gettext_noop("how many gxid is prefetched in each bumping batch."),
-			NULL,
-			GUC_NOT_IN_SAMPLE | GUC_NO_SHOW_ALL
-		},
-		&gp_gxid_prefetch_num,
-		8192, 512, INT_MAX,
-		NULL, NULL, NULL
-	},
 	{
 		{"gp_dbid", PGC_POSTMASTER, PRESET_OPTIONS,
 			gettext_noop("The dbid used by this server."),
@@ -3363,26 +3201,6 @@ struct config_int ConfigureNamesInt_gp[] =
 		},
 		&gp_connection_send_timeout,
 		3600, 0, INT_MAX,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"max_resource_queues", PGC_POSTMASTER, RESOURCES_MGM,
-			gettext_noop("Maximum number of resource queues."),
-			NULL
-		},
-		&MaxResourceQueues,
-		9, 0, INT_MAX,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"max_resource_portals_per_transaction", PGC_POSTMASTER, RESOURCES_MGM,
-			gettext_noop("Maximum number of resource queues."),
-			NULL
-		},
-		&MaxResourcePortalsPerXact,
-		64, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 
@@ -3598,17 +3416,6 @@ struct config_int ConfigureNamesInt_gp[] =
 		},
 		&gp_command_count,
 		0, 0, INT_MAX, NULL, NULL
-	},
-
-	{
-		{"gp_subtrans_warn_limit", PGC_POSTMASTER, RESOURCES,
-			gettext_noop("Sets the warning limit on number of subtransactions in a transaction."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&gp_subtrans_warn_limit,
-		16777216, 0, INT_MAX,
-		NULL, NULL, NULL
 	},
 
 	{
@@ -4019,16 +3826,6 @@ struct config_int ConfigureNamesInt_gp[] =
 	},
 
 	{
-		{"gp_resqueue_memory_policy_auto_fixed_mem", PGC_USERSET, RESOURCES_MEM,
-			gettext_noop("Sets the fixed amount of memory reserved for non-memory intensive operators in the AUTO policy."),
-			NULL,
-			GUC_UNIT_KB | GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&gp_resqueue_memory_policy_auto_fixed_mem,
-		100, 50, INT_MAX,
-		NULL, NULL, NULL
-	},
-	{
 		{"gp_resgroup_memory_policy_auto_fixed_mem", PGC_USERSET, RESOURCES_MEM,
 			gettext_noop("Sets the fixed amount of memory reserved for non-memory intensive operators in the AUTO policy."),
 			NULL,
@@ -4037,17 +3834,6 @@ struct config_int ConfigureNamesInt_gp[] =
 		&gp_resgroup_memory_policy_auto_fixed_mem,
 		100, 50, INT_MAX,
 		NULL, NULL, NULL
-	},
-
-
-	{
-		{"gp_global_deadlock_detector_period", PGC_SIGHUP, LOCK_MANAGEMENT,
-			gettext_noop("Sets the executing period of global deadlock detector backend."),
-			NULL,
-			GUC_UNIT_S
-		},
-		&gp_global_deadlock_detector_period,
-		120, 5, INT_MAX, NULL, NULL
 	},
 
 	{
@@ -4587,17 +4373,6 @@ struct config_string ConfigureNamesString_gp[] =
 	},
 
 	{
-		{"gp_resqueue_priority_default_value", PGC_POSTMASTER, RESOURCES_MGM,
-			gettext_noop("Default weight when one cannot be associated with a statement."),
-			NULL,
-			GUC_NO_SHOW_ALL
-		},
-		&gp_resqueue_priority_default_value,
-		"MEDIUM",
-		gpvars_check_gp_resqueue_priority_default_value, NULL, NULL
-	},
-
-	{
 		{"gp_resource_manager", PGC_POSTMASTER, RESOURCES,
 			gettext_noop("Sets the type of resource manager."),
 			gettext_noop("Only support \"none\", \"queue\", \"group\" and \"group-v2\" for now.")
@@ -4746,17 +4521,6 @@ struct config_enum ConfigureNamesEnum_gp[] =
 	},
 
 	{
-		{"debug_dtm_action_protocol", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("Sets the debug DTM action protocol."),
-			NULL,
-			GUC_SUPERUSER_ONLY | GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&Debug_dtm_action_protocol,
-		DTX_PROTOCOL_COMMAND_NONE, debug_dtm_action_protocol_options,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"optimizer_log_failure", PGC_USERSET, LOGGING_WHEN,
 			gettext_noop("Sets which optimizer failures are logged."),
 			gettext_noop("Valid values are unexpected, expected, all"),
@@ -4795,28 +4559,6 @@ struct config_enum ConfigureNamesEnum_gp[] =
 		},
 		&explain_memory_verbosity,
 		EXPLAIN_MEMORY_VERBOSITY_SUPPRESS, explain_memory_verbosity_options,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"debug_dtm_action", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("Sets the debug DTM action."),
-			NULL,
-			GUC_SUPERUSER_ONLY | GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&Debug_dtm_action,
-		DEBUG_DTM_ACTION_NONE, debug_dtm_action_options,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"debug_dtm_action_target", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("Sets the debug DTM action target."),
-			NULL,
-			GUC_SUPERUSER_ONLY | GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&Debug_dtm_action_target,
-		DEBUG_DTM_ACTION_TARGET_NONE, debug_dtm_action_target_options,
 		NULL, NULL, NULL
 	},
 
@@ -4908,16 +4650,6 @@ struct config_enum ConfigureNamesEnum_gp[] =
 	},
 
 	{
-		{"gp_resqueue_memory_policy", PGC_SUSET, RESOURCES_MGM,
-			gettext_noop("Sets the policy for memory allocation of queries."),
-			gettext_noop("Valid values are NONE, AUTO, EAGER_FREE.")
-		},
-		&gp_resqueue_memory_policy,
-		RESMANAGER_MEMORY_POLICY_NONE, gp_resqueue_memory_policies,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"gp_resgroup_memory_policy", PGC_SUSET, RESOURCES_MGM,
 			gettext_noop("Sets the policy for memory allocation of queries."),
 			gettext_noop("Valid values are AUTO, EAGER_FREE.")
@@ -4934,17 +4666,6 @@ struct config_enum ConfigureNamesEnum_gp[] =
 		},
 		&optimizer_join_order,
 		JOIN_ORDER_EXHAUSTIVE2_SEARCH, optimizer_join_order_options,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"gp_autovacuum_scope", PGC_SIGHUP, AUTOVACUUM,
-		 gettext_noop("Sets which tables are eligible for autovacuum of dead tuples."),
-		 NULL,
-		 GUC_REPORT | GUC_SUPERUSER_ONLY
-		},
-		&gp_autovacuum_scope,
-		AV_SCOPE_CATALOG, gp_autovacuum_scope_options,
 		NULL, NULL, NULL
 	},
 

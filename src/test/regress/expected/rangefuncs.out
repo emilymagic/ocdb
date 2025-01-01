@@ -246,26 +246,47 @@ fetch next from rf_cur;
 commit;
 -- function with implicit LATERAL
 select * from rngfunc2, rngfunct(rngfunc2.rngfuncid) z where rngfunc2.f2 = z.f2;
-ERROR:  query plan with multiple segworker groups is not supported
-HINT:  likely caused by a function that reads or modifies data in a distributed table
-CONTEXT:  SQL function "rngfunct" statement 1
+ rngfuncid | f2  | rngfuncid | f2  
+-----------+-----+-----------+-----
+         1 |  11 |         1 |  11
+         2 |  22 |         2 |  22
+         1 | 111 |         1 | 111
+(3 rows)
+
 -- function with implicit LATERAL and explicit ORDINALITY
 select * from rngfunc2, rngfunct(rngfunc2.rngfuncid) with ordinality as z(rngfuncid,f2,ord) where rngfunc2.f2 = z.f2;
-ERROR:  query plan with multiple segworker groups is not supported
-HINT:  likely caused by a function that reads or modifies data in a distributed table
-CONTEXT:  SQL function "rngfunct" statement 1
+ rngfuncid | f2  | rngfuncid | f2  | ord 
+-----------+-----+-----------+-----+-----
+         1 |  11 |         1 |  11 |   1
+         2 |  22 |         2 |  22 |   1
+         1 | 111 |         1 | 111 |   2
+(3 rows)
+
 -- function in subselect
 select * from rngfunc2 where f2 in (select f2 from rngfunct(rngfunc2.rngfuncid) z where z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1,2;
-ERROR:  function cannot execute on a QE slice because it accesses relation "public.rngfunc2"
-CONTEXT:  SQL function "rngfunct" during startup
+ rngfuncid | f2  
+-----------+-----
+         1 |  11
+         1 | 111
+         2 |  22
+(3 rows)
+
 -- function in subselect
 select * from rngfunc2 where f2 in (select f2 from rngfunct(1) z where z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1,2;
-ERROR:  function cannot execute on a QE slice because it accesses relation "public.rngfunc2"
-CONTEXT:  SQL function "rngfunct" during startup
+ rngfuncid | f2  
+-----------+-----
+         1 |  11
+         1 | 111
+(2 rows)
+
 -- function in subselect
 select * from rngfunc2 where f2 in (select f2 from rngfunct(rngfunc2.rngfuncid) z where z.rngfuncid = 1) ORDER BY 1,2;
-ERROR:  function cannot execute on a QE slice because it accesses relation "public.rngfunc2"
-CONTEXT:  SQL function "rngfunct" during startup
+ rngfuncid | f2  
+-----------+-----
+         1 |  11
+         1 | 111
+(2 rows)
+
 -- nested functions
 select rngfunct.rngfuncid, rngfunct.f2 from rngfunct(sin(pi()/2)::int) ORDER BY 1,2;
  rngfuncid | f2  
@@ -1561,7 +1582,6 @@ CREATE OPERATOR CLASS dummy_int_hash_ops FOR TYPE int4
   USING hash FAMILY dummy_int_hash_ops AS
   OPERATOR 1 =,
   FUNCTION 1 dummy_hashfunc(int);
-ALTER TABLE tt SET DISTRIBUTED BY (f1 dummy_int_hash_ops);
 create function insert_tt(text) returns int as
 $$ insert into tt(data) values($1) returning f1 $$
 language sql;
@@ -1597,10 +1617,10 @@ select insert_tt('fool');
 select * from tt;
  f1 |   data   
 ----+----------
- 22 | foolfool
   1 | foo
   2 | bar
- 21 | fool
+  3 | fool
+  4 | foolfool
 (4 rows)
 
 -- setof does what's expected
@@ -1610,28 +1630,28 @@ language sql;
 select insert_tt2('foolish','barrish');
  insert_tt2 
 ------------
-         41
-         42
+          5
+          6
 (2 rows)
 
 select * from insert_tt2('baz','quux');
  insert_tt2 
 ------------
-         43
-         44
+          7
+          8
 (2 rows)
 
 select * from tt;
  f1 |   data   
 ----+----------
- 22 | foolfool
- 41 | foolish
- 42 | barrish
- 43 | baz
- 44 | quux
   1 | foo
   2 | bar
- 21 | fool
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
 (8 rows)
 
 -- limit doesn't prevent execution to completion
@@ -1644,16 +1664,16 @@ select 1 from insert_tt2('foolish','barrish') limit 1;
 select * from tt;
  f1 |   data   
 ----+----------
- 43 | baz
- 44 | quux
- 45 | foolish
- 22 | foolfool
- 41 | foolish
- 42 | barrish
   1 | foo
   2 | bar
- 21 | fool
- 46 | barrish
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+  9 | foolish
+ 10 | barrish
 (10 rows)
 
 -- triggers will fire, too
@@ -1665,8 +1685,8 @@ end $$ language plpgsql;
 create trigger tnoticetrigger after insert on tt for each row
 execute procedure noticetrigger();
 select 1 from insert_tt2('foolme','barme') limit 1;
-NOTICE:  noticetrigger 61 foolme  (seg2 slice1 127.0.1.1:7004 pid=2003065)
-NOTICE:  noticetrigger 62 barme  (seg2 slice1 127.0.1.1:7004 pid=2003065)
+NOTICE:  noticetrigger 11 foolme
+NOTICE:  noticetrigger 12 barme
  ?column? 
 ----------
         1
@@ -1675,18 +1695,18 @@ NOTICE:  noticetrigger 62 barme  (seg2 slice1 127.0.1.1:7004 pid=2003065)
 select * from tt;
  f1 |   data   
 ----+----------
- 43 | baz
- 44 | quux
- 45 | foolish
- 22 | foolfool
- 41 | foolish
- 42 | barrish
- 61 | foolme
- 62 | barme
   1 | foo
   2 | bar
- 21 | fool
- 46 | barrish
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+  9 | foolish
+ 10 | barrish
+ 11 | foolme
+ 12 | barme
 (12 rows)
 
 -- and rules work
@@ -1694,31 +1714,31 @@ create temp table tt_log(f1 int, data text);
 create rule insert_tt_rule as on insert to tt do also
   insert into tt_log values(new.*);
 select * from insert_tt2('foollog','barlog');
-NOTICE:  noticetrigger 82 barlog  (seg2 slice1 127.0.1.1:7004 pid=2003065)
-NOTICE:  noticetrigger 81 foollog  (seg1 slice1 127.0.1.1:7003 pid=2003066)
+NOTICE:  noticetrigger 13 foollog
+NOTICE:  noticetrigger 14 barlog
  insert_tt2 
 ------------
-         81
-         82
+         13
+         14
 (2 rows)
 
 select * from tt;
  f1 |   data   
 ----+----------
- 43 | baz
- 44 | quux
- 45 | foolish
- 81 | foollog
- 22 | foolfool
- 41 | foolish
- 42 | barrish
- 61 | foolme
- 62 | barme
- 82 | barlog
   1 | foo
   2 | bar
- 21 | fool
- 46 | barrish
+  3 | fool
+  4 | foolfool
+  5 | foolish
+  6 | barrish
+  7 | baz
+  8 | quux
+  9 | foolish
+ 10 | barrish
+ 11 | foolme
+ 12 | barme
+ 13 | foollog
+ 14 | barlog
 (14 rows)
 
 -- note that nextval() gets executed a second time in the rule expansion,
@@ -1726,8 +1746,8 @@ select * from tt;
 select * from tt_log;
  f1 |  data   
 ----+---------
- 83 | foollog
- 84 | barlog
+ 15 | foollog
+ 16 | barlog
 (2 rows)
 
 -- test case for a whole-row-variable bug
@@ -1954,19 +1974,16 @@ create function extractq2(t int8_tbl) returns int8 as $$
 $$ language sql immutable;
 explain (verbose, costs off)
 select x from int8_tbl, extractq2(int8_tbl) f(x);
-                   QUERY PLAN                   
-------------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
+                QUERY PLAN                
+------------------------------------------
+ Nested Loop
    Output: f.x
-   ->  Nested Loop
+   ->  Seq Scan on public.int8_tbl
+         Output: int8_tbl.q1, int8_tbl.q2
+   ->  Function Scan on f
          Output: f.x
-         ->  Seq Scan on public.int8_tbl
-               Output: int8_tbl.q1, int8_tbl.q2
-         ->  Function Scan on f
-               Output: f.x
-               Function Call: int8_tbl.q2
- Optimizer: Postgres query optimizer
-(10 rows)
+         Function Call: int8_tbl.q2
+(7 rows)
 
 select x from int8_tbl, extractq2(int8_tbl) f(x);
          x         
@@ -1983,21 +2000,17 @@ create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$
 $$ language sql immutable;
 explain (verbose, costs off)
 select x from int8_tbl, extractq2_2(int8_tbl) f(x);
-                 QUERY PLAN                  
----------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
+              QUERY PLAN               
+---------------------------------------
+ Nested Loop
    Output: ((int8_tbl.*).q2)
-   ->  Nested Loop
+   ->  Seq Scan on public.int8_tbl
+         Output: int8_tbl.*
+   ->  Materialize
          Output: ((int8_tbl.*).q2)
-         ->  Seq Scan on public.int8_tbl
-               Output: int8_tbl.*
-         ->  Materialize
-               Output: ((int8_tbl.*).q2)
-               ->  Result
-                     Output: (int8_tbl.*).q2
- Optimizer: Postgres query optimizer
- Settings: optimizer=off
-(12 rows)
+         ->  Result
+               Output: (int8_tbl.*).q2
+(8 rows)
 
 select x from int8_tbl, extractq2_2(int8_tbl) f(x);
          x         
@@ -2015,14 +2028,11 @@ create function extractq2_2_opt(t int8_tbl) returns table(ret1 int8) as $$
 $$ language sql immutable;
 explain (verbose, costs off)
 select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x);
-                QUERY PLAN                
-------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
+         QUERY PLAN          
+-----------------------------
+ Seq Scan on public.int8_tbl
    Output: int8_tbl.q2
-   ->  Seq Scan on public.int8_tbl
-         Output: int8_tbl.q2
- Optimizer: Postgres query optimizer
-(5 rows)
+(2 rows)
 
 select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x);
          x         
@@ -2041,22 +2051,17 @@ create function extractq2_append(t int8_tbl) returns table(ret1 int8) as $$
 $$ language sql immutable;
 explain (verbose, costs off)
 select x from (select * from int8_tbl order by 1 limit 100) as int8_tbl, extractq2_append(int8_tbl) f(x);
-                            QUERY PLAN                            
-------------------------------------------------------------------
+                      QUERY PLAN                      
+------------------------------------------------------
  Nested Loop
    Output: (int8_tbl.q2)
    ->  Limit
          Output: int8_tbl.q1, int8_tbl.q2
-         ->  Gather Motion 3:1  (slice1; segments: 3)
+         ->  Sort
                Output: int8_tbl.q1, int8_tbl.q2
-               Merge Key: int8_tbl.q1
-               ->  Limit
+               Sort Key: int8_tbl.q1
+               ->  Seq Scan on public.int8_tbl
                      Output: int8_tbl.q1, int8_tbl.q2
-                     ->  Sort
-                           Output: int8_tbl.q1, int8_tbl.q2
-                           Sort Key: int8_tbl.q1
-                           ->  Seq Scan on public.int8_tbl
-                                 Output: int8_tbl.q1, int8_tbl.q2
    ->  Materialize
          Output: (int8_tbl.q2)
          ->  Append
@@ -2064,9 +2069,7 @@ select x from (select * from int8_tbl order by 1 limit 100) as int8_tbl, extract
                      Output: int8_tbl.q2
                ->  Result
                      Output: int8_tbl.q2
- Optimizer: Postgres query optimizer
- Settings: optimizer=off
-(23 rows)
+(16 rows)
 
 select x from (select * from int8_tbl order by 1 limit 100) as int8_tbl, extractq2_append(int8_tbl) f(x);
          x         
@@ -2087,17 +2090,14 @@ create function extractq2_wapper(t int8_tbl) returns table(ret1 int8) as $$
   select (select extractq2(t))                                                  
 $$ language sql immutable;                                                      
 explain (verbose, costs off) select x from int8_tbl, extractq2_wapper(int8_tbl) f(x);
-                QUERY PLAN                
-------------------------------------------
- Gather Motion 3:1  (slice1; segments: 3)
-   Output: ((SubPlan 1))
-   ->  Seq Scan on public.int8_tbl
-         Output: (SubPlan 1)
-         SubPlan 1
-           ->  Result
-                 Output: (int8_tbl.*).q2
- Optimizer: Postgres query optimizer
-(8 rows)
+            QUERY PLAN             
+-----------------------------------
+ Seq Scan on public.int8_tbl
+   Output: (SubPlan 1)
+   SubPlan 1
+     ->  Result
+           Output: (int8_tbl.*).q2
+(5 rows)
 
 select x from int8_tbl, extractq2_wapper(int8_tbl) f(x);
          x         

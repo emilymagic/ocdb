@@ -297,9 +297,9 @@ ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 		 * We can avoid the cost of a contain_subplans() scan in the simple
 		 * case where there are no SubPlans anywhere.
 		 */
-		if (estate->es_subplanstates &&
-			contain_subplans((Node *) exprs))
-		{
+//		if (estate->es_subplanstates &&
+//			contain_subplans((Node *) exprs))
+//		{
 			int			saved_jit_flags;
 
 			/*
@@ -316,7 +316,7 @@ ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 															&scanstate->ss.ps);
 
 			estate->es_jit_flags = saved_jit_flags;
-		}
+//		}
 		i++;
 	}
 

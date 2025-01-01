@@ -23,7 +23,6 @@
 #include "access/nbtree.h"
 #include "access/subtrans.h"
 #include "access/twophase.h"
-#include "access/distributedlog.h"
 #include "cdb/cdblocaldistribxact.h"
 #include "cdb/cdbvars.h"
 #include "commands/async.h"
@@ -54,15 +53,12 @@
 #include "utils/backend_cancel.h"
 #include "utils/resource_manager.h"
 #include "utils/faultinjector.h"
-#include "utils/sharedsnapshot.h"
 #include "utils/gpexpand.h"
 #include "utils/snapmgr.h"
 
 #include "libpq-fe.h"
 #include "libpq-int.h"
 #include "cdb/cdbfts.h"
-#include "cdb/cdbtm.h"
-#include "postmaster/backoff.h"
 #include "cdb/memquota.h"
 #include "executor/instrument.h"
 #include "executor/spi.h"
@@ -131,7 +127,6 @@ CreateSharedMemoryAndSemaphores(int port)
 		numSemas = ProcGlobalSemas();
 		numSemas += SpinlockSemas();
 
-        elog(DEBUG3,"reserving %d semaphores",numSemas);
 		/*
 		 * Size of the Postgres shared-memory block is estimated via
 		 * moderately-accurate estimates for the big hogs, plus 100K for the
@@ -149,21 +144,8 @@ CreateSharedMemoryAndSemaphores(int port)
 		size = add_size(size, BufferShmemSize());
 		size = add_size(size, LockShmemSize());
 		size = add_size(size, PredicateLockShmemSize());
-
-		if (IsResQueueEnabled() && Gp_role == GP_ROLE_DISPATCH)
-		{
-			size = add_size(size, ResSchedulerShmemSize());
-			size = add_size(size, ResPortalIncrementShmemSize());
-		}
-		else if (IsResGroupEnabled())
-			size = add_size(size, ResGroupShmemSize());
-		size = add_size(size, SharedSnapshotShmemSize());
-		if (Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_UTILITY)
-			size = add_size(size, FtsShmemSize());
-
 		size = add_size(size, ProcGlobalShmemSize());
 		size = add_size(size, XLOGShmemSize());
-		size = add_size(size, DistributedLog_ShmemSize());
 		size = add_size(size, CLOGShmemSize());
 		size = add_size(size, CommitTsShmemSize());
 		size = add_size(size, SUBTRANSShmemSize());
@@ -193,7 +175,6 @@ CreateSharedMemoryAndSemaphores(int port)
 		size = add_size(size, ShmemBackendArraySize());
 #endif
 
-		size = add_size(size, tmShmemSize());
 		size = add_size(size, CheckpointerShmemSize());
 		size = add_size(size, CancelBackendMsgShmemSize());
 		size = add_size(size, WorkFileShmemSize());
@@ -288,13 +269,11 @@ CreateSharedMemoryAndSemaphores(int port)
 	 */
 	XLOGShmemInit();
 	CLOGShmemInit();
-	DistributedLog_ShmemInit();
 	CommitTsShmemInit();
 	SUBTRANSShmemInit();
 	MultiXactShmemInit();
 	if (Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_UTILITY)
 		FtsShmemInit();
-	tmShmemInit();
 	InitBufferPool();
 
 	/*
@@ -334,7 +313,6 @@ CreateSharedMemoryAndSemaphores(int port)
 	 *		 because this happens at postmaster startup time when we don't
 	 *		 know who we are.  
 	 */
-	CreateSharedSnapshotArray();
 	TwoPhaseShmemInit();
 	BackgroundWorkerShmemInit();
 
@@ -393,9 +371,6 @@ CreateSharedMemoryAndSemaphores(int port)
 	if (!IsUnderPostmaster)
 		ShmemBackendArrayAllocation();
 #endif
-
-	if (gp_enable_resqueue_priority)
-		BackoffStateInit();
 
 	/* Initialize dynamic shared memory facilities. */
 	if (!IsUnderPostmaster)

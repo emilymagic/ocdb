@@ -28,6 +28,7 @@
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_ts_config.h"
 #include "catalog/pg_type.h"
+#include "cdb/cdbvars.h"
 #include "commands/dbcommands.h"
 #include "commands/event_trigger.h"
 #include "commands/extension.h"
@@ -128,11 +129,6 @@ static const event_trigger_support_data event_trigger_support[] = {
 	{"TYPE", true},
 	{"USER MAPPING", true},
 	{"VIEW", true},
-
-	/* GPDB additions */
-	{"EXTERNAL TABLE", true},
-	{"PROTOCOL", true},
-
 	{NULL, false}
 };
 
@@ -176,6 +172,7 @@ CreateEventTrigger(CreateEventTrigStmt *stmt)
 	HeapTuple	tuple;
 	Oid			funcoid;
 	Oid			funcrettype;
+	Oid			fargtypes[1];	/* dummy */
 	Oid			evtowner = GetUserId();
 	ListCell   *lc;
 	List	   *tags = NULL;
@@ -241,7 +238,7 @@ CreateEventTrigger(CreateEventTrigStmt *stmt)
 						stmt->trigname)));
 
 	/* Find and validate the trigger function. */
-	funcoid = LookupFuncName(stmt->funcname, 0, NULL, false);
+	funcoid = LookupFuncName(stmt->funcname, 0, fargtypes, false);
 	funcrettype = get_func_rettype(funcoid);
 	if (funcrettype != EVTTRIGGEROID)
 		ereport(ERROR,
@@ -734,7 +731,7 @@ EventTriggerCommonSetup(Node *parsetree,
 			event == EVT_SQLDrop)
 		{
 			if (check_ddl_tag(dbgtag) != EVENT_TRIGGER_COMMAND_TAG_OK)
-				elog(ERROR, "unexpected command tag \"%s\"", dbgtag);
+				elog(PANIC, "unexpected command tag \"%s\"", dbgtag);
 		}
 		else if (event == EVT_TableRewrite)
 		{
@@ -791,6 +788,9 @@ EventTriggerDDLCommandStart(Node *parsetree)
 	List	   *runlist;
 	EventTriggerData trigdata;
 
+	if (Gp_role == GP_ROLE_EXECUTE)
+		return;
+
 	/*
 	 * Event Triggers are completely disabled in standalone mode.  There are
 	 * (at least) two reasons for this:
@@ -838,6 +838,9 @@ EventTriggerDDLCommandEnd(Node *parsetree)
 {
 	List	   *runlist;
 	EventTriggerData trigdata;
+
+	if (Gp_role == GP_ROLE_EXECUTE)
+		return;
 
 	/*
 	 * See EventTriggerDDLCommandStart for a discussion about why event
@@ -887,6 +890,9 @@ EventTriggerSQLDrop(Node *parsetree)
 	List	   *runlist;
 	EventTriggerData trigdata;
 
+
+	if (Gp_role == GP_ROLE_EXECUTE)
+		return;
 	/*
 	 * See EventTriggerDDLCommandStart for a discussion about why event
 	 * triggers are disabled in single user mode.
@@ -960,6 +966,9 @@ EventTriggerTableRewrite(Node *parsetree, Oid tableOid, int reason)
 	List	   *runlist;
 	EventTriggerData trigdata;
 
+
+	if (Gp_role == GP_ROLE_EXECUTE)
+		return;
 	/*
 	 * Event Triggers are completely disabled in standalone mode.  There are
 	 * (at least) two reasons for this:
@@ -1159,13 +1168,6 @@ EventTriggerSupportsObjectType(ObjectType obtype)
 		case OBJECT_VIEW:
 			return true;
 
-		/* GPDB additions */
-		case OBJECT_EXTPROTOCOL:
-			return true;
-		case OBJECT_RESQUEUE:
-		case OBJECT_RESGROUP:
-			return false;
-
 			/*
 			 * There's intentionally no default: case here; we want the
 			 * compiler to warn if a new ObjectType hasn't been handled above.
@@ -1227,8 +1229,6 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_SUBSCRIPTION:
 		case OCLASS_TRANSFORM:
 			return true;
-		case OCLASS_EXTPROTOCOL:
-			return false;
 
 			/*
 			 * There's intentionally no default: case here; we want the
@@ -1236,7 +1236,8 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 			 */
 	}
 
-	return true;
+	/* Shouldn't get here, but if we do, say "no support" */
+	return false;
 }
 
 /*
@@ -1310,6 +1311,9 @@ EventTriggerEndCompleteQuery(void)
 bool
 trackDroppedObjectsNeeded(void)
 {
+	if (Gp_role == GP_ROLE_EXECUTE)
+		return false;
+
 	/*
 	 * true if any sql_drop, table_rewrite, ddl_command_end event trigger
 	 * exists
@@ -2308,9 +2312,6 @@ stringify_grant_objtype(ObjectType objtype)
 		case OBJECT_TSTEMPLATE:
 		case OBJECT_USER_MAPPING:
 		case OBJECT_VIEW:
-		case OBJECT_EXTPROTOCOL:
-		case OBJECT_RESQUEUE:
-		case OBJECT_RESGROUP:
 			elog(ERROR, "unsupported object type: %d", (int) objtype);
 	}
 
@@ -2393,9 +2394,6 @@ stringify_adefprivs_objtype(ObjectType objtype)
 		case OBJECT_TSTEMPLATE:
 		case OBJECT_USER_MAPPING:
 		case OBJECT_VIEW:
-		case OBJECT_EXTPROTOCOL:
-		case OBJECT_RESQUEUE:
-		case OBJECT_RESGROUP:
 			elog(ERROR, "unsupported object type: %d", (int) objtype);
 	}
 

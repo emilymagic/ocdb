@@ -904,6 +904,8 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 			   *rec_old;
 	HeapTuple	rettup;
 
+	if (!IS_CATALOG_SERVER())
+		return NULL;
 	/*
 	 * Setup the execution state
 	 */

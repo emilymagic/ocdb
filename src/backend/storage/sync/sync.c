@@ -33,8 +33,6 @@
 #include "utils/memutils.h"
 #include "utils/inval.h"
 
-#include "utils/faultinjector.h"
-
 static MemoryContext pendingOpsCxt; /* context for the pending ops state  */
 
 /*
@@ -97,12 +95,6 @@ static const SyncOps syncsw[] = {
 	/* magnetic disk */
 	{
 		.sync_syncfiletag = mdsyncfiletag,
-		.sync_unlinkfiletag = mdunlinkfiletag,
-		.sync_filetagmatches = mdfiletagmatches
-	},
-	/* append-optimized storage */
-	{
-		.sync_syncfiletag = aosyncfiletag,
 		.sync_unlinkfiletag = mdunlinkfiletag,
 		.sync_filetagmatches = mdfiletagmatches
 	}
@@ -335,40 +327,6 @@ ProcessSyncRequests(void)
 	while ((entry = (PendingFsyncEntry *) hash_seq_search(&hstat)) != NULL)
 	{
 		int			failures;
-
-#ifdef FAULT_INJECTOR
-		if (entry->cycle_ctr != sync_cycle_ctr && !entry->canceled &&
-			(SIMPLE_FAULT_INJECTOR("fsync_counter") == FaultInjectorTypeSkip
-			 || (entry->tag.handler == 1 &&
-				 SIMPLE_FAULT_INJECTOR("ao_fsync_counter") == FaultInjectorTypeSkip)))
-		{
-			if (MyAuxProcType == CheckpointerProcess)
-			{
-				if (entry->tag.segno == 0)
-					elog(LOG, "checkpoint performing fsync for %d/%d/%d",
-						 entry->tag.rnode.spcNode, entry->tag.rnode.dbNode,
-						 entry->tag.rnode.relNode);
-				else
-					elog(LOG, "checkpoint performing fsync for %d/%d/%d.%d",
-						 entry->tag.rnode.spcNode, entry->tag.rnode.dbNode,
-						 entry->tag.rnode.relNode, entry->tag.segno);
-			}
-			else
-			{
-				int level = (SIMPLE_FAULT_INJECTOR("fsync_counter") == FaultInjectorTypeSkip) ? ERROR : LOG;
-				if (entry->tag.segno == 0)
-					elog(level, "non checkpoint process trying to fsync "
-						 "%d/%d/%d when fsync_counter fault is set",
-						 entry->tag.rnode.spcNode, entry->tag.rnode.dbNode,
-						 entry->tag.rnode.relNode);
-				else
-					elog(level, "non checkpoint process trying to fsync "
-						 "%d/%d/%d.%d when fsync_counter fault is set",
-						 entry->tag.rnode.spcNode, entry->tag.rnode.dbNode,
-						 entry->tag.rnode.relNode, entry->tag.segno);
-			}
-		}
-#endif
 
 		/*
 		 * If the entry is new then don't process it this time; it is new.

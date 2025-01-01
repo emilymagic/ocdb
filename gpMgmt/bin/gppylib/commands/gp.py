@@ -285,6 +285,7 @@ class PgCtlStartArgs(CmdArgs):
         CmdArgs.__init__(self, [
             "env",
             "GPSESSID=0000000000", 	# <- overwritten with gp_session_id to help identify orphans
+            "AWS_EC2_METADATA_DISABLED='true'", 	# <- overwritten with gp_session_id to help identify orphans
             "GPERA=%s" % str(era),	# <- coordinator era used to help identify orphans
             "$GPHOME/bin/pg_ctl",
             "-D", str(datadir),

@@ -27,6 +27,7 @@
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "access/xlog.h"
+#include "access/memoryheapam.h"
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
@@ -41,8 +42,10 @@
 #include "libpq/auth.h"
 #include "libpq/hba.h"
 #include "libpq/libpq-be.h"
+#include "utils/pickcat.h"
+#include "utils/dispatchcat.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "cdb/cdbendpoint.h"
-#include "cdb/cdbtm.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbutil.h"
 #include "mb/pg_wchar.h"
@@ -74,8 +77,6 @@
 #include "utils/portal.h"
 #include "utils/ps_status.h"
 #include "utils/relcache.h"
-#include "utils/resscheduler.h"
-#include "utils/sharedsnapshot.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/timeout.h"
@@ -669,7 +670,27 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	char	   *fullpath;
 	char		dbname[NAMEDATALEN];
 
-	elog(DEBUG3, "InitPostgres");
+	if (!IS_CATALOG_SERVER())
+	{
+		if (GpIdentity.segindex < 0)
+			cc_conn((char *) in_dbname);
+
+		if (initCatalogBuf)
+		{
+			MemoryHeapStorageReset();
+			MemoryHeapDataSet2(initCatalogBuf, initCatalogBufSize, NULL, 0);
+		}
+		else if (GpIdentity.segindex < 0)
+		{
+			CdbCatalogAuxNode *catAux;
+			MemoryHeapStorageReset();
+			catAux = cc_get_catalog(NULL, TopMemoryContext);
+			MemoryHeapDataSet1(catAux);
+			FillBaseCatalog(catAux->catalog);
+		}
+	}
+
+	CatCollectorClear();
 
 	/*
 	 * Add my PGPROC struct to the ProcArray.
@@ -840,6 +861,8 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 
 		(void) GetTransactionSnapshot();
 	}
+
+	CatalogCollectInit();
 
 	/*
 	 * Perform client authentication if necessary, then figure out our
@@ -1029,6 +1052,7 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 		MyDatabaseTableSpace = dbform->dattablespace;
 		/* take database name from the caller, just for paranoia */
 		strlcpy(dbname, in_dbname, sizeof(dbname));
+		strcpy(MyDatabaseName, dbname);
 	}
 	else if (OidIsValid(dboid))
 	{
@@ -1046,6 +1070,8 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 		MyDatabaseTableSpace = dbform->dattablespace;
 		Assert(MyDatabaseId == dboid);
 		strlcpy(dbname, NameStr(dbform->datname), sizeof(dbname));
+		strcpy(MyDatabaseName, dbname);
+
 		/* pass the database name back to the caller */
 		if (out_dbname)
 			strcpy(out_dbname, dbname);
@@ -1138,7 +1164,7 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	 */
 	fullpath = GetDatabasePath(MyDatabaseId, MyDatabaseTableSpace);
 
-	if (!bootstrap)
+	if (!bootstrap && IS_CATALOG_SERVER())
 	{
 		if (access(fullpath, F_OK) == -1)
 		{
@@ -1260,7 +1286,7 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	 * report this backend in the PgBackendStatus array, meanwhile, we do not
 	 * want users to see auxiliary background worker like fts in pg_stat_* views.
 	 */
-	if (!bootstrap && (!amAuxiliaryBgWorker() || IsDtxRecoveryProcess()))
+	if (!bootstrap && !amAuxiliaryBgWorker())
 		pgstat_bestart();
 
 	/* 
@@ -1276,43 +1302,16 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 		on_proc_exit( cdb_cleanup, 0 );
     }
 
-    /* 
-     * MPP SharedSnapshot Setup
-	 */
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		addSharedSnapshot("Query Dispatcher", gp_session_id);
-	}
-    else if (IS_QUERY_DISPATCHER() && Gp_role == GP_ROLE_EXECUTE && !Gp_is_writer)
-    {
-		/* 
-		 * Entry db singleton QE is a user of the shared snapshot -- not a creator.
-		 * The lookup will occur once the distributed snapshot has been received.
-		 */	
-		lookupSharedSnapshot("Entry DB Singleton", "Query Dispatcher", gp_session_id);
-    }
-    else if (Gp_role == GP_ROLE_EXECUTE)
-	{
-		if (Gp_is_writer)
-		{
-			addSharedSnapshot("Writer qExec", gp_session_id);
-		}
-		else
-		{
-			/*
-			 * NOTE: This assumes that the Slot has already been
-			 *       allocated by the writer.  Need to make sure we
-			 *       always allocate the writer qExec first.
-			 */			 			
-			lookupSharedSnapshot("Reader qExec", "Writer qExec", gp_session_id);
-		}
-	}
-
 	/*
 	 * Initialize resource manager.
 	 */
 	InitResManager();
 
+	/*
+	 * Catalog collect
+	 */
+	PickBaseCatalog();
+	CatCollectorClear();
 	/* close the transaction we started above */
 	if (!bootstrap)
 		CommitTransactionCommand();
@@ -1420,7 +1419,7 @@ process_settings(Oid databaseid, Oid roleid)
 	Relation	relsetting;
 	Snapshot	snapshot;
 
-	if (!IsUnderPostmaster)
+	if (!IsUnderPostmaster || !IS_CATALOG_SERVER())
 		return;
 
 	relsetting = table_open(DbRoleSettingRelationId, AccessShareLock);

@@ -960,7 +960,8 @@ convert_sourcefiles_in(const char *source_subdir, const char *dest_dir, const ch
 static void
 convert_sourcefiles(void)
 {
-	content_zero_hostname = get_host_name(0, 'p');
+	//content_zero_hostname = get_host_name(0, 'p');
+	content_zero_hostname = "ubuntu";
 
 	convert_sourcefiles_in("input", outputdir, "sql", "sql");
 	convert_sourcefiles_in("output", outputdir, "expected", "out");
@@ -1607,6 +1608,10 @@ spawn_process(const char *cmdline)
 	fflush(stderr);
 	if (logfile)
 		fflush(logfile);
+
+#ifdef EXEC_BACKEND
+	pg_disable_aslr();
+#endif
 
 	pid = fork();
 	if (pid == -1)
@@ -2601,6 +2606,9 @@ create_database(const char *dbname)
 				 "ALTER DATABASE \"%s\" SET timezone_abbreviations TO 'Default';",
 				 dbname, dbname, dbname, dbname, dbname, dbname);
 
+	add_stringlist_item(&loadlanguage, "plpgsql");
+
+
 	/*
 	 * Install any requested procedural languages.  We use CREATE OR REPLACE
 	 * so that this will work whether or not the language is preinstalled.
@@ -2621,12 +2629,15 @@ create_database(const char *dbname)
 	 * is a rare case where template0 is used instead of template1 while gp_toolkit is
 	 * relied heavily. So let's just load gp_toolkit here.
 	 */
-	add_stringlist_item(&loadextension, "gp_toolkit");
+	//add_stringlist_item(&loadextension, "gp_toolkit");
 	/*
 	 * GPDB: We rely heavily on pageinspect for many tests, especially for BRIN,
 	 * so load it here.
 	 */
-	add_stringlist_item(&loadextension, "pageinspect");
+	// add_stringlist_item(&loadextension, "pageinspect");
+	/*
+	 * GPCLOUD_FIXME: reopen it later.
+	 */
 	for (sl = loadextension; sl != NULL; sl = sl->next)
 	{
 		header(_("installing %s"), sl->str);
@@ -3017,6 +3028,17 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	{
 		add_stringlist_item(&extra_tests, argv[optind]);
 		optind++;
+	}
+
+	/*
+	 * We must have a database to run the tests in; either a default name, or
+	 * one supplied by the --dbname switch.
+	 */
+	if (!(dblist && dblist->str && dblist->str[0]))
+	{
+		fprintf(stderr, _("%s: no database name was specified\n"),
+				progname);
+		exit(2);
 	}
 
 	if (config_auth_datadir)

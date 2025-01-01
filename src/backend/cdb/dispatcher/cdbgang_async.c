@@ -28,10 +28,11 @@
 #include "tcop/tcopprot.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
+#include "utils/pickcat.h"
 #include "cdb/cdbfts.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbgang_async.h"
-#include "cdb/cdbtm.h"
+#include "cdb/cdbsrlz.h"
 #include "cdb/cdbvars.h"
 #include "miscadmin.h"
 
@@ -260,7 +261,6 @@ create_gang_retry:
 						}
 						else if (segment_failure_due_to_missing_writer(PQerrorMessage(segdbDesc->conn)))
 						{
-							markCurrentGxactWriterGangLost();
 							ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 											errmsg("failed to acquire resources on one or more segments"),
 											errdetail("%s (%s)", PQerrorMessage(segdbDesc->conn), segdbDesc->whoami)));
@@ -347,7 +347,14 @@ create_gang_retry:
 						 *
 						 * So must add all sock FDs to waiteventset again in the next loop.
 						 */
+					{
+						segdbDesc->conn->initcatalog =
+								serializeNode(GetBaseCatalog(),
+											  &segdbDesc->conn->initcatalog_size,
+											  NULL);
+
 						pollingStatus[pos] = PQconnectPoll(segdbDesc->conn);
+					}
 				}
 			}
 		}

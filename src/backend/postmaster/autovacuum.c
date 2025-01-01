@@ -59,53 +59,6 @@
  *
  *-------------------------------------------------------------------------
  */
-
-/*-------------------------------------------------------------------------
- * GPDB:
- *
- * Distributed auto vacuum means to trigger auto vacuum on QD, and QD
- * manages to dispatch the vacuum request to QEs as distributed transaction.
- *
- * In GPDB there is no distributed auto vacuum yet. For now, all auto vaccums
- * happen on segments locally and do not interact with other auto vaccums.
- *
- * GPDB team had a detailed discussion about distributed auto vacuum. We have
- * no plan for GPDB7, and will determine the approach in future based on
- * feedback from customer.
- *
- * More tech details about distributed auto vacuum for future reference:
- *
- * What's the benefits of the distributed auto vacuum? It might be better global
- * consistency because local auto vacuum happens in different times and different
- * transactions. We can also expect relieving performance jitter theoretically if
- * we can control cluster-size auto vacuum. In addition, we may be able to clean
- * some code because the code of local auto vacuum and distributed user-invoked
- * vacuum are inter-laying for now.
- *
- * Furthermore, we are still not certain about benefit of the consistency produced
- * by distributed auto vacuum. Theoretically, we can get more precise statis info
- * accordingly, but we need more feedback to evaluate the benefit for customer.
- *
- * What's the disadvantages? There might be possible troubles to align to upstream
- * vacuum codes since PG vacuum always happens locally. Importing more complexity
- * is another concern.
- *
- * In MPP setting it's kind of expected all nodes will have a similar activity or
- * bloat on the table (especially catalog tables should have the same effect on all
- * segments), though that's not really true for OLTP user tables. Hence making the
- * global decision to vacuum a table or not, instead of local can become
- * disadvantageous. For example, only one segment has heavy bloat on a table and
- * the rest of the segments are not. Global/distributed vacuum unnecessarily will
- * trigger on all segments even if not required.
- *
- * A possible solution is a kind of unbalanced strategy: when a distributed auto
- * vacuum is triggered, we don't need to perform actual vacuum on all segments. A
- * segment can determine not to perform actual vacuum if it has heavy bloat. Since
- * auto vacuum is repeated, the vacuum is supposed to be finished at sometime with
- * light workload in future. There might also be space for more complex scheduling
- * strategy of distributed auto vacuum based on performance monitoring.
- */
-
 #include "postgres.h"
 
 #include <signal.h>
@@ -119,10 +72,8 @@
 #include "access/tableam.h"
 #include "access/transam.h"
 #include "access/xact.h"
-#include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/namespace.h"
-#include "catalog/partition.h"
 #include "catalog/pg_database.h"
 #include "commands/dbcommands.h"
 #include "commands/vacuum.h"
@@ -140,7 +91,6 @@
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
-#include "storage/procarray.h"
 #include "storage/procsignal.h"
 #include "storage/sinvaladt.h"
 #include "storage/smgr.h"
@@ -155,9 +105,6 @@
 #include "utils/syscache.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
-
-#include "cdb/cdbvars.h"
-#include "utils/faultinjector.h"
 
 
 /*
@@ -177,8 +124,7 @@ int			autovacuum_multixact_freeze_max_age;
 double		autovacuum_vac_cost_delay;
 int			autovacuum_vac_cost_limit;
 
-int			Log_autovacuum_min_duration = 0;
-int			gp_autovacuum_scope;
+int			Log_autovacuum_min_duration = -1;
 
 /* how long to keep pgstat data in the launcher, in milliseconds */
 #define STATS_READ_DELAY 1000
@@ -222,7 +168,6 @@ typedef struct avl_dbase
 typedef struct avw_dbase
 {
 	Oid			adw_datid;
-	bool		adw_allowconn;
 	char	   *adw_name;
 	TransactionId adw_frozenxid;
 	MultiXactId adw_minmulti;
@@ -401,7 +346,6 @@ static void av_sighup_handler(SIGNAL_ARGS);
 static void avl_sigusr2_handler(SIGNAL_ARGS);
 static void avl_sigterm_handler(SIGNAL_ARGS);
 static void autovac_refresh_stats(void);
-static void add_tables_from_autovac_workers(HTAB *top_level_partition_roots);
 
 
 
@@ -449,6 +393,9 @@ int
 StartAutoVacLauncher(void)
 {
 	pid_t		AutoVacPID;
+
+	if (!IS_CATALOG_SERVER())
+		return 0;
 
 #ifdef EXEC_BACKEND
 	switch ((AutoVacPID = avlauncher_forkexec()))
@@ -655,18 +602,6 @@ AutoVacLauncherMain(int argc, char *argv[])
 	SetConfigOption("default_transaction_isolation", "read committed",
 					PGC_SUSET, PGC_S_OVERRIDE);
 
-/*
- * In GPDB, we only want an autovacuum worker to start once we know
- * there is a database to vacuum. Therefore, we never want emergency mode
- * to start a worker immediately.
- *
- * Note: when the emergency mode is running it is possible to continuously
- * start an autovacuum worker. Within the worker, the PMSIGNAL_START_AUTOVAC_LAUNCHER
- * signal is sent when a database is found that is old enough to be vacuumed. If
- * the database chosen is connectable, the launcher will never select it and the
- * worker will continue to signal for a new launcher.
- */
-#if 0
 	/*
 	 * In emergency mode, just start a worker (unless shutdown was requested)
 	 * and go away.
@@ -677,7 +612,6 @@ AutoVacLauncherMain(int argc, char *argv[])
 			do_start_worker();
 		proc_exit(0);			/* done */
 	}
-#endif
 
 	AutoVacuumShmem->av_launcherpid = MyProcPid;
 
@@ -1580,21 +1514,8 @@ AutoVacWorkerMain(int argc, char *argv[])
 
 	am_autovacuum_worker = true;
 
-	/* MPP-4990: Autovacuum always runs as utility-mode */
-	if (IS_QUERY_DISPATCHER())
-		Gp_role = GP_ROLE_DISPATCH;
-	else
-		Gp_role = GP_ROLE_UTILITY;
-
 	/* Identify myself via ps */
 	init_ps_display(pgstat_get_backend_desc(B_AUTOVAC_WORKER), "", "", "");
-
-	/* 
-	 * PreAuthDelay is a debugging aid for investigating problems in the 
-	 * authentication cycle. 
-	 */
-	if (PreAuthDelay > 0)
-		pg_usleep(PreAuthDelay * 1000000L);
 
 	SetProcessingMode(InitProcessing);
 
@@ -1771,19 +1692,12 @@ AutoVacWorkerMain(int argc, char *argv[])
 		ereport(DEBUG1,
 				(errmsg("autovacuum: processing database \"%s\"", dbname)));
 
-#ifdef FAULT_INJECTOR
-		FaultInjector_InjectFaultIfSet(
-			"auto_vac_worker_before_do_autovacuum", DDLNotSpecified,
-			dbname, "");
-#endif
-
 		if (PostAuthDelay)
 			pg_usleep(PostAuthDelay * 1000000L);
 
 		/* And do an appropriate amount of work */
 		recentXid = ReadNewTransactionId();
 		recentMulti = ReadNextMultiXactId();
-
 		do_autovacuum();
 	}
 
@@ -1997,7 +1911,6 @@ get_database_list(void)
 		avdb->adw_name = pstrdup(NameStr(pgdatabase->datname));
 		avdb->adw_frozenxid = pgdatabase->datfrozenxid;
 		avdb->adw_minmulti = pgdatabase->datminmxid;
-		avdb->adw_allowconn = pgdatabase->datallowconn;
 		/* this gets set later: */
 		avdb->adw_entry = NULL;
 
@@ -2009,6 +1922,9 @@ get_database_list(void)
 	table_close(rel, AccessShareLock);
 
 	CommitTransactionCommand();
+
+	/* Be sure to restore caller's memory context */
+	MemoryContextSwitchTo(resultcxt);
 
 	return dblist;
 }
@@ -2040,26 +1956,8 @@ do_autovacuum(void)
 	bool		did_vacuum = false;
 	bool		found_concurrent_worker = false;
 	int			i;
-	HASH_SEQ_STATUS roots_hash_seq;
-	Oid* top_level_root;
 
-	/*
-	 * GPDB: For partitioned tables, since we maintain top-level-root stats in
-	 * the catalog, we have to merge stats whenever a leaf partition(s)
-	 * undergoes auto-analyze. To capture this extra work for the AV worker, we
-	 * maintain a set of top-level partition oids. Using a set guarantees that we
-	 * schedule the top-level root once, even if more than one leaf was analyzed
-	 * in the same hierarchy.
-	 *
-	 * Note: we don't maintain interior roots as we don't currently maintain stats
-	 * for them.
-	 */
-	HTAB		*top_level_partition_roots;
-	HASHCTL		roots_hash_ctl;
-	/* GPDB: to collect session IDs for the purpose of checking idle temp namespace. */
-	HTAB		*sessionhash;
-	List 		*sessionlist;
-	ListCell 	*lc;
+	return;
 
 	/*
 	 * StartTransactionCommand and CommitTransactionCommand will automatically
@@ -2142,31 +2040,6 @@ do_autovacuum(void)
 								  &ctl,
 								  HASH_ELEM | HASH_BLOBS);
 
-	/* create set for top level partition oids */
-	memset(&roots_hash_ctl, 0, sizeof(roots_hash_ctl));
-	roots_hash_ctl.keysize = sizeof(Oid);
-	roots_hash_ctl.entrysize = sizeof(Oid);
-	roots_hash_ctl.hcxt = CurrentMemoryContext;
-	top_level_partition_roots = hash_create("top level partition oids",
-					   256,
-					   &roots_hash_ctl,
-					   HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
-
-	/* collect running session IDs for the purpose of checking idle temp namespace */
-	MemSet(&ctl, 0, sizeof(ctl));
-        ctl.keysize = sizeof(int);
-        ctl.entrysize = sizeof(int);
-	sessionhash = hash_create("Running session IDs", 8, &ctl, HASH_ELEM);
-
-	sessionlist = GetRunningProcSessionIds();
-	foreach(lc, sessionlist)
-	{
-		Oid sid = lfirst_oid(lc);
-		hash_search(sessionhash,
-						&sid,
-						HASH_ENTER, NULL);
-	}
-
 	/*
 	 * Scan pg_class to determine which tables to vacuum.
 	 *
@@ -2198,10 +2071,7 @@ do_autovacuum(void)
 		bool		wraparound;
 
 		if (classForm->relkind != RELKIND_RELATION &&
-			classForm->relkind != RELKIND_MATVIEW &&
-			classForm->relkind != RELKIND_AOSEGMENTS &&
-			classForm->relkind != RELKIND_AOBLOCKDIR &&
-			classForm->relkind != RELKIND_AOVISIMAP)
+			classForm->relkind != RELKIND_MATVIEW)
 			continue;
 
 		relid = classForm->oid;
@@ -2217,7 +2087,7 @@ do_autovacuum(void)
 			 * using the temporary schema.  Also, for safety, ignore it if the
 			 * namespace doesn't exist or isn't a temp namespace after all.
 			 */
-			if (isTempNamespaceMustBeIdle(classForm->relnamespace, sessionhash))
+			if (checkTempNamespaceStatus(classForm->relnamespace) == TEMP_NAMESPACE_IDLE)
 			{
 				/*
 				 * The table seems to be orphaned -- although it might be that
@@ -2245,18 +2115,6 @@ do_autovacuum(void)
 		if (dovacuum || doanalyze)
 			table_oids = lappend_oid(table_oids, relid);
 
-		/* Get oid of top level partition root and add to separate set */
-		if (doanalyze && classForm->relispartition)
-		{
-			/*
-			 * If partition is detached/exchanged between the relispartition
-			 * check and getting the root partition, the root relid will be
-			 * invalid and we skip merging this root
-			 */
-			Oid root_parent_relid = get_top_level_partition_root(relid);
-			if (OidIsValid(root_parent_relid))
-				(void) hash_search(top_level_partition_roots, (void *) &root_parent_relid, HASH_ENTER, NULL);
-		}
 		/*
 		 * Remember TOAST associations for the second pass.  Note: we must do
 		 * this whether or not the table is going to be vacuumed, because we
@@ -2390,21 +2248,16 @@ do_autovacuum(void)
 		 * Make all the same tests made in the loop above.  In event of OID
 		 * counter wraparound, the pg_class entry we have now might be
 		 * completely unrelated to the one we saw before.
-		 * Notice, that we are not checking for 
-		 *	classForm->relkind != RELKIND_AOSEGMENTS &&
-		 *	classForm->relkind != RELKIND_AOBLOCKDIR &&
-		 *	classForm->relkind != RELKIND_AOVISIMAP here, because we cannot drop
-		 * AO aux files without dropping AO relaton itself, so do not attempt to.
 		 */
 		if (!((classForm->relkind == RELKIND_RELATION ||
-			classForm->relkind == RELKIND_MATVIEW) &&
+			   classForm->relkind == RELKIND_MATVIEW) &&
 			  classForm->relpersistence == RELPERSISTENCE_TEMP))
 		{
 			UnlockRelationOid(relid, AccessExclusiveLock);
 			continue;
 		}
 
-		if (!isTempNamespaceMustBeIdle(classForm->relnamespace, sessionhash))
+		if (checkTempNamespaceStatus(classForm->relnamespace) != TEMP_NAMESPACE_IDLE)
 		{
 			UnlockRelationOid(relid, AccessExclusiveLock);
 			continue;
@@ -2451,23 +2304,6 @@ do_autovacuum(void)
 										  "Autovacuum Portal",
 										  ALLOCSET_DEFAULT_SIZES);
 
-	/*
-	 * Add tables received via auto vacuum workers to be considered
-	 * for vacuum/analyze.
-	 */
-	add_tables_from_autovac_workers(top_level_partition_roots);
-
-	/*
-	 * GPDB: Analyze (merge leaf stats) all top-level partition roots at the end. This
-	 * guarantees that leaf partitions are analyzed first before merging their stats
-	 * for their top-level roots.
-	 */
-	hash_seq_init(&roots_hash_seq, top_level_partition_roots);
-	while ((top_level_root = (Oid*) hash_seq_search(&roots_hash_seq)) != NULL)
-		table_oids = lappend_oid(table_oids, *top_level_root);
-
-	hash_destroy(top_level_partition_roots);
-	hash_destroy(sessionhash);
 	/*
 	 * Perform operations on collected tables.
 	 */
@@ -2670,12 +2506,6 @@ do_autovacuum(void)
 			FlushErrorState();
 			MemoryContextResetAndDeleteChildren(PortalContext);
 
-#ifdef FAULT_INJECTOR
-			FaultInjector_InjectFaultIfSet(
-				"auto_vac_worker_abort", DDLNotSpecified,
-				"", tab->at_relname);
-#endif
-
 			/* restart our transaction for the following operations */
 			StartTransactionCommand();
 			RESUME_INTERRUPTS();
@@ -2835,7 +2665,7 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 		switch (workitem->avw_type)
 		{
 			case AVW_BRINSummarizeRange:
-				DirectFunctionCall2(brin_summarize_range_internal,
+				DirectFunctionCall2(brin_summarize_range,
 									ObjectIdGetDatum(workitem->avw_relation),
 									Int64GetDatum((int64) workitem->avw_blockNumber));
 				break;
@@ -2904,12 +2734,7 @@ extract_autovac_opts(HeapTuple tup, TupleDesc pg_class_desc)
 
 	Assert(((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_RELATION ||
 		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_MATVIEW ||
-		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_TOASTVALUE ||
-		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_AOSEGMENTS ||
-		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_AOBLOCKDIR ||
-		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_AOVISIMAP ||
-		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_PARTITIONED_TABLE);
-
+		   ((Form_pg_class) GETSTRUCT(tup))->relkind == RELKIND_TOASTVALUE);
 
 	relopts = extractRelOptions(tup, pg_class_desc, NULL);
 	if (relopts == NULL)
@@ -3070,7 +2895,7 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 		tab->at_relid = relid;
 		tab->at_sharedrel = classForm->relisshared;
 		tab->at_params.options = VACOPT_SKIPTOAST |
-			(dovacuum ? (VACOPT_VACUUM | VACOPT_SKIP_DATABASE_STATS) : 0) |
+			(dovacuum ? VACOPT_VACUUM : 0) |
 			(doanalyze ? VACOPT_ANALYZE : 0) |
 			(!wraparound ? VACOPT_SKIP_LOCKED : 0);
 		tab->at_params.index_cleanup = VACOPT_TERNARY_DEFAULT;
@@ -3081,7 +2906,6 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 		tab->at_params.multixact_freeze_table_age = multixact_freeze_table_age;
 		tab->at_params.is_wraparound = wraparound;
 		tab->at_params.log_min_duration = log_min_duration;
-		tab->at_params.auto_stats = false;
 		tab->at_vacuum_cost_limit = vac_cost_limit;
 		tab->at_vacuum_cost_delay = vac_cost_delay;
 		tab->at_relname = NULL;
@@ -3094,7 +2918,7 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 		 */
 		tab->at_dobalance =
 			!(avopts && (avopts->vacuum_cost_limit > 0 ||
-						 avopts->vacuum_cost_delay > 0));
+						 avopts->vacuum_cost_delay >= 0));
 	}
 
 	heap_freetuple(classTup);
@@ -3174,12 +2998,6 @@ relation_needs_vacanalyze(Oid relid,
 	TransactionId xidForceLimit;
 	MultiXactId multiForceLimit;
 
-	/*
-	 * We don't need to hold AutovacuumLock here, since it should be read-only in the worker itself
-	 * once the MyWorkerInfo gets set, all the workers only care about its own value.
-	 */
-	Assert(MyWorkerInfo);
-
 	AssertArg(classForm != NULL);
 	AssertArg(OidIsValid(relid));
 
@@ -3220,15 +3038,6 @@ relation_needs_vacanalyze(Oid relid,
 	xidForceLimit = recentXid - freeze_max_age;
 	if (xidForceLimit < FirstNormalTransactionId)
 		xidForceLimit -= FirstNormalTransactionId;
-	/*
-	 * GPDB: Append-optimized tables don't have any transaction IDs and don't
-	 * need to be considered for anti-wraparound vacuums. They are implicitly
-	 * excluded from anti-wraparound vacuums below since their relfrozenxid is
-	 * always InvalidTransactionId.
-	 */
-	AssertImply(IsAccessMethodAO(classForm->relam),
-				!TransactionIdIsValid(classForm->relfrozenxid));
-
 	force_vacuum = (TransactionIdIsNormal(classForm->relfrozenxid) &&
 					TransactionIdPrecedes(classForm->relfrozenxid,
 										  xidForceLimit));
@@ -3293,30 +3102,6 @@ relation_needs_vacanalyze(Oid relid,
 	/* ANALYZE refuses to work with pg_statistic */
 	if (relid == StatisticRelationId)
 		*doanalyze = false;
-
-	/*
-	 * Always analyze (merge stats) for partitioned tables, since we
-	 * aren't tracking tuples modified in the root, only the leaves
-	 */
-	if (get_rel_relkind(relid) == RELKIND_PARTITIONED_TABLE)
-		*doanalyze = true;
-
-	/* Only wish to trigger auto-analyze from coordinator */
-	if (Gp_role != GP_ROLE_DISPATCH)
-		*doanalyze = false;
-
-	if (!force_vacuum && gp_autovacuum_scope == AV_SCOPE_CATALOG)
-	{
-		/* GPDB: autovacuum on pg_catalog relations */
-		if (!IsCatalogRelationOid(relid))
-			*dovacuum = false;
-	}
-	else if (!force_vacuum && gp_autovacuum_scope == AV_SCOPE_CATALOG_AO_AUX)
-	{
-		/* GPDB: autovacuum only pg_catalog, pg_toast, and pg_aoseg relations */
-		if (!IsSystemClass(relid, classForm))
-			*dovacuum = false;
-	}
 }
 
 /*
@@ -3337,12 +3122,6 @@ autovacuum_do_vac_analyze(autovac_table *tab, BufferAccessStrategy bstrategy)
 	rangevar = makeRangeVar(tab->at_nspname, tab->at_relname, -1);
 	rel = makeVacuumRelation(rangevar, tab->at_relid, NIL);
 	rel_list = list_make1(rel);
-
-#ifdef FAULT_INJECTOR
-	FaultInjector_InjectFaultIfSet(
-		"auto_vac_worker_after_report_activity", DDLNotSpecified,
-		"", tab->at_relname);
-#endif
 
 	vacuum(rel_list, &tab->at_params, bstrategy, true);
 }
@@ -3407,10 +3186,7 @@ autovac_report_workitem(AutoVacuumWorkItem *workitem,
 			snprintf(activity, MAX_AUTOVAC_ACTIV_LEN,
 					 "autovacuum: BRIN summarize");
 			break;
-
-		case AVW_UpdateRootPartitionStats:
-			snprintf(activity, MAX_AUTOVAC_ACTIV_LEN,
-					 "autovacuum: Update root partition stats");
+		default:
 			break;
 	}
 
@@ -3608,48 +3384,4 @@ autovac_refresh_stats(void)
 	}
 
 	pgstat_clear_snapshot();
-}
-
-/*
- * 1. Add tables, received through auto vacuum workers to the hash table
- * containing OIDs of root table for autovacuum/analyze.
- *
- * 2. Only AVW_UpdateRootPartitionStats (worker type) is processed in the
- * function. This worker type brings the OID of the root table to which a
- * partition is attached/detached.
- */
-static void
-add_tables_from_autovac_workers(HTAB *top_level_partition_roots)
-{
-
-	LWLockAcquire(AutovacuumLock, LW_EXCLUSIVE);
-	for (int i = 0; i < NUM_WORKITEMS; i++)
-	{
-		AutoVacuumWorkItem *workitem = &AutoVacuumShmem->av_workItems[i];
-
-		/*
-		 * Only AVW_UpdateRootPartitionStats worker type is processed in this
-		 * function.
-		 */
-		if (workitem->avw_type != AVW_UpdateRootPartitionStats)
-			continue;
-		if (!workitem->avw_used)
-			continue;
-		if (workitem->avw_active)
-			continue;
-		if (workitem->avw_database != MyDatabaseId)
-			continue;
-
-		/*
-		 * Add received table oid to the hash table containing OIDs of root
-		 * table for autovacuum/analyze.
-		 */
-		Oid root_parent_relid = workitem->avw_relation;
-		(void) hash_search(top_level_partition_roots, (void *) &root_parent_relid, HASH_ENTER, NULL);
-
-		/* and mark it done */
-		workitem->avw_active = false;
-		workitem->avw_used = false;
-	}
-	LWLockRelease(AutovacuumLock);
 }

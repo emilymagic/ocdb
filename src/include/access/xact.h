@@ -24,7 +24,6 @@
 #include "utils/datetime.h"
 
 #include "cdb/cdbpublic.h"
-#include "cdb/cdbtm.h"
 
 /*
  * Maximum size of Global Transaction ID (including '\0').
@@ -95,14 +94,11 @@ extern int	synchronous_commit;
  */
 extern int	MyXactFlags;
 
-/* Disabled in GPDB as per comment in PrepareTransaction(). */
-#if 0
 /*
  * XACT_FLAGS_ACCESSEDTEMPNAMESPACE - set when a temporary object is accessed.
  * We don't allow PREPARE TRANSACTION in that case.
  */
 #define XACT_FLAGS_ACCESSEDTEMPNAMESPACE		(1U << 0)
-#endif
 
 /*
  * XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK - records whether the top level xact
@@ -115,6 +111,13 @@ extern int	MyXactFlags;
  * is one that requires immediate commit, such as CREATE DATABASE.
  */
 #define XACT_FLAGS_NEEDIMMEDIATECOMMIT			(1U << 2)
+
+/*
+ * XACT_FLAGS_PIPELINING - set when we complete an extended-query-protocol
+ * Execute message.  This is useful for detecting that an implicit transaction
+ * block has been created via pipelining.
+ */
+#define XACT_FLAGS_PIPELINING					(1U << 3)
 
 /*
  *	start- and end-of-transaction callbacks for dynamically loaded modules
@@ -160,9 +163,8 @@ typedef void (*SubXactCallback) (SubXactEvent event, SubTransactionId mySubid,
 #define XLOG_XACT_COMMIT_PREPARED	0x30
 #define XLOG_XACT_ABORT_PREPARED	0x40
 #define XLOG_XACT_ASSIGNMENT		0x50
-/* GPDB takes the last available three opcodes */
-#define XLOG_XACT_DISTRIBUTED_COMMIT 0x60
-#define XLOG_XACT_DISTRIBUTED_FORGET 0x70
+/* free opcode 0x60 */
+/* free opcode 0x70 */
 
 /* mask for filtering opcodes out of xl_info */
 #define XLOG_XACT_OPMASK			0x70
@@ -182,8 +184,6 @@ typedef void (*SubXactCallback) (SubXactEvent event, SubTransactionId mySubid,
 #define XACT_XINFO_HAS_ORIGIN			(1U << 5)
 #define XACT_XINFO_HAS_AE_LOCKS			(1U << 6)
 #define XACT_XINFO_HAS_GID				(1U << 7)
-#define XACT_XINFO_HAS_DISTRIB			(1U << 8)
-#define XACT_XINFO_HAS_DELDBS			(1U << 9)
 
 /*
  * Also stored in xinfo, these indicating a variety of additional actions that
@@ -241,11 +241,6 @@ typedef struct xl_xact_xinfo
 	uint32		xinfo;
 } xl_xact_xinfo;
 
-typedef struct xl_xact_distrib
-{
-	DistributedTransactionId distrib_xid;
-} xl_xact_distrib;
-
 typedef struct xl_xact_dbinfo
 {
 	Oid			dbId;			/* MyDatabaseId */
@@ -262,7 +257,7 @@ typedef struct xl_xact_subxacts
 typedef struct xl_xact_relfilenodes
 {
 	int			nrels;			/* number of subtransaction XIDs */
-	RelFileNodePendingDelete xnodes[FLEXIBLE_ARRAY_MEMBER];
+	RelFileNode xnodes[FLEXIBLE_ARRAY_MEMBER];
 } xl_xact_relfilenodes;
 #define MinSizeOfXactRelfilenodes offsetof(xl_xact_relfilenodes, xnodes)
 
@@ -272,13 +267,6 @@ typedef struct xl_xact_invals
 	SharedInvalidationMessage msgs[FLEXIBLE_ARRAY_MEMBER];
 } xl_xact_invals;
 #define MinSizeOfXactInvals offsetof(xl_xact_invals, msgs)
-
-typedef struct xl_xact_deldbs
-{
-	int			ndeldbs;		/* number of DbDirNodes */
-	DbDirNode	deldbs[FLEXIBLE_ARRAY_MEMBER];
-} xl_xact_deldbs;
-#define MinSizeOfXactDelDbs offsetof(xl_xact_deldbs, deldbs)
 
 typedef struct xl_xact_twophase
 {
@@ -294,30 +282,26 @@ typedef struct xl_xact_origin
 typedef struct xl_xact_commit
 {
 	TimestampTz xact_time;		/* time of commit */
-	Oid	tablespace_oid_to_delete_on_commit;
 
 	/* xl_xact_xinfo follows if XLOG_XACT_HAS_INFO */
 	/* xl_xact_dbinfo follows if XINFO_HAS_DBINFO */
 	/* xl_xact_subxacts follows if XINFO_HAS_SUBXACT */
 	/* xl_xact_relfilenodes follows if XINFO_HAS_RELFILENODES */
 	/* xl_xact_invals follows if XINFO_HAS_INVALS */
-	/* xl_xact_deldbs follows if XACT_XINFO_HAS_DELDBS */
 	/* xl_xact_twophase follows if XINFO_HAS_TWOPHASE */
 	/* twophase_gid follows if XINFO_HAS_GID. As a null-terminated string. */
 	/* xl_xact_origin follows if XINFO_HAS_ORIGIN, stored unaligned! */
 } xl_xact_commit;
-#define MinSizeOfXactCommit sizeof(xl_xact_commit) 
+#define MinSizeOfXactCommit (offsetof(xl_xact_commit, xact_time) + sizeof(TimestampTz))
 
 typedef struct xl_xact_abort
 {
 	TimestampTz xact_time;		/* time of abort */
-	Oid tablespace_oid_to_delete_on_abort;
 
 	/* xl_xact_xinfo follows if XLOG_XACT_HAS_INFO */
 	/* xl_xact_dbinfo follows if XINFO_HAS_DBINFO */
 	/* xl_xact_subxacts follows if HAS_SUBXACT */
 	/* xl_xact_relfilenodes follows if HAS_RELFILENODES */
-	/* xl_xact_deldbs follows if HAS_DELDBS */
 	/* No invalidation messages needed. */
 	/* xl_xact_twophase follows if XINFO_HAS_TWOPHASE */
 	/* twophase_gid follows if XINFO_HAS_GID. As a null-terminated string. */
@@ -335,8 +319,6 @@ typedef struct xl_xact_parsed_commit
 	TimestampTz xact_time;
 	uint32		xinfo;
 
-	Oid			tablespace_oid_to_delete_on_commit;
-
 	Oid			dbId;			/* MyDatabaseId */
 	Oid			tsId;			/* MyDatabaseTableSpace */
 
@@ -344,23 +326,18 @@ typedef struct xl_xact_parsed_commit
 	TransactionId *subxacts;
 
 	int			nrels;
-	RelFileNodePendingDelete *xnodes;
+	RelFileNode *xnodes;
 
 	int			nmsgs;
 	SharedInvalidationMessage *msgs;
 
-	int			ndeldbs;
-	DbDirNode	*deldbs;
-
 	TransactionId twophase_xid; /* only for 2PC */
 	char		twophase_gid[GIDSIZE];	/* only for 2PC */
 	int			nabortrels;		/* only for 2PC */
-	RelFileNodePendingDelete *abortnodes;	/* only for 2PC */
+	RelFileNode *abortnodes;	/* only for 2PC */
 
 	XLogRecPtr	origin_lsn;
 	TimestampTz origin_timestamp;
-
-	DistributedTransactionId        distribXid;
 } xl_xact_parsed_commit;
 
 typedef xl_xact_parsed_commit xl_xact_parsed_prepare;
@@ -370,7 +347,6 @@ typedef struct xl_xact_parsed_abort
 	TimestampTz xact_time;
 	uint32		xinfo;
 
-	Oid         tablespace_oid_to_delete_on_abort;
 	Oid			dbId;			/* MyDatabaseId */
 	Oid			tsId;			/* MyDatabaseTableSpace */
 
@@ -378,10 +354,7 @@ typedef struct xl_xact_parsed_abort
 	TransactionId *subxacts;
 
 	int			nrels;
-	RelFileNodePendingDelete *xnodes;
-
-	int			ndeldbs;
-	DbDirNode	*deldbs;
+	RelFileNode *xnodes;
 
 	TransactionId twophase_xid; /* only for 2PC */
 	char		twophase_gid[GIDSIZE];	/* only for 2PC */
@@ -390,34 +363,17 @@ typedef struct xl_xact_parsed_abort
 	TimestampTz origin_timestamp;
 } xl_xact_parsed_abort;
 
-/* 
- * xl_xact_distributed_forget - moved to cdb/cdbtm.h 
- */
-typedef struct xl_xact_distributed_forget
-{
-	DistributedTransactionId gxid;
-} xl_xact_distributed_forget;
 
 /* ----------------
  *		extern definitions
  * ----------------
  */
-
-/* Greenplum Database specific */ 
-extern void SetSharedTransactionId_writer(DtxContext distributedTransactionContext);
-extern void SetSharedTransactionId_reader(FullTransactionId xid, CommandId cid, DtxContext distributedTransactionContext);
 extern bool IsTransactionState(void);
-extern bool IsAbortInProgress(void);
 extern bool IsAbortedTransactionBlockState(void);
-extern bool TransactionDidWriteXLog(void);
-extern bool TopXactExecutorDidWriteXLog(void);
-extern void GetAllTransactionXids(
-	DistributedTransactionId	*distribXid,
-	TransactionId				*localXid,
-	TransactionId				*subXid);
 extern TransactionId GetTopTransactionId(void);
 extern TransactionId GetTopTransactionIdIfAny(void);
 extern TransactionId GetCurrentTransactionId(void);
+extern uint64 TransactionGetSequence(bool increaseSeq);
 extern TransactionId GetCurrentTransactionIdIfAny(void);
 extern TransactionId GetStableLatestTransactionId(void);
 extern SubTransactionId GetCurrentSubTransactionId(void);
@@ -426,7 +382,6 @@ extern FullTransactionId GetTopFullTransactionIdIfAny(void);
 extern FullTransactionId GetCurrentFullTransactionId(void);
 extern FullTransactionId GetCurrentFullTransactionIdIfAny(void);
 extern void MarkCurrentTransactionIdLoggedIfAny(void);
-extern void MarkTopTransactionWriteXLogOnExecutor(void);
 extern bool SubTransactionIsActive(SubTransactionId subxid);
 extern CommandId GetCurrentCommandId(bool used);
 extern void SetParallelStartTimestamps(TimestampTz xact_ts, TimestampTz stmt_ts);
@@ -451,7 +406,6 @@ extern void BeginImplicitTransactionBlock(void);
 extern void EndImplicitTransactionBlock(void);
 extern void ReleaseSavepoint(const char *name);
 extern void DefineSavepoint(const char *name);
-extern void DefineDispatchSavepoint(char *name);
 extern void RollbackToSavepoint(const char *name);
 extern void BeginInternalSubTransaction(const char *name);
 extern void ReleaseCurrentSubTransaction(void);
@@ -463,9 +417,6 @@ extern void StartParallelWorkerTransaction(char *tstatespace);
 extern void EndParallelWorkerTransaction(void);
 extern bool IsTransactionBlock(void);
 extern bool IsTransactionOrTransactionBlock(void);
-extern void ExecutorMarkTransactionUsesSequences(void);
-extern void ExecutorMarkTransactionDoesWrites(void);
-extern bool ExecutorSaysTransactionDoesWrites(void);
 extern char TransactionBlockStatusCode(void);
 extern void AbortOutOfAnyTransaction(void);
 extern void PreventInTransactionBlock(bool isTopLevel, const char *stmtType);
@@ -474,30 +425,23 @@ extern void WarnNoTransactionBlock(bool isTopLevel, const char *stmtType);
 extern bool IsInTransactionBlock(bool isTopLevel);
 extern void RegisterXactCallback(XactCallback callback, void *arg);
 extern void UnregisterXactCallback(XactCallback callback, void *arg);
-extern void RegisterXactCallbackOnce(XactCallback callback, void *arg);
-extern void UnregisterXactCallbackOnce(XactCallback callback, void *arg);
 extern void RegisterSubXactCallback(SubXactCallback callback, void *arg);
 extern void UnregisterSubXactCallback(SubXactCallback callback, void *arg);
-
-extern void RecordDistributedForgetCommitted(DistributedTransactionId gxid);
 
 extern int	xactGetCommittedChildren(TransactionId **ptr);
 
 extern XLogRecPtr XactLogCommitRecord(TimestampTz commit_time,
-									  Oid tablespace_oid_to_delete_on_commit,
 									  int nsubxacts, TransactionId *subxacts,
-									  int nrels, RelFileNodePendingDelete *rels,
+									  int nrels, RelFileNode *rels,
 									  int nmsgs, SharedInvalidationMessage *msgs,
-									  int ndeldbs, DbDirNode *deldbs,
 									  bool relcacheInval, bool forceSync,
-									  int xactflags, TransactionId twophase_xid,
+									  int xactflags,
+									  TransactionId twophase_xid,
 									  const char *twophase_gid);
 
 extern XLogRecPtr XactLogAbortRecord(TimestampTz abort_time,
-									 Oid tablespace_oid_to_abort,
 									 int nsubxacts, TransactionId *subxacts,
-									 int nrels, RelFileNodePendingDelete *rels,
-									 int ndeldbs, DbDirNode *deldbs,
+									 int nrels, RelFileNode *rels,
 									 int xactflags, TransactionId twophase_xid,
 									 const char *twophase_gid);
 extern void xact_redo(XLogReaderState *record);
@@ -513,8 +457,5 @@ extern void ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_ab
 extern void EnterParallelMode(void);
 extern void ExitParallelMode(void);
 extern bool IsInParallelMode(void);
-
-/* GPDB: Used for logging */
-extern const char *IsoLevelAsUpperString(int IsoLevel);
 
 #endif							/* XACT_H */

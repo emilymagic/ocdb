@@ -50,6 +50,7 @@
 
 #include "access/tuptoaster.h"
 #include "catalog/pg_collation.h"
+#include "utils/pickcat.h"
 #include "cdb/cdbvars.h"
 #include "utils/pg_locale.h"
 
@@ -1477,6 +1478,12 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				scratch.d.convert_rowtype.outcache = &rowcachep[1];
 				scratch.d.convert_rowtype.map = NULL;
 
+				/*
+				 * Catalog collect
+				 */
+				PickType(scratch.d.convert_rowtype.inputtype);
+				PickType(scratch.d.convert_rowtype.outputtype);
+
 				ExprEvalPushStep(state, &scratch);
 				break;
 			}
@@ -2057,6 +2064,11 @@ ExecInitExprRec(Expr *node, ExprState *state,
 					ExecInitExprRec(e, state,
 									&scratch.d.xmlexpr.named_argvalue[off],
 									&scratch.d.xmlexpr.named_argnull[off]);
+					/*
+					 * Catalog collect
+					 */
+					PickType(exprType((Node *) e));
+
 					off++;
 				}
 
@@ -2198,6 +2210,12 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				scratch.d.nextvalueexpr.seqtypid = nve->typeId;
 
 				ExprEvalPushStep(state, &scratch);
+
+				/*
+				 * Catalog collect
+				 */
+				PickRelationOid(scratch.d.nextvalueexpr.seqid);
+
 				break;
 			}
 
@@ -2314,6 +2332,8 @@ ExecInitFunc(ExprEvalStep *scratch, Expr *node, List *args, Oid funcid,
 
 			fcinfo->args[argno].value = con->constvalue;
 			fcinfo->args[argno].isnull = con->constisnull;
+
+			PickType(con->consttype);
 		}
 		else
 		{
@@ -2339,6 +2359,12 @@ ExecInitFunc(ExprEvalStep *scratch, Expr *node, List *args, Oid funcid,
 		else
 			scratch->opcode = EEOP_FUNCEXPR_FUSAGE;
 	}
+
+
+	/*
+	 * Catalog collect
+	 */
+	PickFunctionCall(fcinfo->flinfo, fcinfo->nargs, fcinfo->args);
 }
 
 /*
@@ -2558,6 +2584,11 @@ ExecInitWholeRowVar(ExprEvalStep *scratch, Var *variable, ExprState *state)
 	scratch->d.wholerow.slow = false;
 	scratch->d.wholerow.tupdesc = NULL; /* filled at runtime */
 	scratch->d.wholerow.junkFilter = NULL;
+
+	/*
+	 * Catalog collect
+	 */
+	PickType(variable->vartype);
 
 	/*
 	 * If the input tuple came from a subquery, it might contain "resjunk"

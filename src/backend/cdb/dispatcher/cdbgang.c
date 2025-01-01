@@ -26,7 +26,6 @@
 #include "postmaster/postmaster.h"
 #include "tcop/tcopprot.h"
 #include "utils/int8.h"
-#include "utils/sharedsnapshot.h"
 #include "tcop/pquery.h"
 
 #include "libpq-fe.h"
@@ -778,92 +777,6 @@ void DisconnectAndDestroyUnusedQEs(void)
 	cdbcomponent_cleanupIdleQEs(false);
 }
 
-/*
- * Drop any temporary tables associated with the current session and
- * use a new session id since we have effectively reset the session.
- */
-void
-GpDropTempTables(void)
-{
-	int			oldSessionId = 0;
-	int			newSessionId = 0;
-	Oid			dropTempNamespaceOid;
-	Oid			dropTempToastNamespaceOid;
-
-	/* No need to reset session or drop temp tables */
-	if (!NeedResetSession && OldTempNamespace == InvalidOid)
-		return;
-
-	/* Do the session id change early. */
-	if (NeedResetSession)
-	{
-		/* If we have gangs, we can't change our session ID. */
-		Assert(!cdbcomponent_qesExist());
-
-		oldSessionId = gp_session_id;
-		ProcNewMppSessionId(&newSessionId);
-
-		gp_session_id = newSessionId;
-		gp_command_count = 0;
-		pgstat_report_sessionid(newSessionId);
-
-		/* Update the slotid for our singleton reader. */
-		if (SharedLocalSnapshotSlot != NULL)
-		{
-			LWLockAcquire(SharedLocalSnapshotSlot->slotLock, LW_EXCLUSIVE);
-			SharedLocalSnapshotSlot->slotid = gp_session_id;
-			LWLockRelease(SharedLocalSnapshotSlot->slotLock);
-		}
-
-		elog(LOG, "The previous session was reset because its gang was disconnected (session id = %d). "
-			 "The new session id = %d", oldSessionId, newSessionId);
-	}
-
-	/*
-	 * When it's in transaction block, need to bump the session id, e.g. retry COMMIT PREPARED,
-	 * but defer drop temp table to the main loop in PostgresMain().
-	 */
-	if (IsTransactionOrTransactionBlock())
-	{
-		NeedResetSession = false;
-		return;
-	}
-
-	dropTempNamespaceOid = OldTempNamespace;
-	dropTempToastNamespaceOid = OldTempToastNamespace;
-	OldTempNamespace = InvalidOid;
-	OldTempToastNamespace = InvalidOid;
-	NeedResetSession = false;
-
-	if (dropTempNamespaceOid != InvalidOid)
-	{
-		MemoryContext oldcontext = CurrentMemoryContext;
-
-		PG_TRY();
-		{
-			DropTempTableNamespaceForResetSession(dropTempNamespaceOid);
-			/* drop pg_temp_N schema entry from pg_namespace */
-			DropTempTableNamespaceEntryForResetSession(dropTempNamespaceOid, dropTempToastNamespaceOid);
-		} PG_CATCH();
-		{
-			/*
-			 * But first demote the error to something much less scary.
-			 */
-			if (!elog_demote(WARNING))
-			{
-				elog(LOG, "unable to demote error");
-				PG_RE_THROW();
-			}
-
-			EmitErrorReport();
-
-			MemoryContextSwitchTo(oldcontext);
-			FlushErrorState();
-			AbortCurrentTransaction();
-		} PG_END_TRY();
-	}
-}
-
 void
 resetSessionForPrimaryGangLoss(void)
 {
@@ -879,37 +792,6 @@ resetSessionForPrimaryGangLoss(void)
 		 * Not too early.
 		 */
 		NeedResetSession = true;
-
-		/*
-		 * Keep this check away from transaction/catalog access, as we are
-		 * possibly just after releasing ResourceOwner at the end of Tx. It's
-		 * ok to remember uncommitted temporary namespace because
-		 * DropTempTableNamespaceForResetSession will simply do nothing if the
-		 * namespace is not visible.
-		 */
-		if (TempNamespaceOidIsValid())
-		{
-
-			OldTempToastNamespace = GetTempToastNamespace();
-			/*
-			 * Here we indicate we don't have a temporary table namespace
-			 * anymore so all temporary tables of the previous session will be
-			 * inaccessible.  Later, when we can start a new transaction, we
-			 * will attempt to actually drop the old session tables to release
-			 * the disk space.
-			 */
-			OldTempNamespace = ResetTempNamespace();
-
-			elog(WARNING,
-				 "Any temporary tables for this session have been dropped "
-				 "because the gang was disconnected (session id = %d)",
-				 gp_session_id);
-		}
-		else
-		{
-			OldTempNamespace = InvalidOid;
-			OldTempToastNamespace = InvalidOid;
-		}
 	}
 }
 
@@ -1001,7 +883,6 @@ void
 ResetAllGangs(void)
 {
 	DisconnectAndDestroyAllGangs(true);
-	GpDropTempTables();
 }
 
 /*

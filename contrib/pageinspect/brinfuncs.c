@@ -22,20 +22,17 @@
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "lib/stringinfo.h"
-#include "storage/bufmgr.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "miscadmin.h"
 
+
 PG_FUNCTION_INFO_V1(brin_page_type);
 PG_FUNCTION_INFO_V1(brin_page_items);
 PG_FUNCTION_INFO_V1(brin_metapage_info);
 PG_FUNCTION_INFO_V1(brin_revmap_data);
-
-/* GPDB specific */
-PG_FUNCTION_INFO_V1(brin_revmap_chain);
 
 #define IS_BRIN(r) ((r)->rd_rel->relam == BRIN_AM_OID)
 
@@ -232,8 +229,8 @@ brin_page_items(PG_FUNCTION_ARGS)
 	dtup = NULL;
 	for (;;)
 	{
-		Datum		values[8];
-		bool		nulls[8] = {0};
+		Datum		values[7];
+		bool		nulls[7];
 
 		/*
 		 * This loop is called once for every attribute of every tuple in the
@@ -272,7 +269,6 @@ brin_page_items(PG_FUNCTION_ARGS)
 			nulls[4] = true;
 			nulls[5] = true;
 			nulls[6] = true;
-			nulls[7] = true;
 		}
 		else
 		{
@@ -284,7 +280,6 @@ brin_page_items(PG_FUNCTION_ARGS)
 			values[3] = BoolGetDatum(dtup->bt_columns[att].bv_allnulls);
 			values[4] = BoolGetDatum(dtup->bt_columns[att].bv_hasnulls);
 			values[5] = BoolGetDatum(dtup->bt_placeholder);
-			values[6] = BoolGetDatum(dtup->bt_empty_range);
 			if (!dtup->bt_columns[att].bv_allnulls)
 			{
 				BrinValues *bvalues = &dtup->bt_columns[att];
@@ -310,12 +305,12 @@ brin_page_items(PG_FUNCTION_ARGS)
 				}
 				appendStringInfoChar(&s, '}');
 
-				values[7] = CStringGetTextDatum(s.data);
+				values[6] = CStringGetTextDatum(s.data);
 				pfree(s.data);
 			}
 			else
 			{
-				nulls[7] = true;
+				nulls[6] = true;
 			}
 		}
 
@@ -357,11 +352,8 @@ brin_metapage_info(PG_FUNCTION_ARGS)
 	Page		page;
 	BrinMetaPageData *meta;
 	TupleDesc	tupdesc;
-	Datum		values[8];
-	bool		nulls[8];
-	Datum 	   *firstrevmappages;
-	Datum	   *lastrevmappages;
-	Datum	   *lastrevmappagenums;
+	Datum		values[4];
+	bool		nulls[4];
 	HeapTuple	htup;
 
 	if (!superuser())
@@ -386,46 +378,6 @@ brin_metapage_info(PG_FUNCTION_ARGS)
 	values[1] = Int32GetDatum(meta->brinVersion);
 	values[2] = Int32GetDatum(meta->pagesPerRange);
 	values[3] = Int64GetDatum(meta->lastRevmapPage);
-
-	/* GPDB specific fields */
-	values[4] = Int64GetDatum(meta->isAO);
-	if (!meta->isAO)
-	{
-		nulls[5] = true;
-		nulls[6] = true;
-		nulls[7] = true;
-	}
-	else
-	{
-		firstrevmappages = palloc(sizeof(Datum) * MAX_AOREL_CONCURRENCY);
-		lastrevmappages = palloc(sizeof(Datum) * MAX_AOREL_CONCURRENCY);
-		lastrevmappagenums = palloc(sizeof(Datum) * MAX_AOREL_CONCURRENCY);
-
-		for (int i = 0; i < MAX_AOREL_CONCURRENCY; i++)
-		{
-			/*
-			 * We project these with Int32Get, so we can represent
-			 * InvalidBlockNumber as (-1), for brevity.
-			 */
-			firstrevmappages[i] = Int32GetDatum(meta->aoChainInfo[i].firstPage);
-			lastrevmappages[i] = Int32GetDatum(meta->aoChainInfo[i].lastPage);
-
-			lastrevmappagenums[i] = UInt32GetDatum(meta->aoChainInfo[i].lastLogicalPageNum);
-		}
-
-		values[5] = PointerGetDatum(construct_array(firstrevmappages,
-													MAX_AOREL_CONCURRENCY,
-													INT8OID,
-													sizeof(int64), true, 'i'));
-		values[6] = PointerGetDatum(construct_array(lastrevmappages,
-													MAX_AOREL_CONCURRENCY,
-													INT8OID,
-													sizeof(int64), true, 'i'));
-		values[7] = PointerGetDatum(construct_array(lastrevmappagenums,
-													MAX_AOREL_CONCURRENCY,
-													INT8OID,
-													sizeof(int64), true, 'i'));
-	}
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
@@ -487,72 +439,4 @@ brin_revmap_data(PG_FUNCTION_ARGS)
 		SRF_RETURN_NEXT(fctx, PointerGetDatum(&state->tids[state->idx++]));
 
 	SRF_RETURN_DONE(fctx);
-}
-
-/*
- * GPDB: Returns the chain of revmap block numbers for a given segno (aka block
- * sequence).
- */
-Datum
-brin_revmap_chain(PG_FUNCTION_ARGS)
-{
-	Oid 				indexRelid = PG_GETARG_OID(0);
-	int 				segno = PG_GETARG_UINT32(1);
-	Buffer 				metabuf;
-	Page  				metapage;
-	BrinMetaPageData 	*meta;
-	ArrayBuildState 	*astate = NULL;
-	BlockNumber			currRevmapBlk;
-
-	Relation indexRel = index_open(indexRelid, AccessShareLock);
-
-	if (!superuser())
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					(errmsg("must be superuser to use raw page functions"))));
-
-	if (!IS_BRIN(indexRel))
-		ereport(ERROR,
-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					errmsg("\"%s\" is not a %s index",
-						   RelationGetRelationName(indexRel), "BRIN")));
-
-	if (segno < 0 || segno > AOTupleId_MaxSegmentFileNum)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					errmsg("\"%u\" is not a valid segno value (valid values are in [0,127])",
-						   segno)));
-
-	metabuf = ReadBuffer(indexRel, BRIN_METAPAGE_BLKNO);
-	metapage = BufferGetPage(metabuf);
-	if (PageIsNew(metapage))
-	{
-		ReleaseBuffer(metabuf);
-		index_close(indexRel, AccessShareLock);
-		PG_RETURN_NULL();
-	}
-
-	meta = (BrinMetaPageData *) PageGetContents(metapage);
-	currRevmapBlk = meta->aoChainInfo[segno].firstPage;
-	while (currRevmapBlk != InvalidBlockNumber)
-	{
-		/* Look at the chain link to see what the next revmap blknum is */
-		Buffer curr;
-
-		astate = accumArrayResult(astate, UInt32GetDatum(currRevmapBlk), false,
-								  INT8OID, CurrentMemoryContext);
-
-		curr = ReadBuffer(indexRel, currRevmapBlk);
-		currRevmapBlk = BrinNextRevmapPage(BufferGetPage(curr));
-		ReleaseBuffer(curr);
-	}
-
-	ReleaseBuffer(metabuf);
-	index_close(indexRel, AccessShareLock);
-
-	if (astate)
-		PG_RETURN_DATUM(makeArrayResult(astate,
-										CurrentMemoryContext));
-	else
-		PG_RETURN_NULL();
 }

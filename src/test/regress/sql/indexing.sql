@@ -198,7 +198,7 @@ drop table idxpart;
 -- When a table is attached a partition and it already has an index, a
 -- duplicate index should not get created, but rather the index becomes
 -- attached to the parent's index.
-create table idxpart (a int, b int, c text) partition by range (a);
+create table idxpart (a int, b int, c text, d bool) partition by range (a);
 create index idxparti on idxpart (a);
 create index idxparti2 on idxpart (b, c);
 create table idxpart1 (like idxpart including indexes);
@@ -208,6 +208,19 @@ select relname, relkind, inhparent::regclass
 	left join pg_inherits on (ix.indexrelid = inhrelid)
 	where relname like 'idxpart%' order by relname;
 alter table idxpart attach partition idxpart1 for values from (0) to (10);
+\d idxpart1
+select relname, relkind, inhparent::regclass
+    from pg_class left join pg_index ix on (indexrelid = oid)
+	left join pg_inherits on (ix.indexrelid = inhrelid)
+	where relname like 'idxpart%' order by relname;
+-- While here, also check matching when creating an index after the fact.
+create index on idxpart1 ((a+b)) where d = true;
+\d idxpart1
+select relname, relkind, inhparent::regclass
+    from pg_class left join pg_index ix on (indexrelid = oid)
+	left join pg_inherits on (ix.indexrelid = inhrelid)
+	where relname like 'idxpart%' order by relname;
+create index idxparti3 on idxpart ((a+b)) where d = true;
 \d idxpart1
 select relname, relkind, inhparent::regclass
     from pg_class left join pg_index ix on (indexrelid = oid)
@@ -347,7 +360,6 @@ create table idxpart (col1 int, a int, col2 int, b int) partition by range (a);
 create table idxpart1 (b int, col1 int, col2 int, col3 int, a int);
 alter table idxpart drop column col1, drop column col2;
 alter table idxpart1 drop column col1, drop column col2, drop column col3;
-alter table idxpart1 set distributed randomly; -- GPDB: distribution key must match parent
 alter table idxpart attach partition idxpart1 for values from (0) to (1000);
 create index idxpart_1_idx on only idxpart (b, a);
 create index idxpart1_1_idx on idxpart1 (b, a);
@@ -373,12 +385,10 @@ create table idxpart (a int, b int, c text) partition by range (a);
 create index idxparti on idxpart (a);
 create index idxparti2 on idxpart (c, b);
 create table idxpart1 (c text, a int, b int);
-alter table idxpart1 set distributed by (a); -- GPDB: distribution key must match parent
 alter table idxpart attach partition idxpart1 for values from (0) to (10);
 create table idxpart2 (c text, a int, b int);
 create index on idxpart2 (a);
 create index on idxpart2 (c, b);
-alter table idxpart2 set distributed by (a); -- GPDB: distribution key must match parent
 alter table idxpart attach partition idxpart2 for values from (10) to (20);
 select c.relname, pg_get_indexdef(indexrelid)
   from pg_class c join pg_index i on c.oid = i.indexrelid
@@ -423,7 +433,6 @@ drop table idxpart;
 
 -- Column number mapping: dropped columns in the partition
 create table idxpart1 (drop_1 int, drop_2 int, col_keep int, drop_3 int);
-alter table idxpart1 set distributed by (col_keep); -- GPDB: distribution key must match parent
 alter table idxpart1 drop column drop_1;
 alter table idxpart1 drop column drop_2;
 alter table idxpart1 drop column drop_3;
@@ -444,7 +453,6 @@ alter table idxpart drop column drop_1;
 alter table idxpart drop column drop_2;
 alter table idxpart drop column drop_3;
 create table idxpart1 (col_keep int);
-alter table idxpart1 set distributed randomly; -- GPDB: distribution key must match parent
 create index on idxpart1 (col_keep);
 create index on idxpart (col_keep);
 alter table idxpart attach partition idxpart1 for values from (0) to (1000);
@@ -520,7 +528,6 @@ create table idxpart2 partition of idxpart for values from (10, 10) to (20, 20)
 create table idxpart21 partition of idxpart2 for values from (10) to (15);
 create table idxpart22 partition of idxpart2 for values from (15) to (20);
 create table idxpart3 (b int not null, a int not null);
-alter table idxpart3 set distributed by (a, b); -- GPDB: distribution key must match parent
 alter table idxpart attach partition idxpart3 for values from (20, 20) to (30, 30);
 select conname, contype, conrelid::regclass, conindid::regclass, conkey
   from pg_constraint where conrelid::regclass::text like 'idxpart%'
@@ -538,7 +545,6 @@ drop table idxpart;
 create table idxpart (a int unique, b int) partition by range (a);
 create table idxpart1 (a int not null, b int, unique (a, b))
   partition by range (a, b);
-alter table idxpart1 set distributed by (a); -- GPDB: distribution key must match parent
 alter table idxpart attach partition idxpart1 for values from (1) to (1000);
 DROP TABLE idxpart, idxpart1;
 
@@ -656,10 +662,8 @@ drop table idxpart;
 
 -- Test that unique constraints are working
 create table idxpart (a int, b text, primary key (a, b)) partition by range (a);
-alter table idxpart set distributed by (a);
 create table idxpart1 partition of idxpart for values from (0) to (100000);
 create table idxpart2 (c int, like idxpart);
-alter table idxpart2 set distributed by (a);
 insert into idxpart2 (c, a, b) values (42, 572814, 'inserted first');
 alter table idxpart2 drop column c;
 create unique index on idxpart (a);
@@ -688,7 +692,6 @@ create index on idxpart (a);
 create table idxpart_another (a int, b int, primary key (a, b)) partition by range (a);
 create table idxpart_another_1 partition of idxpart_another for values from (0) to (100);
 create table idxpart3 (c int, b int, a int) partition by range (a);
-alter table idxpart3 set distributed by (a); -- GPDB: distribution key must match parent
 alter table idxpart3 drop column b, drop column c;
 create table idxpart31 partition of idxpart3 for values from (1000) to (1200);
 create table idxpart32 partition of idxpart3 for values from (1200) to (1400);
@@ -701,7 +704,6 @@ set search_path to regress_indexing;
 create table pk (a int primary key) partition by range (a);
 create table pk1 partition of pk for values from (0) to (1000);
 create table pk2 (b int, a int);
-alter table pk2 set distributed by (a); -- GPDB: distribution key must match parent
 alter table pk2 drop column b;
 alter table pk2 alter a set not null;
 alter table pk attach partition pk2 for values from (1000) to (2000);
@@ -722,13 +724,11 @@ create table covidxpart2 partition of covidxpart for values in (2);
 insert into covidxpart values (1, 1);
 insert into covidxpart values (1, 1);
 create table covidxpart3 (b int, c int, a int);
-alter table covidxpart3 set distributed by (a); -- GPDB: distribution key must match parent
 alter table covidxpart3 drop c;
 alter table covidxpart attach partition covidxpart3 for values in (3);
 insert into covidxpart values (3, 1);
 insert into covidxpart values (3, 1);
 create table covidxpart4 (b int, a int);
-alter table covidxpart4 set distributed by (a);
 create unique index on covidxpart4 (a) include (b);
 create unique index on covidxpart4 (a);
 alter table covidxpart attach partition covidxpart4 for values in (4);
@@ -776,3 +776,51 @@ alter table parted_index_col_drop drop column c;
 \d parted_index_col_drop2
 \d parted_index_col_drop11
 drop table parted_index_col_drop;
+
+-- Check that invalid indexes are not selected when attaching a partition.
+create table parted_inval_tab (a int) partition by range (a);
+create index parted_inval_idx on parted_inval_tab (a);
+create table parted_inval_tab_1 (a int) partition by range (a);
+create table parted_inval_tab_1_1 partition of parted_inval_tab_1
+  for values from (0) to (10);
+create table parted_inval_tab_1_2 partition of parted_inval_tab_1
+  for values from (10) to (20);
+-- this creates an invalid index.
+create index parted_inval_ixd_1 on only parted_inval_tab_1 (a);
+-- this creates new indexes for all the partitions of parted_inval_tab_1,
+-- discarding the invalid index created previously as what is chosen.
+alter table parted_inval_tab attach partition parted_inval_tab_1
+  for values from (1) to (100);
+select indexrelid::regclass, indisvalid,
+       indrelid::regclass, inhparent::regclass
+  from pg_index idx left join
+       pg_inherits inh on (idx.indexrelid = inh.inhrelid)
+  where indexrelid::regclass::text like 'parted_inval%'
+  order by indexrelid::regclass::text collate "C";
+drop table parted_inval_tab;
+
+-- Check setup of indisvalid across a complex partition tree on index
+-- creation.  If one index in a partition index is invalid, so should its
+-- partitioned index.
+create table parted_isvalid_tab (a int, b int) partition by range (a);
+create table parted_isvalid_tab_1 partition of parted_isvalid_tab
+  for values from (1) to (10) partition by range (a);
+create table parted_isvalid_tab_2 partition of parted_isvalid_tab
+  for values from (10) to (20) partition by range (a);
+create table parted_isvalid_tab_11 partition of parted_isvalid_tab_1
+  for values from (1) to (5);
+create table parted_isvalid_tab_12 partition of parted_isvalid_tab_1
+  for values from (5) to (10);
+-- create an invalid index on one of the partitions.
+insert into parted_isvalid_tab_11 values (1, 0);
+create index concurrently parted_isvalid_idx_11 on parted_isvalid_tab_11 ((a/b));
+-- The previous invalid index is selected, invalidating all the indexes up to
+-- the top-most parent.
+create index parted_isvalid_idx on parted_isvalid_tab ((a/b));
+select indexrelid::regclass, indisvalid,
+       indrelid::regclass, inhparent::regclass
+  from pg_index idx left join
+       pg_inherits inh on (idx.indexrelid = inh.inhrelid)
+  where indexrelid::regclass::text like 'parted_isvalid%'
+  order by indexrelid::regclass::text collate "C";
+drop table parted_isvalid_tab;

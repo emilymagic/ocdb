@@ -93,7 +93,6 @@
 #include "cdb/cdbappendonlyam.h"
 #include "cdb/cdbaocsam.h"
 #include "cdb/cdbvars.h"
-#include "cdb/cdboidsync.h"
 #include "utils/faultinjector.h"
 
 /* Potentially set by pg_upgrade_support functions */
@@ -1010,7 +1009,6 @@ index_create(Relation heapRelation,
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{							/* MPP-7575: track index creation */
 		bool	 doIt	= true;
-		char	*subtyp = "INDEX";
 
 		/* MPP-7576: don't track internal namespace tables */
 		switch (namespaceId) 
@@ -1034,14 +1032,6 @@ index_create(Relation heapRelation,
 
 		if (doIt)
 			doIt = (!(isAnyTempNamespace(namespaceId)));
-
-		/* MPP-6929: metadata tracking */
-		if (doIt)
-			MetaTrackAddObject(RelationRelationId,
-							   RelationGetRelid(indexRelation),
-							   GetUserId(), /* not ownerid */
-							   "CREATE", subtyp
-					);
 	}
 
 	/*
@@ -1625,7 +1615,6 @@ index_concurrently_swap(Oid newIndexId, Oid oldIndexId, const char *oldName)
 
 	/* Preserve indisreplident in the new index */
 	newIndexForm->indisreplident = oldIndexForm->indisreplident;
-	oldIndexForm->indisreplident = false;
 
 	/* Preserve indisclustered in the new index */
 	newIndexForm->indisclustered = oldIndexForm->indisclustered;
@@ -1637,6 +1626,7 @@ index_concurrently_swap(Oid newIndexId, Oid oldIndexId, const char *oldName)
 	newIndexForm->indisvalid = true;
 	oldIndexForm->indisvalid = false;
 	oldIndexForm->indisclustered = false;
+	oldIndexForm->indisreplident = false;
 
 	CatalogTupleUpdate(pg_index, &oldIndexTuple->t_self, oldIndexTuple);
 	CatalogTupleUpdate(pg_index, &newIndexTuple->t_self, newIndexTuple);
@@ -2425,11 +2415,6 @@ index_drop(Oid indexId, bool concurrent, bool concurrent_lock_mode)
 	 * fix INHERITS relation
 	 */
 	DeleteInheritsTuple(indexId, InvalidOid);
-	
-	/* MPP-6929: metadata tracking */
-	if (Gp_role == GP_ROLE_DISPATCH)
-		MetaTrackDropObject(RelationRelationId,
-							indexId);
 
 	/*
 	 * We are presently too lazy to attempt to compute the new correct value
@@ -2980,38 +2965,6 @@ index_update_stats(Relation rel,
 	{
 		heap_inplace_update(pg_class, tuple);
 		/* the above sends a cache inval message */
-
-		if (reltuples > 0 &&
-			Gp_role == GP_ROLE_EXECUTE &&
-			!IsSystemClass(rd_rel->oid, rd_rel) &&
-			!isTempOrTempToastNamespace(rd_rel->relnamespace))
-		{
-			/*
-			 * Send the updated relstats to the QD for aggregation. But do this
-			 * only for non-empty relations. Sending it for empty relations
-			 * breaks the detection mechanism for whether an empty table has
-			 * already been analyzed/vacuumed in vac_update_relstats() on the
-			 * QD side. Plus, we save on overhead.
-			 *
-			 * PS: Empty index builds can have the index rel's relpages = 1
-			 * even if reltuples = 0 (for meta-page) and won't have their
-			 * relpages updated on QD. This is what we desire. The index
-			 * meta-page is usually disregarded for planning decisions anyway.
-			 *
-			 * XXX: The detection mechanism, among other stats infrastructure
-			 * will have to change when we absorb upstream commit 3d351d916b2,
-			 * which includes reltuples=-1 to indicate vacuum/analyze on
-			 * empty relations.
-			 *
-			 * Current limitation: If even one QE has reltuples = 0, we will
-			 * fail to update the relstats on the QD. See comment in
-			 * vacuum_combine_stats().
-			 */
-			vac_send_relstats_to_qd(rd_rel->oid,
-									rd_rel->relpages,
-									rd_rel->reltuples,
-									rd_rel->relallvisible);
-		}
 	}
 	else
 	{
@@ -3139,13 +3092,12 @@ index_build(Relation heapRelation,
 	 * created it, or truncated twice in a subsequent transaction, the
 	 * relfilenode won't change, and nothing needs to be done here.
 	 */
-	if (indexRelation->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED &&
-		!smgrexists(indexRelation->rd_smgr, INIT_FORKNUM))
-	{
-		RelationOpenSmgr(indexRelation);
-		smgrcreate(indexRelation->rd_smgr, INIT_FORKNUM, false);
-		indexRelation->rd_indam->ambuildempty(indexRelation);
-	}
+//	if (indexRelation->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED &&
+//		!smgrexists(RelationGetSmgr(indexRelation), INIT_FORKNUM))
+//	{
+//		smgrcreate(RelationGetSmgr(indexRelation), INIT_FORKNUM, false);
+//		indexRelation->rd_indam->ambuildempty(indexRelation);
+//	}
 
 	/*
 	 * If we found any potentially broken HOT chains, mark the index as not
@@ -3594,10 +3546,12 @@ index_set_state_flags(Oid indexId, IndexStateFlagsAction action)
 			 * CONCURRENTLY that failed partway through.)
 			 *
 			 * Note: the CLUSTER logic assumes that indisclustered cannot be
-			 * set on any invalid index, so clear that flag too.
+			 * set on any invalid index, so clear that flag too.  For
+			 * cleanliness, also clear indisreplident.
 			 */
 			indexForm->indisvalid = false;
 			indexForm->indisclustered = false;
+			indexForm->indisreplident = false;
 			break;
 		case INDEX_DROP_SET_DEAD:
 
@@ -3608,7 +3562,9 @@ index_set_state_flags(Oid indexId, IndexStateFlagsAction action)
 			 * want to stop updates, we want to prevent sessions from touching
 			 * the index at all.
 			 */
-			Assert(!indexForm->indisvalid);
+//			Assert(!indexForm->indisvalid);
+//			Assert(!indexForm->indisclustered);
+//			Assert(!indexForm->indisreplident);
 			indexForm->indisready = false;
 			indexForm->indislive = false;
 			break;
@@ -3708,15 +3664,6 @@ reindex_index(Oid indexId, bool skip_constraint_checks, char persistence,
 	if (progress)
 		pgstat_progress_update_param(PROGRESS_CREATEIDX_ACCESS_METHOD_OID,
 									 iRel->rd_rel->relam);
-
-	/*
-	 * Partitioned indexes should never get processed here, as they have no
-	 * physical storage.
-	 */
-	if (iRel->rd_rel->relkind == RELKIND_PARTITIONED_INDEX)
-		elog(ERROR, "cannot reindex partitioned index \"%s.%s\"",
-			 get_namespace_name(RelationGetNamespace(iRel)),
-			 RelationGetRelationName(iRel));
 
 	/*
 	 * Don't allow reindex on temp tables of other backends ... their local
@@ -3868,7 +3815,6 @@ reindex_index(Oid indexId, bool skip_constraint_checks, char persistence,
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
 		bool	 doIt	= true;
-		char	*subtyp = "REINDEX";
 
 		/* MPP-7576: don't track internal namespace tables */
 		switch (namespaceId) 
@@ -3892,16 +3838,6 @@ reindex_index(Oid indexId, bool skip_constraint_checks, char persistence,
 
 		if (doIt)
 			doIt = (!(isAnyTempNamespace(namespaceId)));
-
-		/* MPP-6929: metadata tracking */
-		/* MPP-7587: treat as a VACUUM operation, since the index is
-		 * rebuilt */
-		if (doIt)
-			MetaTrackUpdObject(RelationRelationId,
-							   indexId,
-							   GetUserId(), /* not ownerid */
-							   "VACUUM", subtyp
-					);
 	}
 
 	/* Log what we did */
@@ -3986,13 +3922,20 @@ reindex_relation(Oid relid, int flags, int options)
 	rel = table_open(relid, ShareLock);
 
 	/*
-	 * Partitioned tables should never get processed here, as they have no
-	 * physical storage.
+	 * This may be useful when implemented someday; but that day is not today.
+	 * For now, avoid erroring out when called in a multi-table context
+	 * (REINDEX SCHEMA) and happen to come across a partitioned table.  The
+	 * partitions may be reindexed on their own anyway.
 	 */
 	if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
-		elog(ERROR, "cannot reindex partitioned table \"%s.%s\"",
-			 get_namespace_name(RelationGetNamespace(rel)),
-			 RelationGetRelationName(rel));
+	{
+		ereport(WARNING,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("REINDEX of partitioned tables is not yet implemented, skipping \"%s\"",
+							   RelationGetRelationName(rel))));
+		table_close(rel, ShareLock);
+		return false;
+	}
 
 	relIsAO = RelationStorageIsAO(rel);
 

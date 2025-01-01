@@ -55,6 +55,7 @@
 #include "miscadmin.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
+#include "access/tileam.h"
 #include "access/xact.h"
 #include "cdb/cdbconn.h"
 #include "cdb/cdbcopy.h"
@@ -62,7 +63,6 @@
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbfts.h"
 #include "cdb/cdbgang.h"
-#include "cdb/cdbtm.h"
 #include "cdb/cdbvars.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
@@ -545,13 +545,37 @@ cdbCopyEndInternal(CdbCopy *c, char *abort_msg,
 		 * Otherwise, the next time a command is sent to that connection, it
 		 * will return an error that there's a command pending.
 		 */
-		HOLD_INTERRUPTS();
+		// HOLD_INTERRUPTS();
 		while ((res = PQgetResult(q->conn)) != NULL && PQstatus(q->conn) != CONNECTION_BAD)
 		{
+			PGnotify *qnotifies;
+
 			elog(DEBUG1, "PQgetResult got status %d seg %d    ",
 				 PQresultStatus(res), q->segindex);
 
 			forwardQENotices();
+
+			qnotifies = PQnotifies(q->conn);
+
+			while(qnotifies && elog_geterrcode() == 0)
+			{
+
+				if (strcmp(qnotifies->relname, CDB_NOTIFY_TILE) == 0)
+				{
+					tile_insert_block_list_notify(qnotifies->extra);
+				}
+				else
+				{
+					/* Got an unknown PGnotify, just record it in log */
+					if (qnotifies->relname)
+						elog(LOG, "got an unknown notify message in copy : %s",
+							 qnotifies->relname);
+				}
+
+				if (qnotifies)
+					PQfreemem(qnotifies);
+				qnotifies = PQnotifies(q->conn);
+			}
 
 			/* if the COPY command had a data error */
 			if (PQresultStatus(res) == PGRES_FATAL_ERROR)
@@ -574,8 +598,6 @@ cdbCopyEndInternal(CdbCopy *c, char *abort_msg,
 
 			if (q->conn->wrote_xlog)
 			{
-				MarkTopTransactionWriteXLogOnExecutor();
-
 				/*
 				* Reset the worte_xlog here. Since if the received pgresult not process
 				* the xlog write message('x' message sends from QE in ReadyForQuery),
@@ -691,7 +713,7 @@ cdbCopyEndInternal(CdbCopy *c, char *abort_msg,
 			/* free the PGresult object */
 			PQclear(res);
 		}
-		RESUME_INTERRUPTS();
+		// RESUME_INTERRUPTS();
 
 		/*
 		 * add up the number of rows completed and rejected from this segment

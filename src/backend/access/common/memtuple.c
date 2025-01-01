@@ -729,7 +729,7 @@ memtuple_form_to(MemTupleBinding *pbind,
 						Assert(VARATT_CAN_MAKE_SHORT(DatumGetPointer(values[i])));
 						attr_len = VARSIZE(DatumGetPointer(values[i])) - VARHDRSZ + VARHDRSZ_SHORT;
 						Assert(attr_len <= bind->len);
-						*p = VARSIZE_TO_SHORT_D(values[i]);
+						*p = values[i];
 						memcpy(p+1, VARDATA(DatumGetPointer(values[i])), attr_len-1);
 					}
 				}
@@ -764,7 +764,7 @@ memtuple_form_to(MemTupleBinding *pbind,
 						VARATT_CAN_MAKE_SHORT(DatumGetPointer(values[i])))
 				{
 					attr_len = VARSIZE(DatumGetPointer(values[i])) - VARHDRSZ + VARHDRSZ_SHORT;
-					*varlen_start = VARSIZE_TO_SHORT_D(values[i]);
+					*varlen_start = values[i];
 					Assert((varlen_start - (char *) mtup) + attr_len <= len);
 					memcpy(varlen_start+1, VARDATA(DatumGetPointer(values[i])), attr_len-1);
 				}

@@ -15,6 +15,9 @@
 { oid => '2', oid_symbol => 'HEAP_TABLE_AM_OID',
   descr => 'heap table access method',
   amname => 'heap', amhandler => 'heap_tableam_handler', amtype => 't' },
+{ oid => '7014', oid_symbol => 'TILE_TABLE_AM_OID',
+  descr => 'row-oriented append-optimized table access method',
+  amname => 'tile', amhandler => 'tile_tableam_handler', amtype => 't' },
 
 { oid => '3434', oid_symbol => 'AO_ROW_TABLE_AM_OID',
   descr => 'row-oriented append-optimized table access method',

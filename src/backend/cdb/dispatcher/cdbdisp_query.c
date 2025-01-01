@@ -19,6 +19,7 @@
 #include "access/xact.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
+#include "utils/dispatchcat.h"
 #include "cdb/cdbconn.h"
 #include "cdb/cdbgang.h"
 #include "cdb/cdbutil.h"
@@ -44,7 +45,6 @@
 
 #include "cdb/cdbdisp.h"
 #include "cdb/cdbdisp_query.h"
-#include "cdb/cdbdisp_dtx.h"	/* for qdSerializeDtxContextInfo() */
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbcopy.h"
 #include "executor/execUtils.h"
@@ -88,16 +88,10 @@ typedef struct DispatchCommandQueryParms
 	int			serializedQueryDispatchDesclen;
 
 	/*
-	 * Additional information.
+	 * memory heap data
 	 */
-	char	   *serializedOidAssignments;
-	int			serializedOidAssignmentslen;
-
-	/*
-	 * serialized DTX context string
-	 */
-	char	   *serializedDtxContextInfo;
-	int			serializedDtxContextInfolen;
+	char	   *serializedMemoryHeap;
+	int			serializedMemoryHeapLen;
 } DispatchCommandQueryParms;
 
 static int fillSliceVector(SliceTable *sliceTable,
@@ -246,22 +240,6 @@ CdbDispatchPlan(struct QueryDesc *queryDesc,
 								   queryDesc->params,
 								   execParams, sendParams);
 
-	/*
-	 * Cursor queries and bind/execute path queries don't run on the
-	 * writer-gang QEs; but they require snapshot-synchronization to get
-	 * started.
-	 *
-	 * initPlans, and other work (see the function pre-evaluation above) may
-	 * advance the snapshot "segmateSync" value, so we're best off setting the
-	 * shared-snapshot-ready value here. This will dispatch to the writer gang
-	 * and force it to set its snapshot; we'll then be able to serialize the
-	 * same snapshot version (see qdSerializeDtxContextInfo() below).
-	 */
-	if (queryDesc->extended_query)
-	{
-		verify_shared_snapshot_ready(gp_command_count);
-	}
-
 	cdbdisp_dispatchX(queryDesc, planRequiresTxn, cancelOnError);
 }
 
@@ -330,18 +308,6 @@ CdbDispatchSetCommand(const char *strCommand, bool cancelOnError)
 		cdbdisp_dispatchToGang(ds, rg, -1);
 	}
 
-	/*
-	 * If there is an explicit BEGIN, we'll begin transaction and setup DTX 
-	 * context on QEs at the time of the first SET command. So we need to
-	 * add dtxSegments to make sure we end the transaction at the time of END/COMMIT.
-	 *
-	 * We shouldn't do this when there's no explicit BEGIN, though, because
-	 * if QEs do not have DTX context being setup, they would not recognize
-	 * the DTX protocol command that is going to be sent to the dtxSegments.
-	 */
-	if (isDtxExplicitBegin())
-		addToGxactDtxSegments(primaryGang);
-
 	cdbdisp_waitDispatchFinish(ds);
 
 	cdbdisp_checkDispatchResult(ds, DISPATCH_WAIT_NONE);
@@ -398,9 +364,6 @@ CdbDispatchCommandToSegments(const char *strCommand,
 	DispatchCommandQueryParms *pQueryParms;
 	bool needTwoPhase = flags & DF_NEED_TWO_PHASE;
 
-	if (needTwoPhase)
-		setupDtxTransaction();
-
 	elogif((Debug_print_full_dtm || log_min_messages <= DEBUG5), LOG,
 		   "CdbDispatchCommand: %s (needTwoPhase = %s)",
 		   strCommand, (needTwoPhase ? "true" : "false"));
@@ -433,11 +396,15 @@ CdbDispatchUtilityStatement(struct Node *stmt,
 							List *oid_assignments,
 							CdbPgResults *cdb_pgresults)
 {
+
+}
+
+void
+CdbDispatchUtilityStatement2(struct Node *stmt, int flags, List *oid_assignments,
+							 CdbPgResults *cdb_pgresults)
+{
 	DispatchCommandQueryParms *pQueryParms;
 	bool needTwoPhase = flags & DF_NEED_TWO_PHASE;
-
-	if (needTwoPhase)
-		setupDtxTransaction();
 
 	elogif((Debug_print_full_dtm || log_min_messages <= DEBUG5), LOG,
 		   "CdbDispatchUtilityStatement: %s (needTwoPhase = %s)",
@@ -502,9 +469,6 @@ cdbdisp_dispatchCommandInternal(DispatchCommandQueryParms *pQueryParms,
 
 	cdbdisp_dispatchToGang(ds, primaryGang, -1);
 
-	if ((flags & DF_NEED_TWO_PHASE) != 0 || isDtxExplicitBegin())
-		addToGxactDtxSegments(primaryGang);
-
 	cdbdisp_waitDispatchFinish(ds);
 
 	cdbdisp_checkDispatchResult(ds, DISPATCH_WAIT_NONE);
@@ -528,23 +492,17 @@ cdbdisp_dispatchCommandInternal(DispatchCommandQueryParms *pQueryParms,
 static DispatchCommandQueryParms *
 cdbdisp_buildCommandQueryParms(const char *strCommand, int flags)
 {
-	bool needTwoPhase = flags & DF_NEED_TWO_PHASE;
-	bool withSnapshot = flags & DF_WITH_SNAPSHOT;
 	DispatchCommandQueryParms *pQueryParms;
+	CdbCatalogNode *catalog;
 
 	pQueryParms = palloc0(sizeof(*pQueryParms));
 	pQueryParms->strCommand = strCommand;
 	pQueryParms->serializedQueryDispatchDesc = NULL;
 	pQueryParms->serializedQueryDispatchDesclen = 0;
-
-	/*
-	 * Serialize a version of our DTX Context Info
-	 */
-	pQueryParms->serializedDtxContextInfo =
-		qdSerializeDtxContextInfo(&pQueryParms->serializedDtxContextInfolen,
-								  withSnapshot, false,
-								  mppTxnOptions(needTwoPhase),
-								  "cdbdisp_dispatchCommandInternal");
+	catalog = GetCatalogNode();
+	if (catalog)
+		pQueryParms->serializedMemoryHeap =
+			serializeNode((Node*) catalog, &pQueryParms->serializedMemoryHeapLen, NULL);
 
 	return pQueryParms;
 }
@@ -558,8 +516,6 @@ cdbdisp_buildUtilityQueryParms(struct Node *stmt,
 	char *serializedQueryDispatchDesc = NULL;
 	int serializedPlantree_len = 0;
 	int serializedQueryDispatchDesc_len = 0;
-	bool needTwoPhase = flags & DF_NEED_TWO_PHASE;
-	bool withSnapshot = flags & DF_WITH_SNAPSHOT;
 	QueryDispatchDesc *qddesc;
 	PlannedStmt *pstmt;
 	DispatchCommandQueryParms *pQueryParms;
@@ -610,14 +566,9 @@ cdbdisp_buildUtilityQueryParms(struct Node *stmt,
 	pQueryParms->serializedQueryDispatchDesc = serializedQueryDispatchDesc;
 	pQueryParms->serializedQueryDispatchDesclen = serializedQueryDispatchDesc_len;
 
-	/*
-	 * Serialize a version of our DTX Context Info
-	 */
-	pQueryParms->serializedDtxContextInfo =
-		qdSerializeDtxContextInfo(&pQueryParms->serializedDtxContextInfolen,
-								  withSnapshot, false,
-								  mppTxnOptions(needTwoPhase),
-								  "cdbdisp_dispatchCommandInternal");
+	pQueryParms->serializedMemoryHeap = serializeNode((Node*) GetCatalogNode(),
+												   &pQueryParms->serializedMemoryHeapLen,
+												   NULL);
 
 	return pQueryParms;
 }
@@ -669,18 +620,9 @@ cdbdisp_buildPlanQueryParms(struct QueryDesc *queryDesc,
 	pQueryParms->serializedQueryDispatchDesc = sddesc;
 	pQueryParms->serializedQueryDispatchDesclen = sddesc_len;
 
-	/*
-	 * Serialize a version of our snapshot, and generate our transction
-	 * isolations. We generally want Plan based dispatch to be in a global
-	 * transaction. The executor gets to decide if the special circumstances
-	 * exist which allow us to dispatch without starting a global xact.
-	 */
-	pQueryParms->serializedDtxContextInfo =
-		qdSerializeDtxContextInfo(&pQueryParms->serializedDtxContextInfolen,
-								  true /* wantSnapshot */ ,
-								  queryDesc->extended_query,
-								  mppTxnOptions(planRequiresTxn),
-								  "cdbdisp_buildPlanQueryParms");
+	pQueryParms->serializedMemoryHeap = serializeNode((Node*) GetCatalogNode(),
+												   &pQueryParms->serializedMemoryHeapLen,
+												   NULL);
 
 	return pQueryParms;
 }
@@ -863,15 +805,14 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	int			plantree_len = pQueryParms->serializedPlantreelen;
 	const char *sddesc = pQueryParms->serializedQueryDispatchDesc;
 	int			sddesc_len = pQueryParms->serializedQueryDispatchDesclen;
-	const char *dtxContextInfo = pQueryParms->serializedDtxContextInfo;
-	int			dtxContextInfo_len = pQueryParms->serializedDtxContextInfolen;
+	const char *sdMemoryHeap = pQueryParms->serializedMemoryHeap;
+	int			sdMemoryHeap_len = pQueryParms->serializedMemoryHeapLen;
 	int64		currentStatementStartTimestamp = GetCurrentStatementStartTimestamp();
 	Oid			sessionUserId = GetSessionUserId();
 	Oid			outerUserId = GetOuterUserId();
 	Oid			currentUserId = GetUserId();
 	int32		numsegments = getgpsegmentCount();
 	StringInfoData resgroupInfo;
-	Oid			tempNamespaceId, tempToastNamespaceId;
 
 	int			tmp,
 				len;
@@ -917,16 +858,14 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		sizeof(command_len) +
 		sizeof(plantree_len) +
 		sizeof(sddesc_len) +
-		sizeof(dtxContextInfo_len) +
-		dtxContextInfo_len +
+		sizeof(sdMemoryHeap_len) +
 		command_len +
 		plantree_len +
 		sddesc_len +
+		sdMemoryHeap_len +
 		sizeof(numsegments) +
 		sizeof(resgroupInfo.len) +
 		resgroupInfo.len +
-		sizeof(tempNamespaceId) +
-		sizeof(tempToastNamespaceId) +
 		0;
 
 	shared_query = palloc(total_query_len);
@@ -985,15 +924,9 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	memcpy(pos, &tmp, sizeof(tmp));
 	pos += sizeof(tmp);
 
-	tmp = htonl(dtxContextInfo_len);
+	tmp = htonl(sdMemoryHeap_len);
 	memcpy(pos, &tmp, sizeof(tmp));
 	pos += sizeof(tmp);
-
-	if (dtxContextInfo_len > 0)
-	{
-		memcpy(pos, dtxContextInfo, dtxContextInfo_len);
-		pos += dtxContextInfo_len;
-	}
 
 	memcpy(pos, command, command_len);
 	/* If command is truncated we need to set the terminating '\0' manually */
@@ -1012,6 +945,12 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		pos += sddesc_len;
 	}
 
+	if (sdMemoryHeap_len > 0)
+	{
+		memcpy(pos, sdMemoryHeap, sdMemoryHeap_len);
+		pos += sdMemoryHeap_len;
+	}
+
 	tmp = htonl(numsegments);
 	memcpy(pos, &tmp, sizeof(numsegments));
 	pos += sizeof(numsegments);
@@ -1025,16 +964,6 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 		memcpy(pos, resgroupInfo.data, resgroupInfo.len);
 		pos += resgroupInfo.len;
 	}
-
-	/* pass process local variables to QEs */
-	GetTempNamespaceState(&tempNamespaceId, &tempToastNamespaceId);
-	tempNamespaceId = htonl(tempNamespaceId);
-	tempToastNamespaceId = htonl(tempToastNamespaceId);
-
-	memcpy(pos, &tempNamespaceId, sizeof(tempNamespaceId));
-	pos += sizeof(tempNamespaceId);
-	memcpy(pos, &tempToastNamespaceId, sizeof(tempToastNamespaceId));
-	pos += sizeof(tempToastNamespaceId);
 
 	/*
 	 * fill in length placeholder
@@ -1190,8 +1119,6 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 		SIMPLE_FAULT_INJECTOR("before_one_slice_dispatched");
 
 		cdbdisp_dispatchToGang(ds, primaryGang, si);
-		if (planRequiresTxn || isDtxExplicitBegin())
-			addToGxactDtxSegments(primaryGang);
 
 		SIMPLE_FAULT_INJECTOR("after_one_slice_dispatched");
 	}
@@ -1335,9 +1262,6 @@ CdbDispatchCopyStart(struct CdbCopy *cdbCopy, Node *stmt, int flags)
 	ErrorData *error = NULL;
 	bool needTwoPhase = flags & DF_NEED_TWO_PHASE;
 
-	if (needTwoPhase)
-		setupDtxTransaction();
-
 	elogif((Debug_print_full_dtm || log_min_messages <= DEBUG5), LOG,
 		   "CdbDispatchCopyStart: %s (needTwoPhase = %s)",
 		   (PointerIsValid(debug_query_string) ? debug_query_string : "\"\""),
@@ -1364,8 +1288,6 @@ CdbDispatchCopyStart(struct CdbCopy *cdbCopy, Node *stmt, int flags)
 	cdbdisp_makeDispatchParams (ds, 1, queryText, queryTextLength);
 
 	cdbdisp_dispatchToGang(ds, primaryGang, -1);
-	if ((flags & DF_NEED_TWO_PHASE) != 0 || isDtxExplicitBegin())
-		addToGxactDtxSegments(primaryGang);
 
 	cdbdisp_waitDispatchFinish(ds);
 

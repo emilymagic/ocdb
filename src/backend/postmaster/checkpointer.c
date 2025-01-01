@@ -41,7 +41,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "access/htup_details.h"
 #include "access/xlog.h"
 #include "access/xlog_internal.h"
 #include "libpq/pqsignal.h"
@@ -58,7 +57,6 @@
 #include "storage/shmem.h"
 #include "storage/smgr.h"
 #include "storage/spin.h"
-#include "utils/faultinjector.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
@@ -348,11 +346,6 @@ CheckpointerMain(void)
 		/* Clear any already-pending wakeups */
 		ResetLatch(MyLatch);
 
-#ifdef FAULT_INJECTOR
-		if (SIMPLE_FAULT_INJECTOR("ckpt_loop_begin") == FaultInjectorTypeInfiniteLoop)
-			do_checkpoint = true;
-#endif 
-
 		/*
 		 * Process any requests or signals received recently.
 		 */
@@ -419,7 +412,7 @@ CheckpointerMain(void)
 		/*
 		 * Do a checkpoint if requested.
 		 */
-		if (do_checkpoint)
+		if (do_checkpoint && IS_CATALOG_SERVER())
 		{
 			bool		ckpt_performed = false;
 			bool		do_restartpoint;
@@ -540,18 +533,6 @@ CheckpointerMain(void)
 		 * stats message types.)
 		 */
 		pgstat_send_bgwriter();
-
-		/* Send WAL statistics to the stats collector. */
-		pgstat_report_wal();
-
-		SIMPLE_FAULT_INJECTOR("ckpt_loop_end");
-
-		/*
-		 * If any checkpoint flags have been set, redo the loop to handle the
-		 * checkpoint without sleeping.
-		 */
-		if (((volatile CheckpointerShmemStruct *) CheckpointerShmem)->ckpt_flags)
-			continue;
 
 		/*
 		 * Sleep until we are signaled or it's time for another checkpoint or
@@ -1307,9 +1288,8 @@ AbsorbSyncRequests(void)
 	CheckpointerRequest *request;
 	int			n;
 
-	if (IsUnderPostmaster && !AmStartupProcess() && !AmCheckpointerProcess())
-		elog(ERROR, "AbsorbFsyncRequests() called in process %d (type %d)",
-			 MyProcPid, MyAuxProcType);
+	if (!AmCheckpointerProcess())
+		return;
 
 	LWLockAcquire(CheckpointerCommLock, LW_EXCLUSIVE);
 

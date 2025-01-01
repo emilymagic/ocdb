@@ -335,16 +335,6 @@ CreateProceduralLanguage(CreatePLangStmt *stmt)
 
 	result = CreateProceduralLanguage_internal(stmt);
 
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		CdbDispatchUtilityStatement((Node *) stmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									GetAssignedOidsForDispatch(),
-									NULL);
-	}
-
 	return result;
 }
 

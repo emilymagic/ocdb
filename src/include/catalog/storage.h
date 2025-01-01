@@ -19,9 +19,8 @@
 #include "storage/smgr.h"
 #include "utils/relcache.h"
 
-extern SMgrRelation RelationCreateStorage(RelFileNode rnode,
-										  char relpersistence,
-										  SMgrImpl smgr_which);
+extern SMgrRelation RelationCreateStorage(RelFileNode rnode, char relpersistence,
+										  bool isTile);
 extern void RelationDropStorage(Relation rel);
 extern void RelationPreserveStorage(RelFileNode rnode, bool atCommit);
 extern void RelationTruncate(Relation rel, BlockNumber nblocks);
@@ -33,7 +32,7 @@ extern void RelationCopyStorage(SMgrRelation src, SMgrRelation dst,
  * naming
  */
 extern void smgrDoPendingDeletes(bool isCommit);
-extern int	smgrGetPendingDeletes(bool forCommit, RelFileNodePendingDelete **ptr);
+extern int	smgrGetPendingDeletes(bool forCommit, RelFileNode **ptr);
 extern void AtSubCommit_smgr(void);
 extern void AtSubAbort_smgr(void);
 extern void PostPrepare_smgr(void);

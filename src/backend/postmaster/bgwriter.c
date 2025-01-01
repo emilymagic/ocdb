@@ -58,7 +58,6 @@
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
-#include "utils/faultinjector.h"
 #include "utils/timestamp.h"
 
 
@@ -243,8 +242,6 @@ BackgroundWriterMain(void)
 		bool		can_hibernate;
 		int			rc;
 
-		SIMPLE_FAULT_INJECTOR("fault_in_background_writer_main");
-
 		/* Clear any already-pending wakeups */
 		ResetLatch(MyLatch);
 
@@ -262,6 +259,28 @@ BackgroundWriterMain(void)
 			ExitOnAnyError = true;
 			/* Normal exit from the bgwriter is here */
 			proc_exit(0);		/* done */
+		}
+
+		if (!IS_CATALOG_SERVER())
+		{
+			rc = WaitLatch(MyLatch,
+						   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
+
+			if (rc == WL_TIMEOUT && can_hibernate && prev_hibernate)
+			{
+				/* Ask for notification at next buffer allocation */
+				StrategyNotifyBgWriter(MyProc->pgprocno);
+				/* Sleep ... */
+				(void) WaitLatch(MyLatch,
+								 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 BgWriterDelay * HIBERNATE_FACTOR,
+								 WAIT_EVENT_BGWRITER_HIBERNATE);
+				/* Reset the notification request in case we timed out */
+				StrategyNotifyBgWriter(-1);
+			}
+
+			continue;
 		}
 
 		/*
@@ -391,8 +410,6 @@ BackgroundWriterMain(void)
 static void
 bg_quickdie(SIGNAL_ARGS)
 {
-	SIMPLE_FAULT_INJECTOR("fault_in_background_writer_quickdie");
-
 	/*
 	 * We DO NOT want to run proc_exit() or atexit() callbacks -- we're here
 	 * because shared memory may be corrupted, so we don't want to try to

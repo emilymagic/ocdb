@@ -1,4 +1,4 @@
-%{
+	%{
 
 /*#define YYDEBUG 1*/
 /*-------------------------------------------------------------------------
@@ -195,6 +195,8 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 			   bool *deferrable, bool *initdeferred, bool *not_valid,
 			   bool *no_inherit, core_yyscan_t yyscanner);
 static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
+static char *greenplumLegacyAOoptions(const char *accessMethod, List **options);
+
 
 static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 
@@ -1271,6 +1273,7 @@ static void check_expressions_in_partition_key(PartitionSpec *spec, core_yyscan_
 stmtblock:	stmtmulti
 			{
 				pg_yyget_extra(yyscanner)->parsetree = $1;
+				(void) yynerrs;		/* suppress compiler warning */
 			}
 		;
 
@@ -6163,7 +6166,6 @@ CreateAsStmt:
 					ctas->if_not_exists = false;
 					/* cram additional flags into the IntoClause */
 					$4->rel->relpersistence = $2;
-					ctas->into->distributedBy = $8;
 
 					if ($9)
 						ereport(ERROR,
@@ -8026,9 +8028,11 @@ TriggerForSpec:
 				}
 			| /* EMPTY */
 				{
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("Triggers for statements are not yet supported")));
+                    /*
+                     * If ROW/STATEMENT not specified, default to
+                     * STATEMENT, per SQL
+                     */
+                    $$ = false;
 				}
 		;
 
@@ -8039,12 +8043,7 @@ TriggerForOptEach:
 
 TriggerForType:
 			ROW										{ $$ = true; }
-			| STATEMENT
-			{
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("Triggers for statements are not yet supported")));
-			}
+			| STATEMENT								{ $$ = false; }
 		;
 
 TriggerWhen:
@@ -8273,27 +8272,6 @@ DefineStmt:
 					/* can't use qualified_name, sigh */
 					n->typevar = makeRangeVarFromAnyName($3, @3, yyscanner);
 					n->coldeflist = $6;
-					$$ = (Node *)n;
-				}
-			| CREATE opt_or_replace opt_trusted PROTOCOL name definition
-				{
-					/*
-					 * The opt_or_replace is here just to avoid a grammar conflict.
-					 * It's not actually supported.
-					 */
-					if ($2)
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("syntax error"),
-								 parser_errposition(@2)));
-
-					DefineStmt *n = makeNode(DefineStmt);
-					n->kind = OBJECT_EXTPROTOCOL;
-					n->oldstyle = false;
-					n->trusted = $3;
-					n->defnames = list_make1(makeString($5));
-					n->args = NIL;
-					n->definition = $6;
 					$$ = (Node *)n;
 				}
 			| CREATE TYPE_P any_name AS ENUM_P '(' opt_enum_val_list ')'
@@ -8906,7 +8884,6 @@ drop_type_name:
 			| PUBLICATION							{ $$ = OBJECT_PUBLICATION; }
 			| SCHEMA								{ $$ = OBJECT_SCHEMA; }
 			| SERVER								{ $$ = OBJECT_FOREIGN_SERVER; }
-			| PROTOCOL								{ $$ = OBJECT_EXTPROTOCOL; }
 		;
 
 /* object types attached to a table */
@@ -9182,8 +9159,6 @@ comment_type_name:
 			| SERVER							{ $$ = OBJECT_FOREIGN_SERVER; }
 			| SUBSCRIPTION						{ $$ = OBJECT_SUBSCRIPTION; }
 			| TABLESPACE						{ $$ = OBJECT_TABLESPACE; }
-			| RESOURCE QUEUE                    { $$ = OBJECT_RESQUEUE; }
-			| RESOURCE GROUP_P					{ $$ = OBJECT_RESGROUP; }
 		;
 
 comment_text:
@@ -9719,14 +9694,6 @@ privilege_target:
 					n->objs = $2;
 					$$ = n;
 				}
-			| PROTOCOL name_list
-				{
-					PrivTarget *n = (PrivTarget *) palloc(sizeof(PrivTarget));
-					n->targtype = ACL_TARGET_OBJECT;
-					n->objtype = OBJECT_EXTPROTOCOL;
-					n->objs = $2;
-					$$ = n;
-				}			
 			| TYPE_P any_name_list
 				{
 					PrivTarget *n = (PrivTarget *) palloc(sizeof(PrivTarget));
@@ -9973,11 +9940,6 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 					n->if_not_exists = false;
 					n->reset_default_tblspc = false;
 
-					if (n->concurrent)
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								 errmsg("CREATE INDEX CONCURRENTLY is not supported")));
-
 					$$ = (Node *)n;
 				}
 			| CREATE opt_unique INDEX opt_concurrently IF_P NOT EXISTS index_name
@@ -10007,10 +9969,6 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_index_name
 					n->if_not_exists = true;
 					n->reset_default_tblspc = false;
 
-					if (n->concurrent)
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								 errmsg("CREATE INDEX CONCURRENTLY is not supported")));
 
 					$$ = (Node *)n;
 				}
@@ -11014,11 +10972,6 @@ ReindexStmt:
 					n->name = NULL;
 					n->options = 0;
 
-					if (n->concurrent)
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								 errmsg("REINDEX CONCURRENTLY is not supported")));
-
 					$$ = (Node *)n;
 				}
 			| REINDEX reindex_target_multitable opt_concurrently name
@@ -11029,11 +10982,6 @@ ReindexStmt:
 					n->name = $4;
 					n->relation = NULL;
 					n->options = 0;
-
-					if (n->concurrent)
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								 errmsg("REINDEX CONCURRENTLY is not supported")));
 
 					$$ = (Node *)n;
 				}
@@ -11046,11 +10994,6 @@ ReindexStmt:
 					n->name = NULL;
 					n->options = $3;
 
-					if (n->concurrent)
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								 errmsg("REINDEX CONCURRENTLY is not supported")));
-
 					$$ = (Node *)n;
 				}
 			| REINDEX '(' reindex_option_list ')' reindex_target_multitable opt_concurrently name
@@ -11061,11 +11004,6 @@ ReindexStmt:
 					n->name = $7;
 					n->relation = NULL;
 					n->options = $3;
-
-					if (n->concurrent)
-						ereport(ERROR,
-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								 errmsg("REINDEX CONCURRENTLY is not supported")));
 
 					$$ = (Node *)n;
 				}
@@ -11644,15 +11582,6 @@ RenameStmt: ALTER AGGREGATE aggregate_with_argtypes RENAME TO name
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
-			| ALTER PROTOCOL name RENAME TO name
-				{
-					RenameStmt *n = makeNode(RenameStmt);
-					n->renameType = OBJECT_EXTPROTOCOL;
-					n->object = (Node *) makeString($3);
-					n->newname = $6;
-					n->missing_ok = false;
-					$$ = (Node *)n;
-				}
 		;
 
 opt_column: COLUMN									{ $$ = COLUMN; }
@@ -12147,14 +12076,6 @@ AlterOwnerStmt: ALTER AGGREGATE aggregate_with_argtypes OWNER TO RoleSpec
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_STATISTIC_EXT;
 					n->object = (Node *) $3;
-					n->newowner = $6;
-					$$ = (Node *)n;
-				}
-			| ALTER PROTOCOL name OWNER TO RoleSpec
-				{
-					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
-					n->objectType = OBJECT_EXTPROTOCOL;
-					n->object = (Node *) makeString($3);
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
@@ -19874,9 +19795,7 @@ greenplumLegacyAOoptions(const char *accessMethod, List **options)
 	List	 *amendedOptions = NIL;
 	ListCell *lc;
 	bool	  appendoptimized = false;
-	bool	  is_column_oriented = false;
 	bool	  appendoptimized_found = false;
-	bool	  is_column_oriented_found = false;
 
 	foreach (lc, *options)
 	{
@@ -19892,43 +19811,19 @@ greenplumLegacyAOoptions(const char *accessMethod, List **options)
 			appendoptimized = defGetBoolean(elem);
 			appendoptimized_found = true;
 		}
-		else if (strcmp(elem->defname, "orientation") == 0)
-		{
-			const char *value = defGetString(elem);
 
-			if (is_column_oriented_found)
-				ereport(ERROR,
-						(errcode(ERRCODE_DUPLICATE_OBJECT),
-						 errmsg("parameter \"orientation\" specified more than once")));
-
-			if (strcmp(value, "column") && strcmp(value, "row"))
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("invalid parameter value for \"orientation\": \"%s\"", value)));
-
-			is_column_oriented = strcmp(value, "column") == 0;
-			is_column_oriented_found = true;
-		}
 		else
 			amendedOptions = lappend(amendedOptions, elem);
 	}
 	*options = amendedOptions;
 
-	if (!appendoptimized && is_column_oriented_found)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("invalid option \"orientation\" for base relation"),
-				 errhint("Table orientation only valid for Append Optimized relations, create an AO relation to use table orientation.")));
-
 	/* access_method takes precedence */
 	if (accessMethod)
 		return (char *)accessMethod;
 
-	if (appendoptimized && is_column_oriented)
-		return pstrdup("ao_column");
 
 	if (appendoptimized)
-		return pstrdup("ao_row");
+		return pstrdup("tile");
 
 	/*
 	 * appendonly=false is different from appendonly option not existing in

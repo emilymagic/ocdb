@@ -161,7 +161,7 @@ extern bool Db_user_namespace;
  * denial-of-service attacks via sending enough data to run the server
  * out of memory.
  */
-#define MAX_STARTUP_PACKET_LENGTH 64000
+#define MAX_STARTUP_PACKET_LENGTH 264000
 
 
 /* These are the authentication request codes sent by the backend. */

@@ -873,6 +873,11 @@
   proname => 'heap_tableam_handler', provolatile => 'v',
   prorettype => 'table_am_handler', proargtypes => 'internal',
   prosrc => 'heap_tableam_handler' },
+{ oid => '4189', oid_symbol => 'TILE_TABLE_AM_HANDLER_OID',
+  descr => 'row-oriented append-optimized table access method handler',
+  proname => 'tile_tableam_handler', provolatile => 'v',
+  prorettype => 'table_am_handler', proargtypes => 'internal',
+  prosrc => 'tile_tableam_handler' },
 
 { oid => '4187', oid_symbol => 'AO_ROW_TABLE_AM_HANDLER_OID',
   descr => 'row-oriented append-optimized table access method handler',
@@ -908,20 +913,17 @@
   prorettype => 'index_am_handler', proargtypes => 'internal',
   prosrc => 'brinhandler' },
 { oid => '3952', descr => 'brin: standalone scan new table pages',
-  proexeclocation => 's', prorows => '100', proretset => 't',
-  proname => 'brin_summarize_new_values_internal', provolatile => 'v',
+  proname => 'brin_summarize_new_values', provolatile => 'v',
   proparallel => 'u', prorettype => 'int4', proargtypes => 'regclass',
-  prosrc => 'brin_summarize_new_values_internal' },
+  prosrc => 'brin_summarize_new_values' },
 { oid => '3999', descr => 'brin: standalone scan new table pages',
-  proexeclocation => 's', prorows => '1000', proretset => 't',
-  proname => 'brin_summarize_range_internal', provolatile => 'v', proparallel => 'u',
+  proname => 'brin_summarize_range', provolatile => 'v', proparallel => 'u',
   prorettype => 'int4', proargtypes => 'regclass int8',
-  prosrc => 'brin_summarize_range_internal' },
+  prosrc => 'brin_summarize_range' },
 { oid => '4014', descr => 'brin: desummarize page range',
-  proname => 'brin_desummarize_range_internal', provolatile => 'v', proparallel => 'u',
-  proexeclocation => 's',
+  proname => 'brin_desummarize_range', provolatile => 'v', proparallel => 'u',
   prorettype => 'void', proargtypes => 'regclass int8',
-  prosrc => 'brin_desummarize_range_internal' },
+  prosrc => 'brin_desummarize_range' },
 
 { oid => '338', descr => 'validate an operator class',
   proname => 'amvalidate', provolatile => 'v', prorettype => 'bool',
@@ -5864,9 +5866,9 @@
 { oid => '1371', descr => 'view system lock information',
   proname => 'pg_lock_status', prorows => '1000', proretset => 't',
   provolatile => 'v', prorettype => 'record', proargtypes => '',
-  proallargtypes => '{text,oid,oid,int4,int2,text,xid,oid,oid,int2,text,int4,text,bool,bool,int4,bool,int4}',
-  proargmodes => '{o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o}',
-  proargnames => '{locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,pid,mode,granted,fastpath,mppsessionid,mppiswriter,gp_segment_id}',
+  proallargtypes => '{text,oid,oid,int4,int2,text,xid,oid,oid,int2,text,int4,text,bool,bool}',
+  proargmodes => '{o,o,o,o,o,o,o,o,o,o,o,o,o,o,o}',
+  proargnames => '{locktype,database,relation,page,tuple,virtualxid,transactionid,classid,objid,objsubid,virtualtransaction,pid,mode,granted,fastpath}',
   prosrc => 'pg_lock_status' },
 { oid => '2561',
   descr => 'get array of PIDs of sessions blocking specified backend PID from acquiring a heavyweight lock',
@@ -10867,23 +10869,8 @@
    proexeclocation => 'i',
    proname => 'pg_resgroup_get_status', prorows => '1000', proisstrict => 'f', proretset => 't', provolatile => 'v', proparallel => 'r', prorettype => 'record', proargtypes => 'oid', proallargtypes => 'oid,oid,int4,int4,int8,int8,interval,json,json', proargmodes => '{i,o,o,o,o,o,o,o,o}', proargnames => '{groupid,groupid,num_running,num_queueing,num_queued,num_executed,total_queue_duration,cpu_usage,memory_usage}', prosrc => 'pg_resgroup_get_status' },
 
-{ oid => 6036, descr => 'waiting relation information',
-   proname => 'gp_dist_wait_status', prorows => '1000', proisstrict => 'f',
-   proretset => 't', provolatile => 'v', proparallel => 'r',
-   prorettype => 'record', proargtypes => '',
-   proallargtypes => '{int4,int8,int8,bool,int4,int4,text,text,int4,int4}',
-   proargmodes => '{o,o,o,o,o,o,o,o,o,o}',
-   proargnames => '{segid,waiter_dxid,holder_dxid,holdTillEndXact,waiter_lpid,holder_lpid,waiter_lockmode,waiter_locktype,waiter_sessionid,holder_sessionid}',
-   prosrc => 'gp_dist_wait_status' },
 { oid => 6464, descr => 'get backends of overflowed subtransaction',
    proname => 'gp_get_suboverflowed_backends', provolatile => 'v', prorettype => '_int4', proargtypes => '', prosrc => 'gp_get_suboverflowed_backends' },
-
-{ oid => 6030, descr => 'Return resource queue information',
-   proname => 'pg_resqueue_status', prorows => '1000', proretset => 't', provolatile => 'v', proparallel => 'r', prorettype => 'record', proargtypes => '', prosrc => 'pg_resqueue_status' },
-
-{ oid => 6069, descr => 'Return resource queue information',
-   proname => 'pg_resqueue_status_kv', prorows => '1000', proretset => 't', provolatile => 'v', proparallel => 'r', prorettype => 'record', proargtypes => '', prosrc => 'pg_resqueue_status_kv' },
-
 
 # contrib/adminpack functions, brought to core in GPDB.
 # the new version functions which using the GRANT system to control access instead of having hard-coded superuser checks
@@ -10982,26 +10969,8 @@
 { oid => 6022, descr => 'segment executing function',
    proname => 'gp_execution_segment', proisstrict => 'f', provolatile => 'v', prorettype => 'int4', proargtypes => '', prosrc => 'mpp_execution_segment' },
 
-{ oid => 6023, descr => 'Highest oid used so far',
-   proname => 'pg_highest_oid', provolatile => 'v', proparallel => 'u', prorettype => 'oid', proargtypes => '', prosrc => 'pg_highest_oid' },
-
-{ oid => 6035, descr => 'view mpp distributed transaction state',
-   proname => 'gp_distributed_xacts', prorows => '1000', proisstrict => 'f', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => '', prosrc => 'gp_distributed_xacts__' },
-
-{ oid => 6037, descr => 'Current distributed transaction id',
-   proname => 'gp_distributed_xid', provolatile => 'v', proparallel => 'u', prorettype => 'xid', proargtypes => '', prosrc => 'gp_distributed_xid' },
-
-{ oid => 6043, descr => 'view logged local transaction status',
-   proname => 'gp_transaction_log', prorows => '1000', proisstrict => 'f', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => '', prosrc => 'gp_transaction_log' },
-
-{ oid => 6044, descr => 'view logged distributed transaction status',
-   proname => 'gp_distributed_log', prorows => '1000', proisstrict => 'f', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => '', prosrc => 'gp_distributed_log' },
-
 { oid => 6068, descr => 'dbid executing function',
    proname => 'gp_execution_dbid', proisstrict => 'f', provolatile => 'v', proparallel => 'u', prorettype => 'int4', proargtypes => '', prosrc => 'gp_execution_dbid' },
-
-{ oid => 7000, descr => 'Get the next available distributed transaction id',
-   proname => 'gp_get_next_gxid', provolatile => 'v', proparallel => 'u', prorettype => 'int8', proargtypes => '', prosrc => 'gp_get_next_gxid' },
 
 { oid => 7169, descr => 'show append only table tuple distribution across segment databases',
    proname => 'get_ao_distribution', prorows => '1000', proisstrict => 'f', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => 'regclass', proallargtypes => '{regclass,int4,int8}', proargmodes => '{i,o,o}', proargnames => '{rel,segmentid,tupcount}', prosrc => 'get_ao_distribution' },
@@ -11083,22 +11052,6 @@
 # raises deprecation error
 { oid => 9997, descr => 'raises function deprecation error',
    proname => 'gp_deprecated', proisstrict => 'f', prorettype => 'void', proargtypes => '', prosrc => 'gp_deprecated' },
-
-# Analyze related
-{ oid => 6038, descr => 'Collect a random sample of rows from table',
-   proname => 'gp_acquire_sample_rows', prorows => '1000', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => 'oid int4 bool', prosrc => 'gp_acquire_sample_rows', proexeclocation => 's' },
-{ oid => 6040, descr => 'Collect correlations from segments',
-   proname => 'gp_acquire_correlations', prorows => '10', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => 'oid bool', prosrc => 'gp_acquire_correlations', proexeclocation => 's' },
-
-# Backoff related
-{ oid => 5040, descr => 'change weight of all the backends for a given session id',
-   proname => 'gp_adjust_priority', provolatile => 'v', proparallel => 'u', prorettype => 'int4', proargtypes => 'int4 int4 int4', prosrc => 'gp_adjust_priority_int' },
-
-{ oid => 5041, descr => 'change weight of all the backends for a given session id',
-   proname => 'gp_adjust_priority', provolatile => 'v', proparallel => 'u', prorettype => 'int4', proargtypes => 'int4 int4 text', prosrc => 'gp_adjust_priority_value' },
-
-{ oid => 5042, descr => 'list priorities of backends',
-   proname => 'gp_list_backend_priorities', prorows => '1000', proisstrict => 'f', proretset => 't', provolatile => 'v', proparallel => 'u', prorettype => 'record', proargtypes => '', prosrc => 'gp_list_backend_priorities' },
 
 # Functions to deal with SREH error logs
 { oid => 7076, descr => 'read the error log for the specified external table',

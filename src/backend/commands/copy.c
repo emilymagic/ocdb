@@ -24,6 +24,7 @@
 
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/tileam.h"
 #include "access/sysattr.h"
 #include "access/tableam.h"
 #include "access/xact.h"
@@ -73,17 +74,16 @@
 #include "catalog/pg_extprotocol.h"
 #include "cdb/cdbappendonlyam.h"
 #include "cdb/cdbaocsam.h"
+#include "utils/pickcat.h"
 #include "cdb/cdbconn.h"
 #include "cdb/cdbcopy.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbsreh.h"
 #include "cdb/cdbvars.h"
-#include "commands/queue.h"
 #include "nodes/makefuncs.h"
 #include "postmaster/autostats.h"
 #include "utils/metrics_utils.h"
-#include "utils/resscheduler.h"
 #include "utils/string_utils.h"
 #include "partitioning/partdesc.h"
 
@@ -223,7 +223,9 @@ static CopyState BeginCopyTo(ParseState *pstate, Relation rel, RawStmt *query,
 							 List *attnamelist, List *options);
 static void EndCopyTo(CopyState cstate, uint64 *processed);
 static uint64 DoCopyTo(CopyState cstate);
+#if 0
 static uint64 CopyToDispatch(CopyState cstate);
+#endif
 static uint64 CopyTo(CopyState cstate);
 static uint64 CopyDispatchOnSegment(CopyState cstate, const CopyStmt *stmt);
 static uint64 CopyToQueryOnSegment(CopyState cstate);
@@ -658,6 +660,7 @@ CopySendEndOfRow(CopyState cstate)
  * this method for the dispatcher COPY TO since it already has data
  * with newlines (from the executors).
  */
+#if 0
 static void
 CopyToDispatchFlush(CopyState cstate)
 {
@@ -722,6 +725,7 @@ CopyToDispatchFlush(CopyState cstate)
 
 	resetStringInfo(fe_msgbuf);
 }
+#endif
 
 /*
  * CopyGetData reads data from the source (file or frontend)
@@ -1183,11 +1187,14 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 			/*
 			 * Build RangeVar for from clause, fully qualified based on the
-			 * relation which we have opened and locked.
+			 * relation which we have opened and locked.  Use "ONLY" so that
+			 * COPY retrieves rows from only the target table not any
+			 * inheritance children, the same as when RLS doesn't apply.
 			 */
 			from = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)),
 								pstrdup(RelationGetRelationName(rel)),
 								-1);
+			from->inh = false;	/* apply ONLY */
 
 			/* Build query */
 			select = makeNode(SelectStmt);
@@ -1358,7 +1365,345 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 	/* Issue automatic ANALYZE if conditions are satisfied (MPP-4082). */
 	if (Gp_role == GP_ROLE_DISPATCH && is_from)
 	{
-		bool inFunction = already_under_executor_run() || utility_nested();
+		bool inFunction = already_under_executor_run();
+		auto_stats(AUTOSTATS_CMDTYPE_COPY, relid, *processed, inFunction);
+	}
+}
+
+void
+CollectCopy(ParseState *pstate, const CopyStmt *stmt,
+			int stmt_location, int stmt_len,
+			uint64 *processed)
+{
+	CopyState	cstate;
+	bool		is_from = stmt->is_from;
+	bool		pipe = (stmt->filename == NULL || Gp_role == GP_ROLE_EXECUTE);
+	Relation	rel;
+	Oid			relid;
+	RawStmt    *query = NULL;
+	Node	   *whereClause = NULL;
+	List	   *attnamelist = stmt->attlist;
+	List	   *options;
+
+	PickCurrentRole();
+	
+	glob_cstate = NULL;
+	glob_copystmt = (CopyStmt *) stmt;
+
+	options = stmt->options;
+
+	if (stmt->sreh && !is_from)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("COPY single row error handling only available using COPY FROM")));
+
+	/*
+	 * Disallow COPY to/from file or program except to users with the
+	 * appropriate role.
+	 */
+	if (!pipe)
+	{
+		if (stmt->is_program)
+		{
+			if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_EXECUTE_SERVER_PROGRAM))
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+								errmsg("must be superuser or a member of the pg_execute_server_program role to COPY to or from an external program"),
+								errhint("Anyone can COPY to stdout or from stdin. "
+										"psql's \\copy command also works for anyone.")));
+		}
+		else
+		{
+			if (is_from && !is_member_of_role(GetUserId(), DEFAULT_ROLE_READ_SERVER_FILES))
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+								errmsg("must be superuser or a member of the pg_read_server_files role to COPY from a file"),
+								errhint("Anyone can COPY to stdout or from stdin. "
+										"psql's \\copy command also works for anyone.")));
+
+			if (!is_from && !is_member_of_role(GetUserId(), DEFAULT_ROLE_WRITE_SERVER_FILES))
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+								errmsg("must be superuser or a member of the pg_write_server_files role to COPY to a file"),
+								errhint("Anyone can COPY to stdout or from stdin. "
+										"psql's \\copy command also works for anyone.")));
+		}
+	}
+
+	if (stmt->relation)
+	{
+		LOCKMODE	lockmode = is_from ? RowExclusiveLock : AccessShareLock;
+		RangeTblEntry *rte;
+		TupleDesc	tupDesc;
+		List	   *attnums;
+		ListCell   *cur;
+
+		Assert(!stmt->query);
+
+		/* Open and lock the relation, using the appropriate lock type. */
+		rel = table_openrv(stmt->relation, lockmode);
+
+		if (is_from && !allowSystemTableMods && IsUnderPostmaster && IsSystemRelation(rel))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							errmsg("permission denied: \"%s\" is a system catalog",
+								   RelationGetRelationName(rel)),
+							errhint("Make sure the configuration parameter allow_system_table_mods is set.")));
+		}
+
+		relid = RelationGetRelid(rel);
+
+		PickRelationOid(relid);
+
+		rte = addRangeTableEntryForRelation(pstate, rel, lockmode,
+											NULL, false, false);
+		rte->requiredPerms = (is_from ? ACL_INSERT : ACL_SELECT);
+
+		if (stmt->whereClause)
+		{
+			/* add rte to column namespace  */
+			addRTEtoQuery(pstate, rte, false, true, true);
+
+			/* Transform the raw expression tree */
+			whereClause = transformExpr(pstate, stmt->whereClause, EXPR_KIND_COPY_WHERE);
+
+			/* Make sure it yields a boolean result. */
+			whereClause = coerce_to_boolean(pstate, whereClause, "WHERE");
+
+			/* we have to fix its collations too */
+			assign_expr_collations(pstate, whereClause);
+
+			whereClause = eval_const_expressions(NULL, whereClause);
+
+			whereClause = (Node *) canonicalize_qual((Expr *) whereClause, false);
+			whereClause = (Node *) make_ands_implicit((Expr *) whereClause);
+		}
+
+		tupDesc = RelationGetDescr(rel);
+		attnums = CopyGetAttnums(tupDesc, rel, attnamelist);
+		foreach (cur, attnums)
+		{
+			int			attno = lfirst_int(cur) -
+								   FirstLowInvalidHeapAttributeNumber;
+
+			if (is_from)
+				rte->insertedCols = bms_add_member(rte->insertedCols, attno);
+			else
+				rte->selectedCols = bms_add_member(rte->selectedCols, attno);
+		}
+		ExecCheckRTPerms(pstate->p_rtable, true);
+
+		/*
+		 * Permission check for row security policies.
+		 *
+		 * check_enable_rls will ereport(ERROR) if the user has requested
+		 * something invalid and will otherwise indicate if we should enable
+		 * RLS (returns RLS_ENABLED) or not for this COPY statement.
+		 *
+		 * If the relation has a row security policy and we are to apply it
+		 * then perform a "query" copy and allow the normal query processing
+		 * to handle the policies.
+		 *
+		 * If RLS is not enabled for this, then just fall through to the
+		 * normal non-filtering relation handling.
+		 */
+		if (check_enable_rls(rte->relid, InvalidOid, false) == RLS_ENABLED)
+		{
+			SelectStmt *select;
+			ColumnRef  *cr;
+			ResTarget  *target;
+			RangeVar   *from;
+			List	   *targetList = NIL;
+
+			if (is_from)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("COPY FROM not supported with row-level security"),
+								errhint("Use INSERT statements instead.")));
+
+			/*
+			 * Build target list
+			 *
+			 * If no columns are specified in the attribute list of the COPY
+			 * command, then the target list is 'all' columns. Therefore, '*'
+			 * should be used as the target list for the resulting SELECT
+			 * statement.
+			 *
+			 * In the case that columns are specified in the attribute list,
+			 * create a ColumnRef and ResTarget for each column and add them
+			 * to the target list for the resulting SELECT statement.
+			 */
+			if (!stmt->attlist)
+			{
+				cr = makeNode(ColumnRef);
+				cr->fields = list_make1(makeNode(A_Star));
+				cr->location = -1;
+
+				target = makeNode(ResTarget);
+				target->name = NULL;
+				target->indirection = NIL;
+				target->val = (Node *) cr;
+				target->location = -1;
+
+				targetList = list_make1(target);
+			}
+			else
+			{
+				ListCell   *lc;
+
+				foreach(lc, stmt->attlist)
+				{
+					/*
+					 * Build the ColumnRef for each column.  The ColumnRef
+					 * 'fields' property is a String 'Value' node (see
+					 * nodes/value.h) that corresponds to the column name
+					 * respectively.
+					 */
+					cr = makeNode(ColumnRef);
+					cr->fields = list_make1(lfirst(lc));
+					cr->location = -1;
+
+					/* Build the ResTarget and add the ColumnRef to it. */
+					target = makeNode(ResTarget);
+					target->name = NULL;
+					target->indirection = NIL;
+					target->val = (Node *) cr;
+					target->location = -1;
+
+					/* Add each column to the SELECT statement's target list */
+					targetList = lappend(targetList, target);
+				}
+			}
+
+			/*
+			 * Build RangeVar for from clause, fully qualified based on the
+			 * relation which we have opened and locked.  Use "ONLY" so that
+			 * COPY retrieves rows from only the target table not any
+			 * inheritance children, the same as when RLS doesn't apply.
+			 */
+			from = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)),
+								pstrdup(RelationGetRelationName(rel)),
+								-1);
+			from->inh = false;	/* apply ONLY */
+
+			/* Build query */
+			select = makeNode(SelectStmt);
+			select->targetList = targetList;
+			select->fromClause = list_make1(from);
+
+			query = makeNode(RawStmt);
+			query->stmt = (Node *) select;
+			query->stmt_location = stmt_location;
+			query->stmt_len = stmt_len;
+
+			/*
+			 * Close the relation for now, but keep the lock on it to prevent
+			 * changes between now and when we start the query-based COPY.
+			 *
+			 * We'll reopen it later as part of the query-based COPY.
+			 */
+			table_close(rel, NoLock);
+			rel = NULL;
+		}
+	}
+	else
+	{
+		Assert(stmt->query);
+
+		query = makeNode(RawStmt);
+		query->stmt = stmt->query;
+		query->stmt_location = stmt_location;
+		query->stmt_len = stmt_len;
+
+		relid = InvalidOid;
+		rel = NULL;
+	}
+
+	if (is_from)
+	{
+		Assert(rel);
+
+		if (stmt->sreh && Gp_role != GP_ROLE_EXECUTE && !rel->rd_cdbpolicy)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("COPY single row error handling only available for distributed user tables")));
+
+		/*
+		 * GPDB_91_MERGE_FIXME: is it possible to get to this point in the code
+		 * with a temporary relation that belongs to another session? If so, the
+		 * following code doesn't function as expected.
+		 */
+		/* check read-only transaction and parallel mode */
+		if (XactReadOnly && !rel->rd_islocaltemp)
+			PreventCommandIfReadOnly("COPY FROM");
+		PreventCommandIfParallelMode("COPY FROM");
+
+		cstate = BeginCopyFromCollect(pstate, rel, stmt->filename, stmt->is_program,
+									  NULL, NULL, stmt->attlist, options);
+		cstate->whereClause = whereClause;
+
+		/*
+		 * Error handling setup
+		 */
+		if (cstate->sreh)
+		{
+			/* Single row error handling requested */
+			SingleRowErrorDesc *sreh = cstate->sreh;
+			char		log_to_file = LOG_ERRORS_DISABLE;
+
+			GetErrorTupleDesc();
+
+			if (IS_LOG_TO_FILE(sreh->log_error_type))
+			{
+				cstate->errMode = SREH_LOG;
+				/* LOG ERRORS PERSISTENTLY for COPY is not allowed for now. */
+				log_to_file = LOG_ERRORS_ENABLE;
+			}
+			else
+			{
+				cstate->errMode = SREH_IGNORE;
+			}
+			cstate->cdbsreh = makeCdbSreh(sreh->rejectlimit,
+										  sreh->is_limit_in_rows,
+										  cstate->filename,
+										  stmt->relation->relname,
+										  log_to_file);
+			if (rel)
+				cstate->cdbsreh->relid = RelationGetRelid(rel);
+		}
+		else
+		{
+			/* No single row error handling requested. Use "all or nothing" */
+			cstate->cdbsreh = NULL; /* default - no SREH */
+			cstate->errMode = ALL_OR_NOTHING; /* default */
+		}
+
+		EndCopyFrom(cstate);
+	}
+	else
+	{
+		cstate = BeginCopyTo(pstate, rel, query, relid,
+							 stmt->filename, stmt->is_program,
+							 stmt->attlist, options);
+
+		if (rel)
+			table_scan_prepare_dispatch(rel, NULL);
+
+		EndCopyTo(cstate, processed);
+	}
+	/*
+	 * Close the relation.  If reading, we can release the AccessShareLock we
+	 * got; if writing, we should hold the lock until end of transaction to
+	 * ensure that updates will be committed before lock is released.
+	 */
+	if (rel != NULL)
+		table_close(rel, (is_from ? NoLock : AccessShareLock));
+
+	/* Issue automatic ANALYZE if conditions are satisfied (MPP-4082). */
+	if (Gp_role == GP_ROLE_DISPATCH && is_from)
+	{
+		bool inFunction = already_under_executor_run();
 		auto_stats(AUTOSTATS_CMDTYPE_COPY, relid, *processed, inFunction);
 	}
 }
@@ -2054,8 +2399,8 @@ BeginCopy(ParseState *pstate,
 		/*
 		 * With row level security and a user using "COPY relation TO", we
 		 * have to convert the "COPY relation TO" to a query-based COPY (eg:
-		 * "COPY (SELECT * FROM relation) TO"), to allow the rewriter to add
-		 * in any RLS clauses.
+		 * "COPY (SELECT * FROM ONLY relation) TO"), to allow the rewriter to
+		 * add in any RLS clauses.
 		 *
 		 * When this happens, we are passed in the relid of the originally
 		 * found relation (which we have locked).  As the planner will look up
@@ -2106,7 +2451,10 @@ BeginCopy(ParseState *pstate,
 		 *
 		 * ExecutorStart computes a result tupdesc for us
 		 */
-		ExecutorStart(cstate->queryDesc, 0);
+		if (IS_CATALOG_SERVER() && Gp_role == GP_ROLE_DISPATCH)
+			ExecutorStart(cstate->queryDesc, EXEC_FLAG_EXPLAIN_ONLY);
+		else
+			ExecutorStart(cstate->queryDesc, 0);
 
 		tupDesc = cstate->queryDesc->tupDesc;
 	}
@@ -2264,7 +2612,10 @@ CopyDispatchOnSegment(CopyState cstate, const CopyStmt *stmt)
 
 	dispatchStmt = copyObject((CopyStmt *) stmt);
 
-	CdbDispatchUtilityStatement((Node *) dispatchStmt,
+	/*
+	 * Keep utility dispatch
+	 */
+	CdbDispatchUtilityStatement2((Node *) dispatchStmt,
 								DF_NEED_TWO_PHASE |
 								DF_WITH_SNAPSHOT |
 								DF_CANCEL_ON_ERROR,
@@ -2770,7 +3121,7 @@ DoCopyTo(CopyState cstate)
 		 * dispatching COPY commands to executors.
 		 */
 		if (Gp_role == GP_ROLE_DISPATCH && cstate->rel && cstate->rel->rd_cdbpolicy)
-			processed = CopyToDispatch(cstate);
+			processed = CopyTo(cstate);
 		else
 			processed = CopyTo(cstate);
 
@@ -2831,7 +3182,8 @@ EndCopyTo(CopyState cstate, uint64 *processed)
 	if (cstate->queryDesc != NULL)
 	{
 		/* Close down the query and free resources. */
-		ExecutorFinish(cstate->queryDesc);
+		if (!(IS_CATALOG_SERVER() && Gp_role == GP_ROLE_DISPATCH))
+			ExecutorFinish(cstate->queryDesc);
 		ExecutorEnd(cstate->queryDesc);
 		if (cstate->queryDesc->es_processed > 0)
 			*processed = cstate->queryDesc->es_processed;
@@ -2847,6 +3199,7 @@ EndCopyTo(CopyState cstate, uint64 *processed)
  * Copy FROM relation TO file, in the dispatcher. Starts a COPY TO command on
  * each of the executors and gathers all the results and writes it out.
  */
+#if 0
 static uint64
 CopyToDispatch(CopyState cstate)
 {
@@ -2884,6 +3237,42 @@ CopyToDispatch(CopyState cstate)
 	PG_TRY();
 	{
 		bool		done;
+
+		/*
+		 * Catalog collect
+		 */
+		{
+			ListCell   *cur;
+			bool *proj = NULL;
+			proj = palloc0(sizeof(bool) * cstate->rel->rd_att->natts);
+
+			/* Get info about the columns we need to process. */
+			cstate->out_functions =
+					(FmgrInfo *) palloc( cstate->rel->rd_att->natts * sizeof(FmgrInfo));
+
+			foreach(cur, cstate->attnumlist)
+			{
+				int			attnum = lfirst_int(cur);
+				proj[attnum-1] = true;
+				Oid			out_func_oid;
+				bool		isvarlena;
+				Form_pg_attribute attr = TupleDescAttr(cstate->rel->rd_att,
+													   attnum - 1);
+
+				if (cstate->binary)
+					getTypeBinaryOutputInfo(attr->atttypid,
+											&out_func_oid,
+											&isvarlena);
+				else
+					getTypeOutputInfo(attr->atttypid,
+									  &out_func_oid,
+									  &isvarlena);
+				fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
+			}
+
+			pfree(cstate->out_functions);
+		}
+
 
 		cdbCopyStart(cdbCopy, stmt, cstate->file_encoding);
 
@@ -3000,6 +3389,7 @@ CopyToDispatch(CopyState cstate)
 
 	return processed;
 }
+#endif
 
 static uint64
 CopyToQueryOnSegment(CopyState cstate)
@@ -3152,8 +3542,8 @@ CopyTo(CopyState cstate)
 				 */
 				if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 				{
-					for (int i = 0; i < RelationRetrievePartitionDesc(rel)->nparts; i++)
-						inhRelIds = lappend_oid(inhRelIds, RelationRetrievePartitionDesc(rel)->oids[i]);
+					for (int i = 0; i < rel->rd_partdesc->nparts; i++)
+						inhRelIds = lappend_oid(inhRelIds, rel->rd_partdesc->oids[i]);
 				}
 				else if (rel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
 				{
@@ -4040,6 +4430,9 @@ CopyFrom(CopyState cstate)
 
 	target_resultRelInfo = resultRelInfo;
 
+	if (RelationIsTile(target_resultRelInfo->ri_RelationDesc))
+		tile_access_initialization(target_resultRelInfo->ri_RelationDesc);
+
 	/* Verify the named relation is a valid target for INSERT */
 	CheckValidResultRel(resultRelInfo, CMD_INSERT);
 
@@ -4120,8 +4513,8 @@ CopyFrom(CopyState cstate)
 		 * For partitioned tables we can't support multi-inserts when there
 		 * are any statement level insert triggers. It might be possible to
 		 * allow partitioned tables with such triggers in the future, but for
-		 * now, CopyMultiInsertInfoFlush expects that any before row insert
-		 * and statement level insert triggers are on the same relation.
+		 * now, CopyMultiInsertInfoFlush expects that any after row insert and
+		 * statement level insert triggers are on the same relation.
 		 */
 		insertMethod = CIM_SINGLE;
 	}
@@ -4477,6 +4870,11 @@ CopyFrom(CopyState cstate)
 
 			if (prevResultRelInfo != resultRelInfo)
 			{
+				if (RelationIsTile(resultRelInfo->ri_RelationDesc))
+				{
+					tile_access_initialization(resultRelInfo->ri_RelationDesc);
+				}
+
 				/* Determine which triggers exist on this partition */
 				has_before_insert_row_trig = (resultRelInfo->ri_TrigDesc &&
 											  resultRelInfo->ri_TrigDesc->trig_insert_before_row);
@@ -4872,6 +5270,9 @@ CopyFrom(CopyState cstate)
 	if (target_resultRelInfo->ri_RelationDesc->rd_tableam)
 		table_dml_finish(target_resultRelInfo->ri_RelationDesc);
 
+	if (proute)
+		PartitionDmlFinish(proute);
+
 	ExecCloseIndices(target_resultRelInfo);
 
 	/* Close all the partitioned tables, leaf partitions, and their indices */
@@ -5230,6 +5631,189 @@ BeginCopyFrom(ParseState *pstate,
 	return cstate;
 }
 
+CopyState
+BeginCopyFromCollect(ParseState *pstate,
+			  Relation rel,
+			  const char *filename,
+			  bool is_program,
+			  copy_data_source_cb data_source_cb,
+			  void *data_source_cb_extra,
+			  List *attnamelist,
+			  List *options)
+{
+	CopyState	cstate;
+	TupleDesc	tupDesc;
+	AttrNumber	num_phys_attrs,
+			num_defaults;
+	FmgrInfo   *in_functions;
+	Oid		   *typioparams;
+	int			attnum;
+	Oid			in_func_oid;
+	int		   *defmap;
+	ExprState **defexprs;
+	MemoryContext oldcontext;
+	bool		volatile_defexprs;
+	const int	progress_cols[] = {
+			PROGRESS_COPY_COMMAND,
+			PROGRESS_COPY_TYPE,
+			PROGRESS_COPY_BYTES_TOTAL
+	};
+	int64		progress_vals[] = {
+			PROGRESS_COPY_COMMAND_FROM,
+			0,
+			0
+	};
+
+	cstate = BeginCopy(pstate, true, rel, NULL, InvalidOid, attnamelist, options, NULL);
+	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
+
+	if (cstate->on_segment)
+		progress_vals[0] = PROGRESS_COPY_COMMAND_FROM_ON_SEGMENT;
+
+	/*
+	 * Determine the mode
+	 */
+	if (cstate->on_segment || data_source_cb)
+		cstate->dispatch_mode = COPY_DIRECT;
+	else if (Gp_role == GP_ROLE_DISPATCH &&
+			 cstate->rel && cstate->rel->rd_cdbpolicy &&
+			 cstate->rel->rd_cdbpolicy->ptype != POLICYTYPE_ENTRY)
+		cstate->dispatch_mode = COPY_DISPATCH;
+		/*
+		 * Handle case where fdw executes on coordinator while it's acting as a segment
+		 * This occurs when fdw is under a redistribute on the coordinator
+		 */
+	else if (Gp_role == GP_ROLE_EXECUTE &&
+			 cstate->rel && cstate->rel->rd_cdbpolicy &&
+			 cstate->rel->rd_cdbpolicy->ptype == POLICYTYPE_ENTRY)
+		cstate->dispatch_mode = COPY_DIRECT;
+	else if (Gp_role == GP_ROLE_EXECUTE)
+		cstate->dispatch_mode = COPY_EXECUTOR;
+	else
+		cstate->dispatch_mode = COPY_DIRECT;
+
+	/* Initialize state variables */
+	cstate->reached_eof = false;
+	// cstate->eol_type = EOL_UNKNOWN; /* GPDB: don't overwrite value set in ProcessCopyOptions */
+	cstate->cur_relname = RelationGetRelationName(cstate->rel);
+	cstate->cur_lineno = 0;
+	cstate->cur_attname = NULL;
+	cstate->cur_attval = NULL;
+
+	/* Set up variables to avoid per-attribute overhead. */
+	initStringInfo(&cstate->attribute_buf);
+	initStringInfo(&cstate->line_buf);
+	cstate->line_buf_converted = false;
+	cstate->raw_buf = (char *) palloc(RAW_BUF_SIZE + 1);
+	cstate->raw_buf_index = cstate->raw_buf_len = 0;
+
+	/* Assign range table, we'll need it in CopyFrom. */
+	if (pstate)
+		cstate->range_table = pstate->p_rtable;
+
+	tupDesc = RelationGetDescr(cstate->rel);
+	num_phys_attrs = tupDesc->natts;
+	num_defaults = 0;
+	volatile_defexprs = false;
+
+	/*
+	 * Pick up the required catalog information for each attribute in the
+	 * relation, including the input function, the element type (to pass to
+	 * the input function), and info about defaults and constraints. (Which
+	 * input function we use depends on text/binary format choice.)
+	 */
+	in_functions = (FmgrInfo *) palloc(num_phys_attrs * sizeof(FmgrInfo));
+	typioparams = (Oid *) palloc(num_phys_attrs * sizeof(Oid));
+	defmap = (int *) palloc(num_phys_attrs * sizeof(int));
+	defexprs = (ExprState **) palloc(num_phys_attrs * sizeof(ExprState *));
+
+	for (attnum = 1; attnum <= num_phys_attrs; attnum++)
+	{
+		Form_pg_attribute att = TupleDescAttr(tupDesc, attnum - 1);
+
+		/* We don't need info for dropped attributes */
+		if (att->attisdropped)
+			continue;
+
+		/* Fetch the input function and typioparam info */
+		if (cstate->binary)
+			getTypeBinaryInputInfo(att->atttypid,
+								   &in_func_oid, &typioparams[attnum - 1]);
+		else
+			getTypeInputInfo(att->atttypid,
+							 &in_func_oid, &typioparams[attnum - 1]);
+		fmgr_info(in_func_oid, &in_functions[attnum - 1]);
+
+		/* TODO: is force quote array necessary for default conversion */
+
+		/* Get default info if needed */
+		if (!list_member_int(cstate->attnumlist, attnum) && !att->attgenerated)
+		{
+			/* attribute is NOT to be copied from input */
+			/* use default value if one exists */
+			Expr	   *defexpr = (Expr *) build_column_default(cstate->rel,
+																attnum);
+
+			if (defexpr != NULL)
+			{
+				/* Run the expression through planner */
+				defexpr = expression_planner(defexpr);
+
+				/* Initialize executable expression in copycontext */
+				defexprs[num_defaults] = ExecInitExpr(defexpr, NULL);
+				defmap[num_defaults] = attnum - 1;
+				num_defaults++;
+
+				/*
+				 * If a default expression looks at the table being loaded,
+				 * then it could give the wrong answer when using
+				 * multi-insert. Since database access can be dynamic this is
+				 * hard to test for exactly, so we use the much wider test of
+				 * whether the default expression is volatile. We allow for
+				 * the special case of when the default expression is the
+				 * nextval() of a sequence which in this specific case is
+				 * known to be safe for use with the multi-insert
+				 * optimization. Hence we use this special case function
+				 * checker rather than the standard check for
+				 * contain_volatile_functions().
+				 */
+				if (!volatile_defexprs)
+					volatile_defexprs = contain_volatile_functions_not_nextval((Node *) defexpr);
+			}
+		}
+	}
+
+	/* initialize progress */
+	pgstat_progress_start_command(PROGRESS_COMMAND_COPY,
+								  cstate->rel ? RelationGetRelid(cstate->rel) : InvalidOid);
+	cstate->bytes_processed = 0;
+
+	/* We keep those variables in cstate. */
+	cstate->in_functions = in_functions;
+	cstate->typioparams = typioparams;
+	cstate->defmap = defmap;
+	cstate->defexprs = defexprs;
+	cstate->volatile_defexprs = volatile_defexprs;
+	cstate->num_defaults = num_defaults;
+	cstate->is_program = is_program;
+
+	pgstat_progress_update_multi_param(3, progress_cols, progress_vals);
+	
+	/* create workspace for CopyReadAttributes results */
+	if (!cstate->binary)
+	{
+		AttrNumber	attr_count = list_length(cstate->attnumlist);
+
+		cstate->max_fields = attr_count;
+		cstate->raw_fields = (char **) palloc(attr_count * sizeof(char *));
+	}
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return cstate;
+}
+
+
 /*
  * Read raw fields in the next line for COPY FROM in text or csv mode.
  * Return false if no more lines.
@@ -5390,7 +5974,8 @@ HandleCopyError(CopyState cstate)
 
 		if (IS_LOG_TO_FILE(cstate->cdbsreh->logerrors))
 		{
-			if (Gp_role == GP_ROLE_DISPATCH && !cstate->on_segment)
+			if (Gp_role == GP_ROLE_DISPATCH && !cstate->on_segment &&
+				RelationIsTile(cstate->rel))
 			{
 				cstate->cdbsreh->rejectcount++;
 
@@ -5423,7 +6008,7 @@ HandleCopyError(CopyState cstate)
 /*
  * Read next tuple from file for COPY FROM. Return false if no more tuples.
  *
- * 'econtext' is used to evaluate default expression for each columns not
+ * 'econtext' is used to evaluate default expression for each column not
  * read from the file. It can be NULL when no default values are used, i.e.
  * when all columns are read from the file.
  *

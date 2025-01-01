@@ -150,14 +150,12 @@ CreateAOAuxiliaryTable(
 											     shared_relation,
 												 mapped_relation,
 											     ONCOMMIT_NOOP,
-											     NULL, /* GP Policy */
 											     (Datum) 0,
 												 /* use_user_acl */ false,
 											     true,
 												 true,
 												 InvalidOid,
-												 NULL, /* typeaddress */
-												 /* valid_opts */ false);
+												 NULL /* typeaddress */);
 
 	/* Make this table visible, else index creation will fail */
 	CommandCounterIncrement();

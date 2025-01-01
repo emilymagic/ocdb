@@ -32,6 +32,7 @@
 		"checkpoint_warning",
 		"client_connection_check_interval",
 		"client_encoding",
+		"cluster_id",
 		"cluster_name",
 		"config_file",
 		"constraint_exclusion",

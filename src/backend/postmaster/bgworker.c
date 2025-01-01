@@ -38,9 +38,7 @@
 #include "utils/ps_status.h"
 #include "utils/timeout.h"
 
-#include "postmaster/backoff.h"
 #include "postmaster/fts.h"
-#include "utils/gdd.h"
 
 extern bool isAuxiliaryBgWorker(BackgroundWorker *worker);
 
@@ -142,15 +140,6 @@ static const struct
 	,
 	{
 		"FtsProbeMain", FtsProbeMain
-	},
-	{
-		"GlobalDeadLockDetectorMain", GlobalDeadLockDetectorMain
-	},
-	{
-		"DtxRecoveryMain", DtxRecoveryMain
-	},
-	{
-		"BackoffSweeperMain", BackoffSweeperMain
 	},
 #ifdef ENABLE_IC_PROXY
 	{

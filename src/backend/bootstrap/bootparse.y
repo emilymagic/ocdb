@@ -257,14 +257,12 @@ Boot_CreateStmt:
 													  shared_relation,
 													  mapped_relation,
 													  ONCOMMIT_NOOP,
-													  NULL,			/*CDB*/
 													  (Datum) 0,
 													  false,
 													  true,
 													  false,
 													  InvalidOid,
-													  NULL,
-													  /* valid_opts */ false);
+													  NULL);
 						elog(DEBUG4, "relation created with OID %u", id);
 					}
 					do_end();
@@ -335,8 +333,7 @@ Boot_DeclareIndexStmt:
 								false,
 								false,
 								true, /* skip_build */
-								false,
-								false /* is_new_table */);
+								false);
 					do_end();
 				}
 		;
@@ -386,8 +383,7 @@ Boot_DeclareUniqueIndexStmt:
 								false,
 								false,
 								true, /* skip_build */
-								false,
-								false /* is_new_table */);
+								false);
 					do_end();
 				}
 		;

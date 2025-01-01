@@ -108,16 +108,6 @@ CommentObject(CommentStmt *stmt)
 			break;
 	}
 
-	if (Gp_role == GP_ROLE_DISPATCH && shouldDispatchForObject(stmt->objtype))
-	{
-		CdbDispatchUtilityStatement((Node *) stmt,
-									DF_CANCEL_ON_ERROR|
-									DF_WITH_SNAPSHOT|
-									DF_NEED_TWO_PHASE,
-									NIL,
-									NULL);
-	}
-
 	/*
 	 * Databases, tablespaces, roles, resource queues/groups are cluster-wide
 	 * objects, so any comments on those objects are recorded in the shared
@@ -129,8 +119,6 @@ CommentObject(CommentStmt *stmt)
 		case OBJECT_DATABASE:
 		case OBJECT_TABLESPACE:
 		case OBJECT_ROLE:
-		case OBJECT_RESQUEUE:
-		case OBJECT_RESGROUP:
 			CreateSharedComments(address.objectId, address.classId, stmt->comment);
 			break;
 		default:

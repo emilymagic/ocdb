@@ -15,7 +15,6 @@
 #define BRIN_XLOG_H
 
 #include "access/xlogreader.h"
-#include "access/brin_page.h"
 #include "lib/stringinfo.h"
 #include "storage/bufpage.h"
 #include "storage/itemptr.h"
@@ -52,9 +51,8 @@ typedef struct xl_brin_createidx
 {
 	BlockNumber pagesPerRange;
 	uint16		version;
-	bool 		isAO;
 } xl_brin_createidx;
-#define SizeOfBrinCreateIdx (offsetof(xl_brin_createidx, isAO) + sizeof(bool))
+#define SizeOfBrinCreateIdx (offsetof(xl_brin_createidx, version) + sizeof(uint16))
 
 /*
  * This is what we need to know about a BRIN tuple insert
@@ -113,7 +111,6 @@ typedef struct xl_brin_samepage_update
  *
  * Backup block 0: metapage
  * Backup block 1: new revmap page
- * Backup block 2: (AO/CO): last revmap page of current chain (if exists)
  */
 typedef struct xl_brin_revmap_extend
 {
@@ -122,13 +119,9 @@ typedef struct xl_brin_revmap_extend
 	 * backup block 1.
 	 */
 	BlockNumber targetBlk;
-	/* GPDB AO/CO state */
-	bool 			isAO;
-	int         	blockSeq; 		/* block sequence */
-	LogicalPageNum 	targetPageNum; 	/* page number to assign targetBlk */
 } xl_brin_revmap_extend;
 
-#define SizeOfBrinRevmapExtend	(offsetof(xl_brin_revmap_extend, targetPageNum) + \
+#define SizeOfBrinRevmapExtend	(offsetof(xl_brin_revmap_extend, targetBlk) + \
 								 sizeof(BlockNumber))
 
 /*

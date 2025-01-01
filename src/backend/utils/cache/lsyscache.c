@@ -2426,6 +2426,25 @@ get_rel_type_id(Oid relid)
 		return InvalidOid;
 }
 
+Oid
+get_rel_relam(Oid relid)
+{
+	HeapTuple	tp;
+
+	tp = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_class reltup = (Form_pg_class) GETSTRUCT(tp);
+		Oid			result;
+
+		result = reltup->relam;
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return InvalidOid;
+}
+
 /*
  * get_rel_relkind
  *

@@ -25,7 +25,6 @@
 #include "cdb/cdbdisp_query.h"
 #include "access/xact.h"
 #include "cdb/cdbfts.h"
-#include "cdb/cdbtm.h"
 #include "libpq/libpq-be.h"
 #include "commands/dbcommands.h"
 #include "storage/pmsignal.h"

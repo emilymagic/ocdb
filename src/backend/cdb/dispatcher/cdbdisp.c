@@ -554,13 +554,6 @@ AtAbort_DispatcherState(void)
 	CdbResourceOwnerWalker(CurrentResourceOwner, cdbdisp_cleanupDispatcherHandle);
 
 	Assert(open_dispatcher_handles == NULL);
-
-	/*
-	 * If primary writer gang is destroyed in current Gxact
-	 * reset session and drop temp files
-	 */
-	if (currentGxactWriterGangLost())
-		ResetAllGangs();
 }
 
 void

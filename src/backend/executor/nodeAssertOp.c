@@ -16,7 +16,10 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+#include "nodes/execnodes.h"
+#include "nodes/plannodes.h"
 #include "commands/tablecmds.h"
+#include "executor/executor.h"
 #include "executor/nodeAssertOp.h"
 #include "executor/instrument.h"
 #include "utils/memutils.h"

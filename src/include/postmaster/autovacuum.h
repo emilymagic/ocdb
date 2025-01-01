@@ -52,7 +52,6 @@ typedef enum AutovacuumScope
 extern int	AutovacuumLauncherPid;
 
 extern int  Log_autovacuum_min_duration;
-extern int	gp_autovacuum_scope;
 
 /* Status inquiry functions */
 extern bool AutoVacuumingActive(void);

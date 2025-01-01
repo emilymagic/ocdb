@@ -19,6 +19,7 @@
 #include "catalog/pg_event_trigger.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_type.h"
+#include "cdb/cdbvars.h"
 #include "commands/trigger.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
@@ -64,6 +65,9 @@ List *
 EventCacheLookup(EventTriggerEvent event)
 {
 	EventTriggerCacheEntry *entry;
+
+	if (Gp_role == GP_ROLE_EXECUTE)
+		Assert(false);
 
 	if (EventTriggerCacheState != ETCS_VALID)
 		BuildEventTriggerCache();

@@ -32,16 +32,12 @@
 
 #include "cdb/cdbexplain.h"
 #include "cdb/ml_ipc.h"
-#include "cdb/cdbtm.h"
 #include "commands/createas.h"
-#include "commands/queue.h"
 #include "commands/createas.h"
 #include "executor/spi.h"
 #include "pgstat.h"
 #include "postmaster/autostats.h"
-#include "postmaster/backoff.h"
 #include "utils/resource_manager.h"
-#include "utils/resscheduler.h"
 #include "utils/metrics_utils.h"
 
 
@@ -76,7 +72,6 @@ static uint64 DoPortalRunFetch(Portal portal,
 							   int64 count,
 							   DestReceiver *dest);
 static void DoPortalRewind(Portal portal);
-static void PortalBackoffEntryInit(Portal portal);
 
 /*
  * CreateQueryDesc
@@ -209,28 +204,6 @@ ProcessQuery(Portal portal,
 	check_and_unassign_from_resgroup(queryDesc->plannedstmt);
 	queryDesc->plannedstmt->query_mem = ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);
 
-	if (Gp_role == GP_ROLE_DISPATCH)
-	{
-		/*
-		 * If resource scheduling is enabled and we are locking non SELECT
-		 * queries, or this is a SELECT INTO then lock the portal here.  Skip
-		 * if this query is added by the rewriter or we are superuser.
-		 */
-		if (IsResQueueEnabled() && !superuser() && !IsResQueueLockedForPortal(portal))
-		{
-			if ((!ResourceSelectOnly || portal->sourceTag == T_SelectStmt) &&
-				stmt->canSetTag)
-			{
-				ResLockPortal(portal, queryDesc);
-			}
-			else
-			{
-				/* we will not track this query, so reset the query_mem*/
-				queryDesc->plannedstmt->query_mem = 0;
-			}
-		}
-	}
-
 	portal->status = PORTAL_ACTIVE;
 
 	/*
@@ -301,13 +274,6 @@ ProcessQuery(Portal portal,
 	}
 
 	FreeQueryDesc(queryDesc);
-
-	if (gp_enable_resqueue_priority 
-			&& Gp_role == GP_ROLE_DISPATCH 
-			&& gp_session_id > -1)
-	{
-		BackoffBackendEntryExit();
-	}
 }
 
 /*
@@ -601,42 +567,17 @@ PortalStart(Portal portal, ParamListInfo params,
 		 */
 		portal->strategy = ChoosePortalStrategy(portal->stmts);
 
-		/* Initialize the backoff entry for this backend */
-		PortalBackoffEntryInit(portal);
-
 		/*
 		 * Fire her up according to the strategy
 		 */
 		switch (portal->strategy)
 		{
 			case PORTAL_ONE_SELECT:
-
-				/*
-				 * GPDB: If we just have one motion and slices[1] can be direct dispatched,
-				 * we do not need to grab distributed snapshot on QD, the local snapshot on
-				 * QE is enough if we meet direct dispatch.
-				 *
-				 * This could improve some efficiency on OLTP.
-				 */
-				if (Gp_role == GP_ROLE_DISPATCH && !IsInTransactionBlock(true) && !snapshot)
-				{
-					/* check whether we need to create distributed snapshot */
-					int 		determinedSliceIndex = 1;
-					PlannedStmt *pstmt = linitial_node(PlannedStmt, portal->stmts);
-
-					if (pstmt->numSlices == 2 &&
-						pstmt->slices[determinedSliceIndex].directDispatch.isDirectDispatch)
-						needDistributedSnapshot = false;
-				}
-				
 				/* Must set snapshot before starting executor. */
 				if (snapshot)
 					PushActiveSnapshot(snapshot);
 				else
 					PushActiveSnapshot(GetTransactionSnapshot());
-
-				/* reset value */
-				needDistributedSnapshot = true;
 
 				/*
 				 * We could remember the snapshot in portal->portalSnapshot,
@@ -685,31 +626,6 @@ PortalStart(Portal portal, ParamListInfo params,
 
 				check_and_unassign_from_resgroup(queryDesc->plannedstmt);
 				queryDesc->plannedstmt->query_mem = ResourceManagerGetQueryMemoryLimit(queryDesc->plannedstmt);
-
-				if (Gp_role == GP_ROLE_DISPATCH)
-				{
-					/*
-					 * If resource scheduling is enabled, lock the portal here.
-					 * Skip this if we are superuser!
-					 */
-					if (IsResQueueEnabled() && !superuser())
-					{
-						/*
-						 * MPP-16369 - If we are in SPI context, only acquire
-						 * resource queue lock if the outer portal hasn't
-						 * acquired it already. This code is analogous
-						 * to the code in _SPI_pquery. For cases where there is a
-						 * cursor inside PL/pgSQL, we don't go via _SPI_pquery,
-						 * but execute PortalStart directly. Hence the following
-						 * check is needed to prevent self-deadlocks as described
-						 * in MPP-16369.
-						 * If not in SPI context, acquire resource queue lock with
-						 * no additional checks.
-						 */
-						if (!SPI_context() || !saveActivePortal || !IsResQueueLockedForPortal(saveActivePortal))
-							ResLockPortal(portal, queryDesc);
-					}
-				}
 
 				portal->status = PORTAL_ACTIVE;
 
@@ -1377,10 +1293,6 @@ PortalRunUtility(Portal portal, PlannedStmt *pstmt,
 	else
 		portal->portalSnapshot = NULL;
 
-	/* check if this utility statement need to be involved into resource queue
-	 * mgmt */
-	ResHandleUtilityStmt(portal, pstmt->utilityStmt);
-
 	ProcessUtility(pstmt,
 				   portal->sourceText ? portal->sourceText : "(Source text for portal is not available)",
 				   isTopLevel ? PROCESS_UTILITY_TOPLEVEL : PROCESS_UTILITY_QUERY,
@@ -2003,21 +1915,6 @@ DoPortalRewind(Portal portal)
 	portal->atStart = true;
 	portal->atEnd = false;
 	portal->portalPos = 0;
-}
-
-/*
- * Initializes the corresponding BackoffBackendEntry for this backend
- */
-static void
-PortalBackoffEntryInit(Portal portal)
-{
-	if (gp_enable_resqueue_priority &&
-		(Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_EXECUTE) &&
-		gp_session_id > -1)
-	{
-		/* Initialize the SHM backend entry */
-		BackoffBackendEntryInit(gp_session_id, gp_command_count, portal->queueId);
-	}
 }
 
 /*

@@ -1346,19 +1346,6 @@ create_append_plan(PlannerInfo *root, AppendPath *best_path, int flags)
 										 best_path->subpaths,
 										 best_path->partitioned_rels,
 										 prunequal);
-
-		/*
-		 * GPDB: Also perform join-pruning, if possible
-		 *
-		 * XXX: Skip this for parameterized paths for now. We could probably
-		 * handle them somehow, but not implemented yet..
-		 */
-		if (!best_path->path.param_info)
-		{
-			plan->join_prune_paramids = make_partition_join_pruneinfos(root, rel,
-																	   best_path->subpaths,
-																	   best_path->partitioned_rels);
-		}
 	}
 
 	plan->appendplans = subplans;
@@ -2963,20 +2950,32 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 							 errmsg("ModifyTable mixes distributed and entry-only tables")));
 			}
 
-			if (policyType != POLICYTYPE_ENTRY)
+//			if (policyType != POLICYTYPE_ENTRY)
+//			{
+//				if (isfirst)
+//				{
+//					root->curSlice->gangType = GANGTYPE_PRIMARY_WRITER;
+//					root->curSlice->numsegments = policy->numsegments;
+//				}
+//				else
+//				{
+//					Assert(root->curSlice->gangType == GANGTYPE_PRIMARY_WRITER);
+//					root->curSlice->numsegments =
+//						Max(root->curSlice->numsegments, policy->numsegments);
+//				}
+//			}
+
+			if (isfirst)
 			{
-				if (isfirst)
-				{
-					root->curSlice->gangType = GANGTYPE_PRIMARY_WRITER;
-					root->curSlice->numsegments = policy->numsegments;
-				}
-				else
-				{
-					Assert(root->curSlice->gangType == GANGTYPE_PRIMARY_WRITER);
-					root->curSlice->numsegments =
-						Max(root->curSlice->numsegments, policy->numsegments);
-				}
+				root->curSlice->numsegments = best_path->path.locus.numsegments;
+				root->curSlice->gangType = root->curSlice->numsegments > 0 ? GANGTYPE_PRIMARY_WRITER : GANGTYPE_UNALLOCATED;
 			}
+			else
+			{
+				root->curSlice->numsegments =
+					Max(root->curSlice->numsegments, policy->numsegments);
+			}
+
 			isfirst = false;
 		}
 	}

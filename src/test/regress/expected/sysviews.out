@@ -86,14 +86,14 @@ select count(*) = 1 as ok from pg_stat_wal;
 select name, setting from pg_settings where name like 'enable%';
               name              | setting 
 --------------------------------+---------
- enable_bitmapscan              | on
+ enable_bitmapscan              | off
  enable_gathermerge             | on
  enable_groupagg                | on
  enable_groupingsets_hash_disk  | off
  enable_hashagg                 | on
  enable_hashagg_disk            | on
  enable_hashjoin                | on
- enable_indexonlyscan           | on
+ enable_indexonlyscan           | off
  enable_indexscan               | on
  enable_material                | on
  enable_mergejoin               | off
