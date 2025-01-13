@@ -40,21 +40,6 @@ EXTRADEFS = '-DHOST_TUPLE="$(host_tuple)"' \
 
 # Build regression test driver
 
-all: pg_regress$(X)
-pg_regress$(X): pg_regress.o pg_regress_main.o $(WIN32RES) | submake-libpgport
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@
-extended_protocol_resqueue: extended_protocol_resqueue.c
-	$(CC) $(CPPFLAGS) -I../../../src/interfaces/libpq -L$(GPHOME)/lib -L../../../src/interfaces/libpq  -o $@ $< -lpq
-
-# dependencies ensure that path changes propagate
-pg_regress.o: pg_regress.c $(top_builddir)/src/port/pg_config_paths.h
-pg_regress.o: override CPPFLAGS += -I$(top_builddir)/src/port $(EXTRADEFS)
-regress_gp.o: override CPPFLAGS += -I$(libpq_srcdir)
-regress_gp.o: override LDFLAGS += -L$(top_builddir)/src/interfaces/libpq
-
-twophase_pqexecparams: twophase_pqexecparams.c
-	$(CC) $(CPPFLAGS) -I$(top_builddir)/src/interfaces/libpq -L$(GPHOME)/lib -L$(top_builddir)/src/interfaces/libpq  -o $@ $< -lpq
-
 # note: because of the submake dependency, this rule's action is really a no-op
 $(top_builddir)/src/port/pg_config_paths.h: | submake-libpgport
 	$(MAKE) -C $(top_builddir)/src/port pg_config_paths.h
@@ -88,9 +73,8 @@ uninstall:
 # Build dynamically-loaded object file for CREATE FUNCTION ... LANGUAGE C.
 
 NAME = regress
-OBJS = $(WIN32RES) regress.o
+OBJS = $(WIN32RES)
 
-OBJS += regress_gp.o
 
 SHLIB_LINK_INTERNAL = $(libpq)
 
@@ -130,11 +114,15 @@ installdirs-tests: installdirs
 
 # Get some extra C modules from contrib/spi
 
-all: refint$(DLSUFFIX) autoinc$(DLSUFFIX)
+all: refint$(DLSUFFIX) autoinc$(DLSUFFIX) regress$(DLSUFFIX)
+
 refint$(DLSUFFIX): $(top_builddir)/contrib/spi/refint$(DLSUFFIX)
 	cp $< $@
 
 autoinc$(DLSUFFIX): $(top_builddir)/contrib/spi/autoinc$(DLSUFFIX)
+	cp $< $@
+
+regress$(DLSUFFIX): ../regress/regress.so 
 	cp $< $@
 
 $(top_builddir)/contrib/spi/refint$(DLSUFFIX): | submake-contrib-spi ;
@@ -170,14 +158,6 @@ tablespace-setup:
 	./testtablespace_mytempsp4 \
 	./testtablespace_database_tablespace
 
-
-.PHONY: hooktest
-hooktest:
-	$(MAKE) -C $< $@
-
-.PHONY: query_info_hook_test
-query_info_hook_test:
-	$(MAKE) -C $< $@
 
 ##
 ## Run tests
@@ -246,8 +226,6 @@ clean maintainer-clean: clean-lib
 	rm -f pg_regress_main.o pg_regress.o pg_regress$(X)
 	rm -f twophase_pqexecparams
 	$(MAKE) -C $(top_builddir)/contrib/spi clean
-	$(MAKE) -C hooktest/ clean
-	$(MAKE) -C query_info_hook_test/ clean
 # things created by various check targets
 	rm -f $(output_files) $(input_files)
 	rm -rf ./testtablespace ./testtablespace_*
