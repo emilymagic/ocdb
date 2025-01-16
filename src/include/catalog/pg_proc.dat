@@ -11105,7 +11105,7 @@
    proname => 'gp_remove_segment_mirror', proisstrict => 'f', provolatile => 'v', proparallel => 'r', prorettype => 'bool', proargtypes => 'int2', prosrc => 'gp_remove_segment_mirror' },
 
 { oid => 5050, descr => 'Perform the catalog operations necessary for adding a new segment',
-   proname => 'gp_add_segment', proisstrict => 'f', provolatile => 'v', proparallel => 'r', prorettype => 'int2', proargtypes => 'int2 int2 char char char char int4 text text text', prosrc => 'gp_add_segment' },
+   proname => 'gp_add_segment', proisstrict => 'f', provolatile => 'v', proparallel => 'r', prorettype => 'int2', proargtypes => 'int2 int2 char char char char int4 text text text int4', prosrc => 'gp_add_segment' },
 
 { oid => 5080, descr => 'Lock catalog changes for gpexpand',
    proname => 'gp_expand_lock_catalog', proisstrict => 'f', provolatile => 'v', proparallel => 'r', prorettype => 'void', proargtypes => '', prosrc => 'gp_expand_lock_catalog' },

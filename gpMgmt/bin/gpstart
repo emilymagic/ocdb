@@ -63,6 +63,7 @@ class GpStart:
         self.quiet = quiet
         self.coordinatoronly = coordinatoronly
         self.coordinator_datadir = coordinator_datadir
+        self.cluster_id = None
         self.interactive = interactive
         self.timeout = timeout
         self.wrapper = wrapper
@@ -177,6 +178,8 @@ class GpStart:
         self.gphome = gp.get_gphome()
         if self.coordinator_datadir is None:
             self.coordinator_datadir = gp.get_coordinatordatadir()
+        if self.cluster_id is None:
+            self.cluster_id = gp.get_cluster_id()
         self.user = unix.getUserName()
         gp.check_permissions(self.user)
         self._read_postgresqlconf()
@@ -355,7 +358,7 @@ class GpStart:
 
         logger.info("Obtaining Segment details from coordinator...")
         self.dburl = dbconn.DbURL(port=self.port, dbname='template1')
-        self.gparray = GpArray.initFromCatalog(self.dburl, utility=True)
+        self.gparray = GpArray.initFromCatalog(self.dburl, cluster_id=self.cluster_id, utility=True)
 
         logger.info("Setting new coordinator era")
         e = GpEraFile(self.coordinator_datadir, logger=get_logger_if_verbose())

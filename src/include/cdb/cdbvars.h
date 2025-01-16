@@ -731,6 +731,7 @@ typedef struct GpId
  */
 extern GpId GpIdentity;
 extern int myClusterId;
+extern int sessionClusterId;
 
 /*
  * Maximum length of string representation of 'dbid' (same as max length of an int4)

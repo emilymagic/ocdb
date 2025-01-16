@@ -117,6 +117,7 @@ class GpStop:
         self.conn = None
         self.gparray = None
         self.gpversion = None
+        self.cluster_id = None
 
         logger.debug("Setting level of parallelism to: %d" % self.parallel)
         pass
@@ -251,6 +252,8 @@ class GpStop:
         self.gphome = gp.get_gphome()
         if self.coordinator_datadir is None:
             self.coordinator_datadir = gp.get_coordinatordatadir()
+        if self.cluster_id is None:
+            self.cluster_id = gp.get_cluster_id()
         self.user = unix.getUserName()
         gp.check_permissions(self.user)
         self._read_postgresqlconf()
@@ -314,7 +317,7 @@ class GpStop:
 
         logger.info("Obtaining Segment details from coordinator...")
         self.dburl = dbconn.DbURL(port=self.port, dbname='template1')
-        self.gparray = GpArray.initFromCatalog(self.dburl, utility=True)
+        self.gparray = GpArray.initFromCatalog(self.dburl, cluster_id=self.cluster_id, utility=True)
 
     def _handle_shutdown_state(self):
         """

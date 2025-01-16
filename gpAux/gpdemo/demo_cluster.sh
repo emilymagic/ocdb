@@ -12,9 +12,9 @@ DATACHECKSUMS=1
 # ======================================================================
 
 if [ -z "${COORDINATOR_DATADIR}" ]; then
-  DATADIRS=${DATADIRS:-`pwd`/datadirs/cluster1}
+  DATADIRS=${DATADIRS:-`pwd`/datadirs/cluster${CLUSTER_ID}}
 else
-  DATADIRS="${COORDINATOR_DATADIR}/datadirs/cluster1"
+  DATADIRS="${COORDINATOR_DATADIR}/datadirs/cluster${CLUSTER_ID}"
 fi
 
 QDDIR=$DATADIRS/qddir
@@ -321,7 +321,7 @@ cat >> $CLUSTER_CONFIG <<-EOF
 	
 	ENCODING=UNICODE
 
-	CLUSTER_ID=1
+	#CLUSTER_ID=1
 EOF
 
 if [ "${DATACHECKSUMS}" == "0" ]; then
@@ -471,6 +471,7 @@ cat > gpdemo-env.sh <<-EOF
 	export PGPORT=${COORDINATOR_DEMO_PORT}
 	export COORDINATOR_DATA_DIRECTORY=$QDDIR/${SEG_PREFIX}-1
 	export MASTER_DATA_DIRECTORY=$QDDIR/${SEG_PREFIX}-1
+	export CLUSTER_ID=$CLUSTER_ID
 EOF
 
 if [ "${RETURN}" -gt 1 ];
