@@ -364,6 +364,7 @@ bool		gp_cost_hashjoin_chainwalk = false;
  */
 GpId		GpIdentity = {UNINITIALIZED_GP_IDENTITY_VALUE, UNINITIALIZED_GP_IDENTITY_VALUE};
 int			myClusterId = 0;
+int			sessionClusterId = 0;
 
 /*
  * Keep track of a few dispatch-related  statistics:

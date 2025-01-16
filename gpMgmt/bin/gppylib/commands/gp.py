@@ -1234,6 +1234,12 @@ def get_coordinatordatadir():
 def get_coordinatorport(datadir):
     return pgconf.readfile(os.path.join(datadir, 'postgresql.conf')).int('port')
 
+######
+def get_cluster_id():
+    cluster_id = os.environ.get('CLUSTER_ID');
+    if not cluster_id:
+        raise GpError("Environment Variable CLUSTER_ID not set!")
+    return cluster_id
 
 ######
 def check_permissions(username):

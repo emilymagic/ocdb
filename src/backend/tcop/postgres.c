@@ -5867,7 +5867,10 @@ PostgresMain(int argc, char *argv[],
 						 csQuery->cmdType == CS_NEXT_VAL)
 					exec_returning_command(csQuery);
 				else if (csQuery->cmdType == CS_STARTUP)
+				{
+					sessionClusterId = csQuery->cluster_id;
 					exec_startup_query();
+				}
 				else if (csQuery->cmdType == CS_XACT_START ||
 						 csQuery->cmdType == CS_XACT_FINISH ||
 						 csQuery->cmdType == CS_XACT_ABORT ||
