@@ -33,6 +33,7 @@ typedef struct CsQuery
 	CsType cmdType;
 	char *query_string;
 	Node *data;
+	int	cluster_id;
 } CsQuery;
 
 typedef struct NextValNode

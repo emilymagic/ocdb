@@ -1270,9 +1270,9 @@ CREATE_QD_DB () {
 		if [ $RETVAL -ne 0 ]; then
 			ERROR_EXIT "[FATAL]:-Could not establish connection to hostname $GP_HOSTNAME. Please check your configuration."
 		fi
-		UPDATE_GPCONFIG $GP_PORT $GP_DBID $GP_CONTENT $GP_HOSTNAME $GP_HOSTADDRESS $GP_PORT $GP_DIR p
+		UPDATE_GPCONFIG $GP_PORT $GP_DBID $GP_CONTENT $GP_HOSTNAME $GP_HOSTADDRESS $GP_PORT $GP_DIR p $CLUSTER_ID
 		SET_LOCALE_VARS_BASED_ON_COORDINATOR
-		LOAD_QE_SYSTEM_DATA $DEFAULTDB
+		LOAD_QE_SYSTEM_DATA $DEFAULTDB $CLUSTER_ID
 		SET_VAR $QD_PRIMARY_ARRAY
 		LOG_MSG "[INFO]:-End Function $FUNCNAME"
 }
@@ -1287,17 +1287,18 @@ UPDATE_GPCONFIG () {
 		U_PORT=$6
 		U_DIR=$7
 		U_ROLE=$8
+		U_CLUSTER_ID=$9
 
 		U_DB=$DEFAULTDB
 		CHK_COUNT=`env PGOPTIONS="-c gp_role=utility" $PSQL -p $COORDINATOR_PORT -d "$U_DB" -X -A -t -c "SELECT count(*) FROM $GP_CONFIG_TBL WHERE content=${U_CONTENT} AND preferred_role='${U_ROLE}';" 2>>${LOG_FILE}` >> $LOG_FILE 2>&1
 		ERROR_CHK $? "obtain psql count Coordinator $GP_CONFIG_TBL" 2
-		if [ $CHK_COUNT -eq 0 ]; then
+		#if [ $CHK_COUNT -eq 0 ]; then
 				LOG_MSG "[INFO]:-Adding $U_CONTENT on $U_HOSTNAME, path $U_DIR to Coordinator gp_segment_configuration"
-				env PGOPTIONS="-c gp_role=utility" $PSQL -p $COORDINATOR_PORT -d "$U_DB" -c "SELECT pg_catalog.gp_add_segment(${U_DBID}::int2, ${U_CONTENT}::int2, '${U_ROLE}', '${U_ROLE}', 's', 'u', ${U_PORT}, '${U_HOSTNAME}', '${U_ADDRESS}', '${U_DIR}');" >> $LOG_FILE 2>&1
+				env PGOPTIONS="-c gp_role=utility" $PSQL -p $COORDINATOR_PORT -d "$U_DB" -c "SELECT pg_catalog.gp_add_segment(${U_DBID}::int2, ${U_CONTENT}::int2, '${U_ROLE}', '${U_ROLE}', 's', 'u', ${U_PORT}, '${U_HOSTNAME}', '${U_ADDRESS}', '${U_DIR}', '${U_CLUSTER_ID}');" >> $LOG_FILE 2>&1
 				ERROR_CHK $? "add $U_CONTENT on $U_HOSTNAME in dir $U_DIR to Coordinator gp_segment_configuration" 2
-		else
-				LOG_MSG "[INFO]:-Content $U_CONTENT already exists in gp_segment_configuration system table"
-		fi
+		#else
+	#			LOG_MSG "[INFO]:-Content $U_CONTENT already exists in gp_segment_configuration system table"
+	#	fi
 		LOG_MSG "[INFO]:-End Function $FUNCNAME"
 }
 
@@ -1306,6 +1307,7 @@ LOAD_QE_SYSTEM_DATA () {
 		LOG_MSG "[INFO]:-Start Function $FUNCNAME"
 		SET_VAR $QD_PRIMARY_ARRAY
 		TARGET_DB=$1
+		CLUSTER_ID=$2
 		QD_DBNAME=$DEFAULTDB
 		for I in "${QE_PRIMARY_ARRAY[@]}"
 		do
@@ -1316,7 +1318,7 @@ LOAD_QE_SYSTEM_DATA () {
 				if [ $RETVAL -ne 0 ]; then
 					ERROR_EXIT "[FATAL]:-Could not establish connection to hostname $GP_HOSTNAME. Please check your configuration."
 				fi
-				UPDATE_GPCONFIG $COORDINATOR_PORT $GP_DBID $GP_CONTENT $GP_HOSTNAME $GP_HOSTADDRESS $GP_PORT $GP_DIR p
+				UPDATE_GPCONFIG $COORDINATOR_PORT $GP_DBID $GP_CONTENT $GP_HOSTNAME $GP_HOSTADDRESS $GP_PORT $GP_DIR p $CLUSTER_ID
 				LOG_MSG "[INFO]:-Successfully added segment $GP_HOSTADDRESS to Coordinator system tables"
 		done
 		LOG_MSG "[INFO]:-End Function $FUNCNAME"
