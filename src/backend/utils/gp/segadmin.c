@@ -30,6 +30,7 @@
 #include "common/hashfn.h"
 #include "postmaster/startup.h"
 #include "utils/builtins.h"
+#include "utils/datetime.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 
@@ -96,8 +97,20 @@ get_maxdbid()
 	int16		dbid = 0;
 	HeapTuple	tuple;
 	SysScanDesc sscan;
+	ScanKeyData	skey[1];
 
-	sscan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
+	if (IS_CATALOG_SERVER())
+	{
+		ScanKeyInit(&skey[0], Anum_gp_segment_configuration_clusterid,
+			BTEqualStrategyNumber, F_INT4EQ, Int32GetDatum(sessionClusterId));
+	}
+	else
+	{
+		ScanKeyInit(&skey[0], Anum_gp_segment_configuration_clusterid,
+					BTEqualStrategyNumber, F_INT4EQ, Int32GetDatum(myClusterId));
+	}
+
+	sscan = systable_beginscan(rel, InvalidOid, false, NULL, 1, skey);
 	while ((tuple = systable_getnext(sscan)) != NULL)
 	{
 		dbid = Max(dbid,
@@ -265,6 +278,7 @@ add_segment_config(GpSegConfigEntry *i)
 		CharGetDatum(i->status);
 	values[Anum_gp_segment_configuration_port - 1] =
 		Int32GetDatum(i->port);
+	values[Anum_gp_segment_configuration_clusterid - 1] = Int32GetDatum(i->clusterid);
 	values[Anum_gp_segment_configuration_hostname - 1] =
 		CStringGetTextDatum(i->hostname);
 	values[Anum_gp_segment_configuration_address - 1] =
@@ -309,7 +323,7 @@ remove_segment_config(int16 dbid)
 				BTEqualStrategyNumber, F_INT2EQ,
 				Int16GetDatum(dbid));
 
-	sscan = systable_beginscan(rel, GpSegmentConfigDbidIndexId, true,
+	sscan = systable_beginscan(rel, InvalidOid, true,
 							   NULL, 1, &scankey);
 	while ((tuple = systable_getnext(sscan)) != NULL)
 	{
@@ -462,6 +476,11 @@ gp_add_segment(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(9))
 		elog(ERROR, "datadir cannot be NULL");
 	new.datadir = TextDatumGetCString(PG_GETARG_DATUM(9));
+
+	if (PG_ARGISNULL(10))
+		elog(ERROR, "cluster cannot be NULL");
+
+	new.clusterid = PG_GETARG_INT32(10);
 
 	mirroring_sanity_check(COORDINATOR_ONLY | SUPERUSER, "gp_add_segment");
 
@@ -723,7 +742,7 @@ segment_config_activate_standby(int16 standby_dbid, int16 coordinator_dbid)
 				Anum_gp_segment_configuration_dbid,
 				BTEqualStrategyNumber, F_INT2EQ,
 				Int16GetDatum(coordinator_dbid));
-	sscan = systable_beginscan(rel, GpSegmentConfigDbidIndexId, true,
+	sscan = systable_beginscan(rel, InvalidOid, true,
 							   NULL, 1, &scankey);
 	while ((tuple = systable_getnext(sscan)) != NULL)
 	{
@@ -740,7 +759,7 @@ segment_config_activate_standby(int16 standby_dbid, int16 coordinator_dbid)
 				Anum_gp_segment_configuration_dbid,
 				BTEqualStrategyNumber, F_INT2EQ,
 				Int16GetDatum(standby_dbid));
-	sscan = systable_beginscan(rel, GpSegmentConfigDbidIndexId, true,
+	sscan = systable_beginscan(rel, InvalidOid, true,
 							   NULL, 1, &scankey);
 
 	tuple = systable_getnext(sscan);
