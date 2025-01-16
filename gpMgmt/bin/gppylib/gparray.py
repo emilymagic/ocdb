@@ -805,9 +805,9 @@ class GpArray:
 
             # Handle QD nodes
             if segdb.isSegmentCoordinator(True):
-                if self.coordinator != None:
-                    logger.error("multiple coordinator dbs defined")
-                    raise Exception("GpArray - multiple coordinator dbs defined")
+                # if self.coordinator != None:
+                #     logger.error("multiple coordinator dbs defined")
+                #     raise Exception("GpArray - multiple coordinator dbs defined")
                 self.coordinator = segdb
 
             elif segdb.isSegmentStandby(True):
@@ -940,7 +940,7 @@ class GpArray:
 
     # --------------------------------------------------------------------
     @staticmethod
-    def initFromCatalog(dbURL, utility=False):
+    def initFromCatalog(dbURL, cluster_id=0, utility=False):
         """
         Factory method, initializes a GpArray from provided database URL
         """
@@ -957,8 +957,8 @@ class GpArray:
             SELECT dbid, content, role, preferred_role, mode, status,
             hostname, address, port, datadir
             FROM pg_catalog.gp_segment_configuration
-            ORDER BY content, preferred_role DESC
-            ''')
+            WHERE clusterid = %s ORDER BY content, preferred_role DESC
+            ''' % cluster_id)
 
             recoveredSegmentDbids = []
             segments = []
