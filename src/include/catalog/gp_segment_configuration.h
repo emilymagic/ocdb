@@ -49,6 +49,7 @@ CATALOG(gp_segment_configuration,5036,GpSegmentConfigRelationId) BKI_SHARED_RELA
 	char		mode;
 	char		status;
 	int32		port;
+	int32		clusterid;
 
 #ifdef CATALOG_VARLEN
 	text		hostname;

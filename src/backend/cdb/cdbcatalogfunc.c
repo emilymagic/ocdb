@@ -407,7 +407,10 @@ cc_get_catalog(const char *sql, MemoryContext ctx)
 		strcpy(csQuery->query_string, sql);
 	}
 	else
+	{
 		csQuery->cmdType = CS_STARTUP;
+		csQuery->cluster_id = myClusterId;
+	}
 
 	csQueryBuf = serializeNode((Node *) csQuery, &csQueryLen, NULL);
 
