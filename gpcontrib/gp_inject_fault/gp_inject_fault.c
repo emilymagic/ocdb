@@ -60,7 +60,7 @@ getHostnameAndPort(int dbid, char **hostname, int *port)
 				Anum_gp_segment_configuration_dbid,
 				BTEqualStrategyNumber, F_INT2EQ,
 				Int16GetDatum(dbid));
-	scan = systable_beginscan(configrel, GpSegmentConfigDbidIndexId, true,
+	scan = systable_beginscan(configrel, InvalidOid, true,
 							  NULL, 1, scankey);
 
 	tuple = systable_getnext(scan);
