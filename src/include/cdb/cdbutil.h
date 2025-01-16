@@ -52,6 +52,7 @@ typedef struct GpSegConfigEntry
 	char		mode;
 	char		status;
 	int32		port;			/* port that instance is listening on */
+	int32		clusterid;
 	char		*hostname;		/* name or ip address of host machine */
 	char		*address;		/* ip address of host machine */
 	char		*datadir;		/* absolute path to data directory on the host. */

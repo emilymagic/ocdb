@@ -232,7 +232,7 @@ probeWalRepUpdateConfig(int16 dbid, int16 segindex, char role,
 					Anum_gp_segment_configuration_dbid,
 					BTEqualStrategyNumber, F_INT2EQ,
 					Int16GetDatum(dbid));
-		sscan = systable_beginscan(configrel, GpSegmentConfigDbidIndexId,
+		sscan = systable_beginscan(configrel, InvalidOid,
 								   true, NULL, 1, &scankey);
 
 		configtuple = systable_getnext(sscan);
