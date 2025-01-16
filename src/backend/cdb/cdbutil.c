@@ -206,7 +206,7 @@ writeGpSegConfigToFTSFiles(void)
 	if (!fd)
 		elog(ERROR, "could not create tmp file: %s: %m", GPSEGCONFIGDUMPFILETMP);
 
-	configs = readGpSegConfigFromCatalog(&total_dbs); 
+	configs = readGpSegConfigFromCatalog(&total_dbs);
 
 	for (idx = 0; idx < total_dbs; idx++)
 	{
@@ -241,13 +241,27 @@ readGpSegConfigFromCatalog(int *total_dbs)
 	SysScanDesc			gp_seg_config_scan;
 	GpSegConfigEntry	*configs;
 	GpSegConfigEntry	*config;
+	ScanKeyData skey[1];
 
 	array_size = 500;
 	configs = palloc0(sizeof(GpSegConfigEntry) * array_size);
 
 	gp_seg_config_rel = table_open(GpSegmentConfigRelationId, AccessShareLock);
-	gp_seg_config_scan = systable_beginscan(gp_seg_config_rel, InvalidOid, false, NULL,
-											0, NULL);
+
+	if (IS_CATALOG_SERVER())
+	{
+		ScanKeyInit(&skey[0], Anum_gp_segment_configuration_clusterid,
+			BTEqualStrategyNumber, F_INT4EQ, Int32GetDatum(sessionClusterId));
+		gp_seg_config_scan = systable_beginscan(gp_seg_config_rel, InvalidOid, false,
+												NULL, 0, NULL);
+	}
+	else
+	{
+		ScanKeyInit(&skey[0], Anum_gp_segment_configuration_clusterid,
+					BTEqualStrategyNumber, F_INT4EQ, Int32GetDatum(myClusterId));
+		gp_seg_config_scan = systable_beginscan(gp_seg_config_rel, InvalidOid, false, NULL,
+												1, skey);
+	}
 
 	while (HeapTupleIsValid(gp_seg_config_tuple = systable_getnext(gp_seg_config_scan)))
 	{
@@ -1475,7 +1489,7 @@ coordinator_standby_dbid(void)
 	int16		dbid = 0;
 	HeapTuple	tup;
 	Relation	rel;
-	ScanKeyData scankey[2];
+	ScanKeyData scankey[3];
 	SysScanDesc scan;
 
 	/*
@@ -1498,6 +1512,16 @@ coordinator_standby_dbid(void)
 				Anum_gp_segment_configuration_role,
 				BTEqualStrategyNumber, F_CHAREQ,
 				CharGetDatum(GP_SEGMENT_CONFIGURATION_ROLE_MIRROR));
+	if (IS_CATALOG_SERVER())
+	{
+		ScanKeyInit(&scankey[2], Anum_gp_segment_configuration_clusterid,
+			BTEqualStrategyNumber, F_INT4EQ, Int32GetDatum(sessionClusterId));\
+	}
+	else
+	{
+		ScanKeyInit(&scankey[2], Anum_gp_segment_configuration_clusterid,
+					BTEqualStrategyNumber, F_INT4EQ, Int32GetDatum(myClusterId));
+	}
 	/* no index */
 	scan = systable_beginscan(rel, InvalidOid, false,
 							  NULL, 2, scankey);
@@ -1542,7 +1566,7 @@ dbid_get_dbinfo(int16 dbid)
 				Anum_gp_segment_configuration_dbid,
 				BTEqualStrategyNumber, F_INT2EQ,
 				Int16GetDatum(dbid));
-	scan = systable_beginscan(rel, GpSegmentConfigDbidIndexId, true,
+	scan = systable_beginscan(rel, InvalidOid, true,
 							  NULL, 1, &scankey);
 
 	tuple = systable_getnext(scan);
@@ -1679,7 +1703,7 @@ contentid_get_dbid(int16 contentid, char role, bool getPreferredRoleNotCurrentRo
 					Anum_gp_segment_configuration_preferred_role,
 					BTEqualStrategyNumber, F_CHAREQ,
 					CharGetDatum(role));
-		scan = systable_beginscan(rel, GpSegmentConfigContentPreferred_roleIndexId, true,
+		scan = systable_beginscan(rel, InvalidOid, true,
 								  NULL, 2, scankey);
 	}
 	else
