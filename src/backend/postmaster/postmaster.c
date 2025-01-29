@@ -633,10 +633,9 @@ static void ShmemBackendArrayRemove(Backend *bn);
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
 #define StartArchiver()			((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(ArchiverProcess) : 0)
-#define StartBackgroundWriter() ((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(BgWriterProcess) : 0)
-#define StartHeartbeat()		((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(HeartbeatProcess) : 0)
-#define StartCheckpointer()		((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(CheckpointerProcess) : 0)
-#define StartWalWriter()		((Gp_role != GP_ROLE_EXECUTE) ? StartChildProcess(WalWriterProcess) : 0)
+#define StartBackgroundWriter() (IS_CATALOG_SERVER() ? StartChildProcess(BgWriterProcess) : 0)
+#define StartCheckpointer()		(IS_CATALOG_SERVER() ? StartChildProcess(CheckpointerProcess) : 0)
+#define StartWalWriter()		(IS_CATALOG_SERVER() ? StartChildProcess(WalWriterProcess) : 0)
 #define StartWalReceiver()		StartChildProcess(WalReceiverProcess)
 
 /* Macros to check exit status of a child process */
