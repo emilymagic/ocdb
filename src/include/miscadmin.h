@@ -511,7 +511,6 @@ extern AuxProcType MyAuxProcType;
 #define AmCheckpointerProcess()		(MyAuxProcType == CheckpointerProcess)
 #define AmWalWriterProcess()		(MyAuxProcType == WalWriterProcess)
 #define AmWalReceiverProcess()		(MyAuxProcType == WalReceiverProcess)
-#define AmHeartbeatProcess()		(MyAuxProcType == HeartbeatProcess)
 
 
 /*****************************************************************************
