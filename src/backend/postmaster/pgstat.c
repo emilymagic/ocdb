@@ -808,6 +808,8 @@ pgstat_start(void)
 	time_t		curtime;
 	pid_t		pgStatPid;
 
+	if (!IS_CATALOG_SERVER())
+		return 0;
 	/*
 	 * Check that the socket is there, else pgstat_init failed and we can do
 	 * nothing useful.
