@@ -51,6 +51,7 @@
 
 GpRoleValue Gp_role;			/* Role paid by this Greenplum Database
 								 * backend */
+int			segment_count = 0;
 char	   *gp_role_string;		/* Staging area for guc.c */
 
 bool		Gp_is_writer;		/* is this qExec a "writer" process. */
@@ -364,7 +365,9 @@ bool		gp_cost_hashjoin_chainwalk = false;
  */
 GpId		GpIdentity = {UNINITIALIZED_GP_IDENTITY_VALUE, UNINITIALIZED_GP_IDENTITY_VALUE};
 int			myClusterId = 0;
+int			CatalogServerId = 0;
 int			sessionClusterId = 0;
+int			cluster_size = 3;
 
 /*
  * Keep track of a few dispatch-related  statistics:
@@ -443,7 +446,7 @@ check_gp_role(char **newval, void **extra, GucSource source)
 	else if (Gp_role == GP_ROLE_UNDEFINED)
 		return (newrole != GP_ROLE_UNDEFINED);
 	else /* can only downgrade to utility. */
-		return (newrole == GP_ROLE_UTILITY);
+		return true;
 }
 
 void
@@ -456,6 +459,12 @@ assign_gp_role(const char *newval, void *extra)
 
 	if (Gp_role == GP_ROLE_UTILITY)
 		should_reject_connection = false;
+
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		GpIdentity.segindex = -1;
+		// GpIdentity.dbid = 1;
+	}
 }
 
 /*

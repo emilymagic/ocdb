@@ -56,6 +56,7 @@ bool accessHeap = false;
 bool accessTile = false;
 PGconn	*csConn = NULL;
 bool errorFromCatalogServer = false;
+char *cs_port;
 
 static bytea *cstring_to_bytea(char *inputText);
 static CcPrintUp *cc_printup_create_DR(PGresAttDesc *attDescs, int nattr,
@@ -70,7 +71,8 @@ SetConnOptions(CatConnectOptions *options)
 {
 	options->dbname = NULL;
 	options->hostname = NULL;
-	options->port = "5432";
+	options->port = cs_port;
+
 	options->username = NULL;
 
 	options->quiet = false;
@@ -332,6 +334,7 @@ cc_catalog_or_run(const char *sql)
 	csQuery = makeNode(CsQuery);
 	csQuery->cmdType = CS_QUERY;
 	csQuery->query_string = (char *) sql;
+	csQuery->segment_count = getgpsegmentCount();
 
 	res = cc_exec_plan(csQuery);
 	cmdStatus = cc_status(res);
@@ -348,6 +351,8 @@ cc_catalog_or_run(const char *sql)
 		oldCtx = MemoryContextSwitchTo(memoryHeapContext);
 		catAuxNode = (CdbCatalogAuxNode *) deserializeNode(VARDATA(value), VARSIZE(value));
 		MemoryContextSwitchTo(oldCtx);
+
+		cdbcomponent_assignCdbComponents();
 	}
 	else if (strcmp(cmdStatus, "Both") == 0)
 	{

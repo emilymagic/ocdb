@@ -10,6 +10,7 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/S3Client.h>
 
+
 extern "C" {
 #include "postgres.h"
 }
@@ -25,9 +26,20 @@ typedef struct S3Access
 	Aws::SDKOptions *op;
 } S3Access;
 
-const char *default_bucket_name = "dbdata1";
+extern int myClusterId;
+extern int CatalogServerId;
+
+char default_bucket_name[NAMEDATALEN];
+int	bucket_id = 0;
 
 static void  SetCofig(ClientConfiguration *conf);
+
+void
+S3SetBucketId(int id)
+{
+	bucket_id = id;
+	sprintf(default_bucket_name, "dbdata%d", bucket_id);
+}
 
 void *
 S3InitAccess()
@@ -43,6 +55,11 @@ S3InitAccess()
 								   conf,
 								   AWSAuthV4Signer::PayloadSigningPolicy::Never,
 								   false);
+	if (myClusterId == 0)
+	{
+		S3SetBucketId(CatalogServerId);
+		sprintf(default_bucket_name, "dbdata%d", bucket_id);
+	}
 
 	return static_cast<void*>(s3client);
 }
@@ -67,7 +84,8 @@ S3CreateBucket(void *s3Client, const char *bucketPath)
 
 	if (!result.IsSuccess()) {
 		auto err = result.GetError();
-		elog(ERROR, "CreateBucket failed with error '%s'",err.GetMessage().c_str());
+		elog(ERROR, "CreateBucket failed with error '%s', bucket name %s",
+			 err.GetMessage().c_str(), bucketPath);
 	}
 }
 

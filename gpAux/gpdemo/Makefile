@@ -13,62 +13,47 @@ top_builddir = ../..
 # VARIABLES
 #
 
-export enable_gpfdist
-export with_openssl
-
-
+PORT_CATALOG ?= 5432
 PORT_BASE ?= 7000
-NUM_PRIMARY_MIRROR_PAIRS ?= 3
-BLDWRAP_POSTGRES_CONF_ADDONS := $(BLDWRAP_POSTGRES_CONF_ADDONS)
-
-ifeq ($(WITH_MIRRORS), )
-WITH_MIRRORS = true
-endif
-
-ifeq ($(WITH_MIRRORS), true)
-WITH_STANDBY = true
-endif
+NUM_PRIMARY_MIRROR_PAIRS ?= 7
+MAX_LOAD ?= 10
+HOSTNAME := $(shell hostname | tr -d '\n')
+CURRENT_DIR := $(shell pwd)
 
 export DEMO_PORT_BASE=$(PORT_BASE)
 export CATALOG_PORT=5432
 export NUM_PRIMARY_MIRROR_PAIRS
-#export WITH_MIRRORS
-#export WITH_STANDBY
-export BLDWRAP_POSTGRES_CONF_ADDONS
 export DEFAULT_QD_MAX_CONNECT=150
 export CLUSTER_ID=1
 
 all:
 	$(MAKE) clean
-	$(MAKE) check
-	$(MAKE) create-demo-cluster
-	$(MAKE) probe
+	$(MAKE) pool
+	$(MAKE) catalog
 
-cluster create-demo-cluster:
-	@./demo_cluster.sh
-	@echo ""
+clean:
+	$(MAKE) cleanpool
+	$(MAKE) cleancatalog
 
-probe:
-	@./probe_config.sh
-	@echo ""
+pool:
+	sh killpool.sh
+	rm -f pooldata.json
+	pool_make_conf ${DEMO_PORT_BASE} ${NUM_PRIMARY_MIRROR_PAIRS} ${MAX_LOAD}
+	nohup pool &
+	pool_init instances.json
+	pool_start
 
-check: 
-	@./demo_cluster.sh -c
-	@echo ""
-
-clean destroy-demo-cluster:
-	@echo "======================================================================"
-	@echo "Deleting cluster.... "
-	@echo "======================================================================"
-	@./demo_cluster.sh -d
-	@echo ""
+cleanpool:
+	pool_destroy
+	rm -f gpdemo-env.sh
 
 catalog:
-	@./demo_catalog.sh
+	cs_init ${HOSTNAME} ${PORT_CATALOG} ${CURRENT_DIR}/datadirs/catalog
 	@echo ""
 
 cleancatalog:
-	@./demo_catalog.sh -d
+	pool_remove_instance ${HOSTNAME} ${CURRENT_DIR}/datadirs/catalog
+	rm -f catalog_env.sh
 	@echo ""
 
 

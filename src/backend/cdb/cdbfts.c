@@ -133,6 +133,8 @@ FtsNotifyProber(void)
 bool
 FtsIsSegmentDown(CdbComponentDatabaseInfo *dBInfo)
 {
+	return false;
+
 	/* coordinator is always reported as alive */
 	if (dBInfo->config->segindex == COORDINATOR_SEGMENT_ID)
 		return false;
@@ -170,5 +172,8 @@ FtsTestSegmentDBIsDown(SegmentDatabaseDescriptor **segdbDesc, int size)
 uint8
 getFtsVersion(void)
 {
+
+	return 0;
+
 	return ftsProbeInfo->status_version;
 }
