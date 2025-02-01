@@ -28,6 +28,8 @@
 #endif
 
 #include <sys/param.h>			/* for MAXHOSTNAMELEN */
+#include <curl/curl.h>
+#include <cjson/cJSON.h>
 
 #include "access/genam.h"
 #include "catalog/gp_segment_configuration.h"
@@ -75,12 +77,14 @@
 #define GPSEGCONFIGNUMATTR 10
 
 MemoryContext CdbComponentsContext = NULL;
+bool		  assignedInstance = false;
 static CdbComponentDatabases *cdb_component_dbs = NULL;
 
 /*
  * Helper Functions
  */
-static CdbComponentDatabases *getCdbComponentInfo(void);
+static CdbComponentDatabases *getCdbComponentInfo(GpSegConfigEntry *configs,
+												  int total_dbs);
 static void cleanupComponentIdleQEs(CdbComponentDatabaseInfo *cdi, bool includeWriter);
 
 static int	CdbComponentDatabaseInfoCompare(const void *p1, const void *p2);
@@ -229,6 +233,282 @@ writeGpSegConfigToFTSFiles(void)
 			 GPSEGCONFIGDUMPFILETMP, GPSEGCONFIGDUMPFILE);
 }
 
+// Structure to store HTTP response data in memory
+struct MemoryStruct {
+	char *memory; // Pointer to the response data
+	size_t size;  // Size of the response data
+};
+
+// Callback function to handle HTTP response data
+static size_t
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+	size_t realsize = size * nmemb; // Calculate the actual size of the data
+	struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+    // Resize the memory block to accommodate the new data
+	char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+	if (ptr == NULL) {
+		printf("Not enough memory (realloc returned NULL)\n");
+		return 0; // Return 0 to indicate failure
+	}
+
+	mem->memory = ptr; // Update the memory pointer
+	memcpy(&(mem->memory[mem->size]), contents, realsize); // Append new data
+	mem->size += realsize; // Update the total size
+	mem->memory[mem->size] = 0; // Null-terminate the string
+
+	return realsize; // Return the size of the data handled
+}
+
+// Function to parse JSON data
+static GpSegConfigEntry *
+parse_json(const char *json_string, int *total_dbs)
+{
+	GpSegConfigEntry	*configs;
+	GpSegConfigEntry	*config;
+	int					array_size;
+	int					idx = 0;
+
+	array_size = 500;
+	configs = palloc0(sizeof(GpSegConfigEntry) * array_size);
+
+	// Parse the JSON string into a cJSON object
+	cJSON *json = cJSON_Parse(json_string);
+	if (json == NULL)
+	{
+		const char *error_ptr = cJSON_GetErrorPtr();
+		if (error_ptr != NULL)
+            elog(ERROR, "Error before: %s", error_ptr);
+    }
+
+    // Check if the JSON is an array
+	if (cJSON_IsArray(json))
+	{
+		cJSON *item;
+
+        // Iterate over each item in the array
+		cJSON_ArrayForEach(item, json)
+		{
+			// Extract the "id" field
+			cJSON *id = cJSON_GetObjectItem(item, "id");
+			// Extract the "name" field
+			cJSON *name = cJSON_GetObjectItem(item, "hostname");
+			cJSON *port = cJSON_GetObjectItem(item, "port");
+			cJSON *content = cJSON_GetObjectItem(item, "content");
+			cJSON *datadir = cJSON_GetObjectItem(item, "datadir");
+
+			// Check if both fields are valid
+			if (cJSON_IsNumber(id) && cJSON_IsString(name) && cJSON_IsNumber(port) &&
+				cJSON_IsNumber(content) && cJSON_IsString(datadir))
+			{
+				config = &configs[idx];
+				config->dbid = id->valueint;
+				config->segindex = content->valueint;
+				config->role = 'p';
+				config->preferred_role = 'p';
+				config->mode = 'n';
+				config->status = 'u';
+				config->hostname = palloc(strlen(name->valuestring) + 1);
+				strcpy(config->hostname, name->valuestring);
+				config->address = palloc(strlen(name->valuestring) + 1);
+				strcpy(config->address, name->valuestring);
+				config->port = port->valueint;
+				config->datadir = palloc(strlen(datadir->valuestring) + 1);
+				strcpy(config->datadir, datadir->valuestring);
+				idx++;
+
+
+				if (idx >= array_size)
+				{
+					array_size = array_size * 2;
+					configs = (GpSegConfigEntry *)
+						repalloc(configs, sizeof(GpSegConfigEntry) * array_size);
+				}
+			}
+        }
+    }
+	else
+		elog(ERROR, "Response is not a JSON array.");
+
+    // Clean up the cJSON object
+	cJSON_Delete(json);
+
+	*total_dbs = idx;
+	return configs;
+}
+
+GpSegConfigEntry *
+readGpSegConfigFromVmPool(int *total_dbs, bool load)
+{
+	CURL			   *curl;
+	CURLcode			res;
+	GpSegConfigEntry   *configs = NULL;
+
+	// Initialize libcurl
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	curl = curl_easy_init();
+
+	if (curl)
+	{
+		// 2. 构建JSON数据（使用cJSON库）
+		cJSON *root = cJSON_CreateObject();
+
+		cJSON *coordinator = cJSON_CreateObject();
+		cJSON_AddNumberToObject(coordinator, "id", GpIdentity.dbid);
+		cJSON_AddItemToObject(root, "coordinator", coordinator);
+
+		cJSON *executorList = cJSON_CreateArray();
+
+		if (cdb_component_dbs && cdb_component_dbs->total_segment_dbs == cluster_size)
+		{
+			for (int i = 0; i < cdb_component_dbs->total_segment_dbs; i++)
+			{
+				cJSON *executorItem = cJSON_CreateObject();
+				int dbid = cdb_component_dbs->segment_db_info[i].config->dbid;
+
+				cJSON_AddNumberToObject(executorItem, "id", dbid);
+				cJSON_AddItemToArray(executorList, executorItem);
+			}
+		}
+		else
+		{
+			for (int i = 0; i < cluster_size; i++)
+			{
+				cJSON *executorItem = cJSON_CreateObject();
+				cJSON_AddItemToArray(executorList, executorItem);
+			}
+		}
+
+		cJSON_AddItemToObject(root, "executors", executorList);
+		if (load)
+			cJSON_AddTrueToObject(root, "load");
+		else
+			cJSON_AddFalseToObject(root, "load");
+
+		char *json_data = cJSON_Print(root); // 将JSON对象转换为字符串
+
+		// Set the URL to request
+		curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/cluster");
+		curl_easy_setopt(curl, CURLOPT_POST, 1L); // 设置为POST请求
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data); // 设置POST数据
+
+		// 4. 设置HTTP头（声明Content-Type为JSON）
+		struct curl_slist *headers = NULL;
+		headers = curl_slist_append(headers, "Content-Type: application/json");
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+		// Set up a structure to store the HTTP response
+		struct MemoryStruct chunk;
+		chunk.memory = malloc(1); // Initialize with an empty string
+		chunk.size = 0;
+
+		// Set the callback function to handle the response data
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+
+		// Perform the HTTP request
+		res = curl_easy_perform(curl);
+
+		// Check if the request was successful
+		if (res != CURLE_OK)
+			elog(ERROR, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+
+		// Parse the JSON response
+		configs = parse_json(chunk.memory, total_dbs);
+
+		// Free the memory used to store the response
+		free(chunk.memory);
+		// Clean up the CURL handle
+		curl_easy_cleanup(curl);
+	}
+
+	// Clean up libcurl
+	curl_global_cleanup();
+
+	return configs;
+}
+
+void
+releaseSegmentConfigs(void)
+{
+	CURL			   *curl;
+	CURLcode			res;
+
+	if (!assignedInstance)
+		return;
+
+	assignedInstance = false;
+
+	if (!cdb_component_dbs)
+		return;
+
+	// Initialize libcurl
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	curl = curl_easy_init();
+
+	if (curl)
+	{
+		// 2. 构建JSON数据（使用cJSON库）
+		cJSON *root = cJSON_CreateObject();
+
+		cJSON *coordinator = cJSON_CreateObject();
+		cJSON_AddNumberToObject(coordinator, "id", GpIdentity.dbid);
+		cJSON_AddItemToObject(root, "coordinator", coordinator);
+
+		cJSON *executorList = cJSON_CreateArray();
+
+		for (int i = 0; i < cdb_component_dbs->total_segment_dbs; i++)
+		{
+			cJSON *executorItem = cJSON_CreateObject();
+			int dbid = cdb_component_dbs->segment_db_info[i].config->dbid;
+
+			cJSON_AddNumberToObject(executorItem, "id", dbid);
+			cJSON_AddItemToArray(executorList, executorItem);
+		}
+
+		cJSON_AddItemToObject(root, "executors", executorList);
+
+		char *json_data = cJSON_Print(root); // 将JSON对象转换为字符串
+
+		// Set the URL to request
+		curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/release");
+		curl_easy_setopt(curl, CURLOPT_POST, 1L); // 设置为POST请求
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data); // 设置POST数据
+
+		// 4. 设置HTTP头（声明Content-Type为JSON）
+		struct curl_slist *headers = NULL;
+		headers = curl_slist_append(headers, "Content-Type: application/json");
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+		// Set up a structure to store the HTTP response
+		struct MemoryStruct chunk;
+		chunk.memory = malloc(1); // Initialize with an empty string
+		chunk.size = 0;
+
+		// Set the callback function to handle the response data
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+
+		// Perform the HTTP request
+		res = curl_easy_perform(curl);
+
+		// Check if the request was successful
+		if (res != CURLE_OK)
+			elog(ERROR, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+
+		// Parse the JSON response
+		// configs = parse_json(chunk.memory, total_dbs);
+
+		// Free the memory used to store the response
+		free(chunk.memory);
+		// Clean up the CURL handle
+		curl_easy_cleanup(curl);
+	}
+
+	// Clean up libcurl
+	curl_global_cleanup();
+}
+
 GpSegConfigEntry *
 readGpSegConfigFromCatalog(int *total_dbs)
 {
@@ -242,6 +522,8 @@ readGpSegConfigFromCatalog(int *total_dbs)
 	GpSegConfigEntry	*configs;
 	GpSegConfigEntry	*config;
 	ScanKeyData skey[1];
+
+	return readGpSegConfigFromVmPool(total_dbs, false);
 
 	array_size = 500;
 	configs = palloc0(sizeof(GpSegConfigEntry) * array_size);
@@ -346,34 +628,19 @@ readGpSegConfigFromCatalog(int *total_dbs)
  *  Internal function to initialize each component info
  */
 static CdbComponentDatabases *
-getCdbComponentInfo(void)
+getCdbComponentInfo(GpSegConfigEntry *configs, int total_dbs)
 {
-	MemoryContext oldContext;
 	CdbComponentDatabaseInfo *cdbInfo;
 	CdbComponentDatabases *component_databases = NULL;
-	GpSegConfigEntry *configs;
+
 
 	int			i;
 	int			x = 0;
-	int			total_dbs = 0;
 
 	bool		found;
 	HostPrimaryCountEntry *hsEntry;
 
-	if (!CdbComponentsContext)
-		CdbComponentsContext = AllocSetContextCreate(TopMemoryContext, "cdb components Context",
-								ALLOCSET_DEFAULT_MINSIZE,
-								ALLOCSET_DEFAULT_INITSIZE,
-								ALLOCSET_DEFAULT_MAXSIZE);
-
-	oldContext = MemoryContextSwitchTo(CdbComponentsContext);
-
 	HTAB	   *hostPrimaryCountHash = hostPrimaryCountHashTableInit();
-
-	if (IsTransactionState())
-		configs = readGpSegConfigFromCatalog(&total_dbs);
-	else
-		configs = readGpSegConfigFromFTSFiles(&total_dbs);
 
 	component_databases = palloc0(sizeof(CdbComponentDatabases));
 
@@ -504,7 +771,7 @@ getCdbComponentInfo(void)
 	{
 		cdbInfo = &component_databases->entry_db_info[i];
 
-		if (cdbInfo->config->dbid == GpIdentity.dbid && cdbInfo->config->segindex == GpIdentity.segindex)
+		if (cdbInfo->config->segindex == GpIdentity.segindex)
 		{
 			break;
 		}
@@ -581,8 +848,6 @@ getCdbComponentInfo(void)
 	}
 
 	hash_destroy(hostPrimaryCountHash);
-
-	MemoryContextSwitchTo(oldContext);
 
 	return component_databases;
 }
@@ -687,17 +952,40 @@ cdbcomponent_updateCdbComponents(void)
 	{
 		if (cdb_component_dbs == NULL)
 		{
-			cdb_component_dbs = getCdbComponentInfo();
+			GpSegConfigEntry *configs;
+			int totalDbs;
+			MemoryContext	oldContext;
+
+			if (!CdbComponentsContext)
+				CdbComponentsContext = AllocSetContextCreate(TopMemoryContext, "cdb components Context",
+										ALLOCSET_DEFAULT_MINSIZE,
+										ALLOCSET_DEFAULT_INITSIZE,
+										ALLOCSET_DEFAULT_MAXSIZE);
+			oldContext = MemoryContextSwitchTo(CdbComponentsContext);
+			configs = readGpSegConfigFromVmPool(&totalDbs, false);
+			cdb_component_dbs = getCdbComponentInfo(configs, totalDbs);
+			MemoryContextSwitchTo(oldContext);
 			cdb_component_dbs->fts_version = ftsVersion;
 			cdb_component_dbs->expand_version = GetGpExpandVersion();
 		}
 		else if ((cdb_component_dbs->fts_version != ftsVersion ||
 				 cdb_component_dbs->expand_version != expandVersion))
 		{
+			GpSegConfigEntry *configs;
+			int totalDbs;
+			MemoryContext	oldContext;
 
 			ELOG_DISPATCHER_DEBUG("FTS rescanned, get new component databases info.");
 			cdbcomponent_destroyCdbComponents();
-			cdb_component_dbs = getCdbComponentInfo();
+			if (!CdbComponentsContext)
+				CdbComponentsContext = AllocSetContextCreate(TopMemoryContext, "cdb components Context",
+										ALLOCSET_DEFAULT_MINSIZE,
+										ALLOCSET_DEFAULT_INITSIZE,
+										ALLOCSET_DEFAULT_MAXSIZE);
+			oldContext = MemoryContextSwitchTo(CdbComponentsContext);
+			configs = readGpSegConfigFromVmPool(&totalDbs, false);
+			cdb_component_dbs = getCdbComponentInfo(configs, totalDbs);
+			MemoryContextSwitchTo(oldContext);
 			cdb_component_dbs->fts_version = ftsVersion;
 			cdb_component_dbs->expand_version = expandVersion;
 		}
@@ -727,7 +1015,19 @@ cdbcomponent_getCdbComponents()
 	{
 		if (cdb_component_dbs == NULL)
 		{
-			cdb_component_dbs = getCdbComponentInfo();
+			GpSegConfigEntry *configs;
+			int				totalDbs;
+			MemoryContext	oldContext;
+
+			if (!CdbComponentsContext)
+				CdbComponentsContext = AllocSetContextCreate(TopMemoryContext, "cdb components Context",
+										ALLOCSET_DEFAULT_MINSIZE,
+										ALLOCSET_DEFAULT_INITSIZE,
+										ALLOCSET_DEFAULT_MAXSIZE);
+			oldContext = MemoryContextSwitchTo(CdbComponentsContext);
+			configs = readGpSegConfigFromVmPool(&totalDbs, false);
+			cdb_component_dbs = getCdbComponentInfo(configs, totalDbs);
+			MemoryContextSwitchTo(oldContext);
 			cdb_component_dbs->fts_version = getFtsVersion();
 			cdb_component_dbs->expand_version = GetGpExpandVersion();
 		}
@@ -742,6 +1042,95 @@ cdbcomponent_getCdbComponents()
 	PG_END_TRY();
 
 	return cdb_component_dbs;
+}
+
+static bool
+SegmentDbEqual(CdbComponentDatabaseInfo *info, int ninfo,
+			   GpSegConfigEntry *entry, int nentry)
+{
+	int i;
+	List *list1 = NIL;
+	List *list2 = NIL;
+	ListCell *lc1;
+	ListCell *lc2;
+
+	for (i = 0; i < ninfo; i++)
+	{
+		if (info[i].config->segindex < 0)
+			continue;
+
+		list1 = lappend_int(list1, info[i].config->dbid);
+	}
+
+	for (i = 0; i < nentry; i++)
+	{
+		if (entry[i].segindex < 0)
+			continue;
+
+		list2 = lappend_int(list2, entry[i].dbid);
+	}
+
+	if (list_length(list1) != list_length(list2))
+	{
+		list_free(list1);
+		list_free(list2);
+		return false;
+	}
+
+	forboth(lc1, list1, lc2, list2)
+	{
+		if (lfirst(lc1) != lfirst(lc2))
+		{
+			list_free(list1);
+			list_free(list2);
+			return false;
+		}
+	}
+
+	list_free(list1);
+	list_free(list2);
+	return true;
+}
+
+void
+cdbcomponent_assignCdbComponents(void)
+{
+	MemoryContext newCdbComponentsContext;
+	MemoryContext oldCtx;
+	GpSegConfigEntry *configs;
+	bool isEqual;
+	int total_dbs;
+
+	newCdbComponentsContext = AllocSetContextCreate(TopMemoryContext,
+													"cdb components Context",
+													ALLOCSET_DEFAULT_MINSIZE,
+													ALLOCSET_DEFAULT_INITSIZE,
+													ALLOCSET_DEFAULT_MAXSIZE);
+	oldCtx = MemoryContextSwitchTo(newCdbComponentsContext);
+
+	configs = readGpSegConfigFromVmPool(&total_dbs, true);
+	if (cdb_component_dbs)
+		isEqual = SegmentDbEqual(cdb_component_dbs->segment_db_info,
+								 cdb_component_dbs->total_segment_dbs,
+								 configs, total_dbs);
+	else
+		isEqual = false;
+
+	if (isEqual)
+	{
+		MemoryContextSwitchTo(oldCtx);
+		MemoryContextDelete(newCdbComponentsContext);
+	}
+	else
+	{
+		cdbcomponent_destroyCdbComponents();
+
+		cdb_component_dbs = getCdbComponentInfo(configs, total_dbs);
+		CdbComponentsContext = newCdbComponentsContext;
+		MemoryContextSwitchTo(oldCtx);
+	}
+
+	assignedInstance = true;
 }
 
 /*
@@ -766,7 +1155,7 @@ cdbcomponent_destroyCdbComponents(void)
 
 	/* delete the memory context */
 	if (CdbComponentsContext)
-		MemoryContextDelete(CdbComponentsContext);	
+		MemoryContextDelete(CdbComponentsContext);
 	CdbComponentsContext = NULL;
 	cdb_component_dbs = NULL;
 }
@@ -1767,7 +2156,9 @@ getgpsegmentCount(void)
 	/* 1 represents a singleton postgresql in utility mode */
 	int32 numsegments = 1;
 
-	if (Gp_role == GP_ROLE_DISPATCH)
+	if (IS_CATALOG_SERVER())
+		numsegments = segment_count;
+	else if (Gp_role == GP_ROLE_DISPATCH)
 		numsegments = cdbcomponent_getCdbComponents()->total_segments;
 	else if (Gp_role == GP_ROLE_EXECUTE)
 		numsegments = numsegmentsFromQD;

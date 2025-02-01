@@ -22,7 +22,7 @@ typedef struct S3Access
 	Aws::SDKOptions *op;
 } S3Access;
 
-const char *default_bucket_name = "dbdata1";
+char *default_bucket_name = "dbdata1";
 
 static void
 SetCofig(ClientConfiguration *conf)
