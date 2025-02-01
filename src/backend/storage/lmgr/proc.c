@@ -480,9 +480,7 @@ InitProcess(void)
 	 * mode connection to be assigned the same session ID as a normal mode
 	 * connection on coordinator.
      */
-	if (IS_QUERY_DISPATCHER() &&
-		Gp_role == GP_ROLE_DISPATCH &&
-		gp_session_id == InvalidGpSessionId)
+	if (gp_session_id == InvalidGpSessionId && !IS_CATALOG_SERVER())
         gp_session_id = mppLocalProcessSerial;
 
 	AssertImply(Gp_role == GP_ROLE_UTILITY && !IS_QUERY_DISPATCHER(),

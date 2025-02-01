@@ -12,12 +12,14 @@ DATACHECKSUMS=1
 # ======================================================================
 
 if [ -z "${COORDINATOR_DATADIR}" ]; then
-  DATADIRS=${DATADIRS:-`pwd`/datadirs/cluster${CLUSTER_ID}}
+  BASEDATADIRS=${DATADIRS:-`pwd`/datadirs}
 else
-  DATADIRS="${COORDINATOR_DATADIR}/datadirs/cluster${CLUSTER_ID}"
+  BASEDATADIRS="${COORDINATOR_DATADIR}/datadirs"
 fi
 
+DATADIRS=${BASEDATADIRS}/cluster${CLUSTER_ID}
 QDDIR=$DATADIRS/qddir
+CATALOGDIR=${BASEDATADIRS}/catalog
 SEG_PREFIX=demoDataDir
 
 STANDBYDIR=$DATADIRS/standby
@@ -310,7 +312,9 @@ cat >> $CLUSTER_CONFIG <<-EOF
 	
 	# Name of host on which to setup the QD
 	COORDINATOR_HOSTNAME=$LOCALHOST
-	
+
+	CATALOG_DIRECTORY=$CATALOGDIR
+
 	# Name of directory on that host in which to setup the QD
 	COORDINATOR_DIRECTORY=$QDDIR
 	
@@ -468,7 +472,7 @@ cat > gpdemo-env.sh <<-EOF
 	## timestamp: $( date )
 	## ======================================================================
 
-	export PGPORT=${COORDINATOR_DEMO_PORT}
+	export PGPORT=$[COORDINATOR_DEMO_PORT+2]
 	export COORDINATOR_DATA_DIRECTORY=$QDDIR/${SEG_PREFIX}-1
 	export MASTER_DATA_DIRECTORY=$QDDIR/${SEG_PREFIX}-1
 	export CLUSTER_ID=$CLUSTER_ID

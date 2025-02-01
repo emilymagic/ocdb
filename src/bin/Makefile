@@ -33,7 +33,8 @@ SUBDIRS = \
 	pgbench \
 	psql \
 	scripts \
-	s3tools
+	s3tools \
+	vmpool
 
 ifeq ($(PORTNAME), win32)
 SUBDIRS += pgevent
