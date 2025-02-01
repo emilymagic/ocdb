@@ -63,7 +63,7 @@ ifeq ($(with_systemd),yes)
 LIBS += -lsystemd
 endif
 
-LIBS += -laws-cpp-sdk-core -laws-cpp-sdk-s3 -laws-crt-cpp -laws-c-cal -laws-c-auth -laws-c-common -laws-c-event-stream
+LIBS += -laws-cpp-sdk-core -laws-cpp-sdk-s3 -laws-crt-cpp -laws-c-cal -laws-c-auth -laws-c-common -laws-c-event-stream -lcjson
 
 ##########################################################################
 

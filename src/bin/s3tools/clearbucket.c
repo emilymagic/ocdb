@@ -7,6 +7,14 @@ main(int argc, char **argv)
 {
 	void *s3Client;
 
+	if (argc != 2)
+	{
+		printf("Usage: clearbucket <bucketname>\n");
+		exit(1);
+	}
+
+	default_bucket_name = argv[1];
+
 	s3Client = S3InitAccess();
 
 	S3DeleteObjects(s3Client, NULL);

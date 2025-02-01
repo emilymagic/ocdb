@@ -34,6 +34,7 @@ typedef struct CsQuery
 	char *query_string;
 	Node *data;
 	int	cluster_id;
+	int segment_count;
 } CsQuery;
 
 typedef struct NextValNode
@@ -54,6 +55,7 @@ extern bool accessHeap;
 extern bool accessTile;
 extern PGconn	*csConn;
 extern bool errorFromCatalogServer;
+extern char *cs_port;
 
 typedef struct CdbCatalogAuxNode CdbCatalogAuxNode;
 

@@ -32,7 +32,7 @@ typedef struct S3Conf
 	const char *endpointOverride;
 } S3Conf;
 
-extern const char *default_bucket_name;
+extern char default_bucket_name[NAMEDATALEN];
 
 extern void *S3InitAccess();
 extern void S3DestroyAccess(void *s3Client);
@@ -45,6 +45,7 @@ extern uint32 S3GetObject2(void *s3Client, const char *bucketPath,
 extern void S3PutObject(void *s3Client, S3ObjKey s3_obj_key, S3Obj s3_obj);
 extern void S3DeleteObject(void *s3Client, char *objPath);
 extern bool S3BucketExist(void *s3Client, const char *bucketName);
+extern void S3SetBucketId(int id);
 
 #ifdef __cplusplus
 };

@@ -23,7 +23,7 @@ cleanCatalog()
         echo "Deleting ${CATALOG_ENV}"
         rm -rf ${CATALOG_ENV}
     fi
-    `clearbucket`
+    `clearbucket dbdata1`
 }
 
 if [ -z "${COORDINATOR_DATADIR}" ]; then
@@ -33,6 +33,7 @@ else
 fi
 
 CATALOGDIR=$DATADIRS/catalog
+CATALOGPORT=5432
 CATALOG_CONFIG=catalogConfigFile
 CATALOG_ENV=catalog-env.sh
 
@@ -58,6 +59,7 @@ rm -f ${CATALOG_CONFIG}
 cat >> $CATALOG_CONFIG <<-EOF
 	# Name of directory on that host in which to setup the QD
 	CATALOG_DIRECTORY=$CATALOGDIR
+	CATALOG_PORT=$CATALOGPORT
 EOF
 
 GPPATH=`find -H $GPHOME -name gpstart| tail -1`

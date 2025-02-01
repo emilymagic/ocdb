@@ -67,7 +67,10 @@ typedef enum
 	GP_ROLE_EXECUTE,			/* Operating as a parallel query executor */
 } GpRoleValue;
 
+#define DEFAULT_CLUSTER_SIZE 3
+
 extern GpRoleValue Gp_role;	/* GUC var - server operating mode.  */
+extern int	segment_count;
 extern char *gp_role_string;	/* Use by guc.c as staging area for value. */
 
 extern bool gp_reraise_signal; /* try to force a core dump ?*/
@@ -731,7 +734,9 @@ typedef struct GpId
  */
 extern GpId GpIdentity;
 extern int myClusterId;
+extern int CatalogServerId;
 extern int sessionClusterId;
+extern int cluster_size;
 
 /*
  * Maximum length of string representation of 'dbid' (same as max length of an int4)
@@ -740,7 +745,6 @@ extern int sessionClusterId;
 
 #define UNINITIALIZED_GP_IDENTITY_VALUE (-10000)
 #define IS_QUERY_DISPATCHER() (GpIdentity.segindex == COORDINATOR_CONTENT_ID)
-#define IS_MASTER_QD() (IS_QUERY_DISPATCHER() && myClusterId != 0 && gp_session_id > 0)
 #define IS_CATALOG_SERVER() (myClusterId == 0)
 #define IS_HOT_STANDBY_QD() (EnableHotStandby && IS_QUERY_DISPATCHER() && RecoveryInProgress())
 
