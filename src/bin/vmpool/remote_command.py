@@ -77,11 +77,11 @@ def init_one_instance(hostname, port, datadir, maxload):
         command_run(cmd, hostname)
 
         # copy pg_internal to data dir
-        cmd = "cp %s/share/pg_internal.init %s/local_pg_internal.init" % (gp_home, datadir)
+        cmd = "cp %s/share/local_pg_internal.init %s/local_pg_internal.init" % (gp_home, datadir)
         print("cmd: %s\n" % cmd)
         command_run(cmd, hostname)
 
-        cmd = "cp %s/share/pg_internal.init.global %s/global/pg_internal.init" % (gp_home, datadir)
+        cmd = "cp %s/share/global_pg_internal.init %s/global/pg_internal.init" % (gp_home, datadir)
         print("cmd: %s\n" % cmd)
         command_run(cmd, hostname)
 
@@ -134,7 +134,6 @@ def remove_one_instance(hostname, datadir):
             print("Remove instance success: %s", response.json())
         else:
             print("Remove instance failed, status code %d", response.status_code)
-
         cmd = "rm -r %s" % (datadir)
         command_run(cmd, hostname)
     except FileNotFoundError:
