@@ -672,8 +672,20 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 
 	if (!IS_CATALOG_SERVER())
 	{
+		if (MyProcPort != NULL)
+		{
+			if (MyProcPort->laddr.addr.ss_family == AF_UNIX)
+			{
+				GpIdentity.segindex = -1;
+				// GpIdentity.dbid = 1;
+			}
+			process_startup_options(MyProcPort, true);
+		}
+
 		if (GpIdentity.segindex < 0)
+		{
 			cc_conn((char *) in_dbname);
+		}
 
 		if (initCatalogBuf)
 		{

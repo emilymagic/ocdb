@@ -18,7 +18,7 @@ typedef struct S3Obj
 	char *data;
 } S3Obj;
 
-extern const char *default_bucket_name;
+extern char *default_bucket_name;
 
 extern void *S3InitAccess();
 extern void S3DestroyAccess(void *s3Client);

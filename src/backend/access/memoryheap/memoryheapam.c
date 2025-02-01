@@ -9,6 +9,7 @@
 #include "cdb/cdbsrlz.h"
 #include "cdb/cdbvars.h"
 #include "executor/tuptable.h"
+#include "storage/objectfilerw.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 static MemoryHeapData memoryHeapData = {0};
@@ -127,6 +128,7 @@ MemoryHeapDataSetInternal(CdbCatalogNode *catalogNode, AuxNode *auxNode)
 		memHeapData->fullxid = catalogNode->full_xid;
 		SetTempNamespaceState(catalogNode->namespace_1,
 							  catalogNode->namespace_2);
+		S3SetBucketId(catalogNode->CatalogServerId);
 
 		/* Fill data to memory table */
 		foreach(lc, catalogNode->tableList)

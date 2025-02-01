@@ -5552,6 +5552,8 @@ _outCsQuery(StringInfo str, const CsQuery *node)
 	WRITE_ENUM_FIELD(cmdType, CsType);
 	WRITE_STRING_FIELD(query_string);
 	WRITE_NODE_FIELD(data);
+	WRITE_INT_FIELD(cluster_id);
+	WRITE_INT_FIELD(segment_count);
 };
 
 

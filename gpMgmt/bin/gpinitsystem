@@ -1399,12 +1399,12 @@ CREATE_SEGMENT () {
 		for SEG_DIR in "${DATA_DIRECTORY[@]}"
 		do
 		  # Copy rel cache file from master to segment
-      LOG_MSG "cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/global_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
-      LOG_MSG "cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/local_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      LOG_MSG "cp ${CATALOG_DIRECTORY}/pg_internal.init.global $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      LOG_MSG "cp ${CATALOG_DIRECTORY}/pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
 
-      cmd="cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/global_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      cmd="cp ${CATALOG_DIRECTORY}/pg_internal.init.global $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
       $cmd >> $LOG_FILE 2>&1
-      cmd="cp ${COORDINATOR_DIRECTORY}/${SEG_PREFIX}-1/local_pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
+      cmd="cp ${CATALOG_DIRECTORY}/pg_internal.init $SEG_DIR/${SEG_PREFIX}${CONTENT_COUNT}/"
       $cmd >> $LOG_FILE 2>&1
 
       ((CONTENT_COUNT=$CONTENT_COUNT+1))
@@ -2001,7 +2001,7 @@ else
     ARRAY_REORDER
 fi
 
-CREATE_QD_DB
+#CREATE_QD_DB
 
 CREATE_ARRAY_SORTED_ON_CONTENT_ID
 
@@ -2019,6 +2019,8 @@ fi
 if [ -f $DCA_VERSION_FILE ]; then
 	SET_DCA_CONFIG_SETTINGS	
 fi
+
+exit 0
 
 STOP_QD_PRODUCTION
 START_QD_PRODUCTION

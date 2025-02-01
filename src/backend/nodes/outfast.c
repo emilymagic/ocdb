@@ -949,6 +949,7 @@ _outCdbCatalogNode(StringInfo str, const CdbCatalogNode *node)
 	WRITE_UINT64_FIELD(seq);
 	WRITE_OID_FIELD(namespace_1);
 	WRITE_OID_FIELD(namespace_2);
+	WRITE_INT_FIELD(CatalogServerId);
 	WRITE_NODE_FIELD(tableList);
 }
 

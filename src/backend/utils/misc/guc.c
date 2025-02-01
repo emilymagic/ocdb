@@ -41,6 +41,7 @@
 #include "access/xlog_internal.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_authid.h"
+#include "cdb/cdbcatalogfunc.h"
 #include "commands/async.h"
 #include "commands/prepare.h"
 #include "commands/tablespace.h"
@@ -3293,6 +3294,17 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"catalog_server_id", PGC_USERSET, CLIENT_CONN_OTHER,
+		 gettext_noop("Sets the cluster id of warehouse."),
+		 NULL,
+		 GUC_UNIT_MS
+		},
+		&CatalogServerId,
+		0, 0, 100,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
@@ -3559,6 +3571,17 @@ static struct config_string ConfigureNamesString[] =
 		&XLogArchiveCommand,
 		"",
 		NULL, NULL, show_archive_command
+	},
+
+	{
+			{"catalog_server_port", PGC_BACKEND, GP_WORKER_IDENTITY,
+			gettext_noop("Sets the shell command that will be called to archive a WAL file."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&cs_port,
+		"5432",
+		NULL, NULL, NULL
 	},
 
 	{

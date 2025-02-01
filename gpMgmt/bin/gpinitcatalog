@@ -29,12 +29,18 @@ if [ $RETVAL -ne 0 ]; then
 fi
 
 LOG_MSG "[INFO]:-Setting Coordinator instance content id"
-SED_PG_CONF ${CATALOG_DIRECTORY}/$PG_CONF "$CONTENT_ID_TXT" "gp_contentid=-1" 0
-ERROR_CHK $? "set gp_contentid=$GP_CONTENT in ${GP_DIR}/$PG_CONF" 1
+SED_PG_CONF ${CATALOG_DIRECTORY}/$PG_CONF "gp_contentid" "gp_contentid=-1" 0
+ERROR_CHK $? "set gp_contentid=-1 in ${GP_DIR}/$PG_CONF" 1
 
 LOG_MSG "[INFO]:-Setting Coordinator instance db id"
-SED_PG_CONF ${CATALOG_DIRECTORY}/$PG_INTERNAL_CONF "$DBID_TXT" "gp_dbid=1" 0
-ERROR_CHK $? "set gp_dbid=$GP_DBID in ${GP_DIR}/$PG_INTERNAL_CONF" 1
+SED_PG_CONF ${CATALOG_DIRECTORY}/$PG_INTERNAL_CONF "gp_dbid" "gp_dbid=1" 0
+ERROR_CHK $? "set gp_dbid=1 in ${GP_DIR}/$PG_INTERNAL_CONF" 1
+
+LOG_MSG "[INFO]:-Setting Catalog Server id"
+SED_PG_CONF ${CATALOG_DIRECTORY}/$PG_INTERNAL_CONF "catalog_server_id" "catalog_server_id=1" 0
+ERROR_CHK $? "set catalog_server_id=1 in ${GP_DIR}/$PG_INTERNAL_CONF" 1
+
+export PGPORT=$CATALOG_PORT
 
 cmd="$GPHOME/bin/pg_ctl"
 cmd="$cmd -D ${CATALOG_DIRECTORY}"

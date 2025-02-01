@@ -56,6 +56,7 @@
  * this QE should execute.
  */
 int			qe_identifier = 0;
+int			segment_identifier = 0;
 
 /*
  * Number of primary segments on this host.
@@ -480,7 +481,8 @@ makeOptions(char **options, char **diff_options)
  */
 bool
 build_gpqeid_param(char *buf, int bufsz,
-				   bool is_writer, int identifier, int hostSegs, int icHtabSize)
+				   bool is_writer, int identifier, int hostSegs, int icHtabSize,
+				   int segindex)
 {
 	int		len;
 #ifdef HAVE_INT64_TIMESTAMP
@@ -493,9 +495,10 @@ build_gpqeid_param(char *buf, int bufsz,
 #endif
 #endif
 
-	len = snprintf(buf, bufsz, "%d;" TIMESTAMP_FORMAT ";%s;%d;%d;%d",
+	len = snprintf(buf, bufsz, "%d;" TIMESTAMP_FORMAT ";%s;%d;%d;%d;%d",
 				   gp_session_id, PgStartTime,
-				   (is_writer ? "true" : "false"), identifier, hostSegs, icHtabSize);
+				   (is_writer ? "true" : "false"), identifier, hostSegs, icHtabSize,
+				   segindex);
 
 	return (len > 0 && len < bufsz);
 }
@@ -567,6 +570,12 @@ cdbgang_parse_gpqeid_params(struct Port *port pg_attribute_unused(),
 	if (gpqeid_next_param(&cp, &np))
 	{
 		ic_htab_size = (int) strtol(cp, NULL, 10);
+	}
+
+	if (gpqeid_next_param(&cp, &np))
+	{
+		segment_identifier = (int) strtol(cp, NULL, 10);
+		GpIdentity.segindex = segment_identifier;
 	}
 
 	/* Too few items, or too many? */
