@@ -24,6 +24,7 @@
 struct SegmentDatabaseDescriptor;
 
 extern MemoryContext CdbComponentsContext;
+extern bool			 assignedInstance;
 
 typedef struct CdbComponentDatabaseInfo CdbComponentDatabaseInfo;
 typedef struct CdbComponentDatabases CdbComponentDatabases;
@@ -216,6 +217,10 @@ extern int getgpsegmentCount(void);
 extern bool IsOnConflictUpdate(PlannedStmt *ps);
 
 extern void AvoidCorefileGeneration(void);
+
+extern GpSegConfigEntry *readGpSegConfigFromVmPool(int *total_dbs, bool load);
+extern void releaseSegmentConfigs(void);
+extern void cdbcomponent_assignCdbComponents(void);
 
 #define ELOG_DISPATCHER_DEBUG(...) do { \
        if (gp_log_gang >= GPVARS_VERBOSITY_DEBUG) elog(LOG, __VA_ARGS__); \
