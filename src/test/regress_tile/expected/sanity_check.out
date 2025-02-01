@@ -52,7 +52,7 @@ gp_distribution_policy|t
 gp_fastsequence|t
 gp_id|f
 gp_partition_template|t
-gp_segment_configuration|t
+gp_segment_configuration|f
 gp_version_at_initdb|f
 hash_f8_heap|f
 hash_i4_heap|f
