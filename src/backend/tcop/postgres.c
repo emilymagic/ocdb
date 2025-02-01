@@ -3608,7 +3608,10 @@ finish_xact_command(void)
 	if (xact_started)
 	{
 		if (!IS_CATALOG_SERVER() && GpIdentity.segindex < 0)
+		{
 			cc_xact_command(CS_XACT_FINISH);
+			releaseSegmentConfigs();
+		}
 
 		CommitTransactionCommand();
 
@@ -5529,7 +5532,11 @@ PostgresMain(int argc, char *argv[],
 		}
 
 		if (!IS_CATALOG_SERVER() && GpIdentity.segindex < 0 && !errorFromCatalogServer)
+		{
 			cc_xact_command(CS_XACT_ABORT);
+			releaseSegmentConfigs();
+		}
+
 
 		/*
 		 * Abort the current transaction in order to recover.
@@ -5865,6 +5872,7 @@ PostgresMain(int argc, char *argv[],
 				{
 					DataDispatcherClear();
 					DataDispatcherInit();
+					segment_count = csQuery->segment_count;
 					cs_run_on_catalogserver(csQuery->query_string);
 					DataDispatcherClear();
 				}

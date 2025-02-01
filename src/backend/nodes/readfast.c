@@ -1697,6 +1697,7 @@ _readCdbCatalogNode(void)
 	READ_UINT64_FIELD(seq);
 	READ_OID_FIELD(namespace_1);
 	READ_OID_FIELD(namespace_2);
+	READ_INT_FIELD(CatalogServerId);
 	READ_NODE_FIELD(tableList);
 
 	READ_DONE();

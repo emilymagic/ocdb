@@ -169,7 +169,8 @@ MemoryHeapDataSetInternal(CdbCatalogNode *catalogNode, AuxNode *auxNode)
 
 		memHeapData->fullxid = catalogNode->full_xid;
 		FillTempNamespace(catalogNode->namespace_1,
-							   catalogNode->namespace_2);
+						  catalogNode->namespace_2);
+		S3SetBucketId(catalogNode->CatalogServerId);
 
 		/* Fill data to memory table */
 		foreach(lc, catalogNode->tableList)
