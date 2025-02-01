@@ -86,6 +86,7 @@ typedef struct CdbCatalogNode
 	uint64	seq;
 	Oid 	namespace_1;
 	Oid 	namespace_2;
+	int 	CatalogServerId;
 	List   *tableList;
 } CdbCatalogNode;
 

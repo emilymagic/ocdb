@@ -4412,6 +4412,8 @@ _readCsQuery(void)
 	READ_ENUM_FIELD(cmdType, CsType);
 	READ_STRING_FIELD(query_string);
 	READ_NODE_FIELD(data);
+	READ_INT_FIELD(cluster_id);
+	READ_INT_FIELD(segment_count);
 
 	READ_DONE();
 }

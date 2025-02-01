@@ -4,6 +4,7 @@
 #include "access/nbtree.h"
 #include "access/relation.h"
 #include "access/htup_details.h"
+#include "access/tileam.h"
 #include "catalog/namespace.h"
 #include "catalog/partition.h"
 #include "catalog/pg_amop.h"
@@ -21,6 +22,7 @@
 #include "partitioning/partdesc.h"
 #include "rewrite/rewriteHandler.h"
 #include "rewrite/rewriteManip.h"
+#include "storage/objectfilerw.h"
 #include "utils/builtins.h"
 #include "utils/dispatchcat.h"
 #include "utils/lsyscache.h"
@@ -296,6 +298,7 @@ PickCommon2(CdbCatalogNode *catalog)
 	catalog->full_xid = dataDispatcher->fullXid;
 	catalog->seq = dataDispatcher->seq;
 	GetTempNamespaceState(&catalog->namespace_1, &catalog->namespace_2);
+	catalog->CatalogServerId = CatalogServerId;
 }
 
 static void
@@ -434,7 +437,8 @@ static void
 PickGpSegInfo(void)
 {
 	int			total_dbs = 0;
-	readGpSegConfigFromCatalog(&total_dbs);
+	GpSegConfigEntry *entrys = NULL;
+	entrys = readGpSegConfigFromCatalog(&total_dbs);
 }
 
 void
