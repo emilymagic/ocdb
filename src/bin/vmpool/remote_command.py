@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import sys
 import requests
@@ -76,11 +77,11 @@ def init_one_instance(hostname, port, datadir, maxload):
         command_run(cmd, hostname)
 
         # copy pg_internal to data dir
-        cmd = "cp %s/share/pg_internal.init %s" % (gp_home, datadir)
+        cmd = "cp %s/share/pg_internal.init %s/local_pg_internal.init" % (gp_home, datadir)
         print("cmd: %s\n" % cmd)
         command_run(cmd, hostname)
 
-        cmd = "cp %s/share/pg_internal.init.global %s" % (gp_home, datadir)
+        cmd = "cp %s/share/pg_internal.init.global %s/global_pg_internal.init" % (gp_home, datadir)
         print("cmd: %s\n" % cmd)
         command_run(cmd, hostname)
 
@@ -117,21 +118,29 @@ def remove_one_instance(hostname, datadir):
     cmd = "%s/bin/pg_ctl stop -D %s " % (gp_home, datadir)
     command_run(cmd, hostname)
 
-    url = "http://127.0.0.1:5000/itemsdelete"
+    try:
+        url = "http://127.0.0.1:5000/itemsdelete"
 
-    new_item = {"hostname": hostname,
-                "datadir": datadir}
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(
-        url,
-        json=new_item,
-        headers=headers
-    )
+        new_item = {"hostname": hostname,
+                    "datadir": datadir}
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(
+            url,
+            json=new_item,
+            headers=headers
+        )
 
-    if response.status_code == 200:
-        print("Remove instance success: %s", response.json())
-    else:
-        print("Remove instance failed, status code %d", response.status_code)
+        if response.status_code == 200:
+            print("Remove instance success: %s", response.json())
+        else:
+            print("Remove instance failed, status code %d", response.status_code)
 
-    cmd = "rm -r %s" % (datadir)
-    command_run(cmd, hostname)
+        cmd = "rm -r %s" % (datadir)
+        command_run(cmd, hostname)
+    except FileNotFoundError:
+        print(f"错误：文件 {file_path} 未找到")
+    except json.JSONDecodeError:
+        print("错误：文件内容不是有效的 JSON 格式")
+    except Exception as e:
+        print(f"发生未知错误：{str(e)}")
+

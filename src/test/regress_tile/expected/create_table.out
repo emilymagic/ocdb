@@ -993,11 +993,11 @@ CREATE TABLE parted_col_comment (a int, b text) PARTITION BY LIST (a);
 COMMENT ON TABLE parted_col_comment IS 'Am partitioned table';
 COMMENT ON COLUMN parted_col_comment.a IS 'Partition key';
 SELECT obj_description('parted_col_comment'::regclass);
-ERROR:  catalog is missing 1 attribute(s) for relid 2609 (relcache.c:732)
+ERROR:  catalog is missing 1 attribute(s) for relid 2609 (relcache.c:729)
 LINE 1: select description from pg_catalog.pg_description where objo...
                                 ^
 QUERY:  select description from pg_catalog.pg_description where objoid = $1 and objsubid = 0
-CONTEXT:  SQL function "obj_description" during inlining
+CONTEXT:  SQL function "obj_description" during startup
 \d+ parted_col_comment
                         Partitioned table "public.parted_col_comment"
  Column |  Type   | Collation | Nullable | Default | Storage  | Stats target |  Description  
