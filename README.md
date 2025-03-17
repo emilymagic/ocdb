@@ -1,14 +1,6 @@
 ## Overview
 
-A Octopus cluster consists of a __coordinator__ server, and multiple
-__segment__ servers. All user data resides in the segments, the coordinator
-contains only metadata. The coordinator server, and all the segments, share
-the same schema.
-
-Users always connect to the coordinator server, which divides up the query
-into fragments that are executed in the segments, and collects the results.
-
-More information can be found on the [project website](https://greenplum.org/).
+The octopus is a cloud-native serverless database
 
 ## Build environment on Ubuntu
 ### Install the dependency
