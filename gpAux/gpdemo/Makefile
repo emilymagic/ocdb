@@ -36,10 +36,10 @@ clean:
 	$(MAKE) cleancatalog
 
 pool:
-	pkill python3
-	rm -r pooldata.json
-	nohup pool &
+	sh killpool.sh
+	rm -f pooldata.json
 	pool_make_conf ${DEMO_PORT_BASE} ${NUM_PRIMARY_MIRROR_PAIRS} ${MAX_LOAD}
+	nohup pool &
 	pool_init instances.json
 	pool_start
 
