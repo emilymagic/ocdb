@@ -9,13 +9,20 @@ data = {}
 
 def get_workers(executors, coordinator, consider_load):
     if 'id' in executors[0]:
-        load_factor, new_data = get_request_workers(executors, consider_load)
+        load_factor, new_data = get_request_workers(executors)
         if load_factor > 1:
-            load_factor2, new_data2 = get_lower_load_workers(executors, consider_load)
-            if (load_factor / load_factor2)> 1.8:
+            load_factor2, new_data2 = get_lower_load_workers(executors)
+
+            if load_factor2 == 0:
+                new_data = new_data2
+            elif (load_factor / load_factor2)> 1.8:
                 new_data = new_data2
     else:
-        load_factor, new_data = get_lower_load_workers(executors, consider_load)
+        load_factor, new_data = get_lower_load_workers(executors)
+
+    if consider_load:
+        for item in new_data:
+            data["%s" % item['id']]['load'] += 1
 
     for key, item in data.items():
         if int(key) == coordinator['id']:
@@ -27,15 +34,12 @@ def get_workers(executors, coordinator, consider_load):
 
     return new_data
 
-def get_request_workers(executors, consider_load):
+def get_request_workers(executors):
     new_data = []
     load_factor = 0
     i = 0
     for executor in executors:
         item = data["%d" % executor['id']]
-
-        if consider_load:
-            item['load'] = item['load'] + 1
 
         new_load_factor = item['load'] / item['maxload']
         if new_load_factor > load_factor:
@@ -52,14 +56,12 @@ def get_request_workers(executors, consider_load):
 
     return load_factor, new_data
 
-def get_lower_load_workers(executors, consider_load):
+def get_lower_load_workers(executors):
     new_data = []
     load_factor = 0
     lower_load_data = get_lower_load_instance(len(executors))
     for i in range(len(lower_load_data)):
         key, item = lower_load_data[i]
-        if consider_load:
-            item['load'] = item['load'] + 1
 
         new_load_factor = item['load'] / item['maxload']
         if new_load_factor > load_factor:
