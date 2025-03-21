@@ -1,6 +1,7 @@
 ## Overview
 
-The octopus is a cloud-native serverless database
+The octopus is a cloud-native serverless database. You can easily create a
+database service on cloud.
 
 ## Build environment on Ubuntu
 ### Install the dependency
