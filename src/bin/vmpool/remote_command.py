@@ -36,7 +36,7 @@ def command_run(command, hostname):
         # 关闭连接
         ssh.close()
 
-def add_text_to_file(filename, text, position='end'):
+def add_text_to_file(hostname, filename, text):
     """
     在文件中添加文本
     :param filename: 目标文件名
@@ -44,17 +44,8 @@ def add_text_to_file(filename, text, position='end'):
     :param position: 添加位置 ('beginning' 或 'end')
     """
     try:
-        if position == 'end':
-            with open(filename, 'a', encoding='utf-8') as f:
-                f.write(text + '\n')  # 自动添加换行符
-            print(f"已成功追加到文件末尾: {text}")
-
-        elif position == 'beginning':
-            with open(filename, 'r+', encoding='utf-8') as f:
-                content = f.read()
-                f.seek(0)
-                f.write(text + '\n' + content)
-            print(f"已成功插入到文件开头: {text}")
+        cmd = "echo '%s' >> filename" % text
+        command_run(cmd, hostname)
 
     except FileNotFoundError:
         print(f"错误: 文件 {filename} 不存在")
@@ -102,12 +93,12 @@ def init_one_instance(hostname, port, datadir, maxload):
         else:
             raise Exception("Add to pool error %d", response.status_code)
 
-        add_text_to_file("%s/postgresql.conf" % datadir, "listen_addresses=\'*\'")
+        add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "listen_addresses=\'*\'")
         # add_text_to_file("%s/postgresql.conf" % datadir, "gp_contentid=%d" % contentid)
-        add_text_to_file("%s/postgresql.conf" % datadir, "fsync=off")
-        add_text_to_file("%s/postgresql.conf" % datadir, "port=%d" % port)
-        add_text_to_file("%s/internal.auto.conf" % datadir, "gp_dbid=%d" % ret['id'])
-        add_text_to_file("%s/internal.auto.conf" % datadir, "cluster_id=1")
+        add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "fsync=off")
+        add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "port=%d" % port)
+        add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "gp_dbid=%d" % ret['id'])
+        add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "cluster_id=1")
 
     except requests.exceptions.RequestException as e:
         # 处理请求异常

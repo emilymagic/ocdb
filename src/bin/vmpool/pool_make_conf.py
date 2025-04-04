@@ -23,7 +23,7 @@ def make_pool_conf(baseport, number, maxload):
         # 写入格式化的 JSON（indent=4 增加可读性）
         json.dump(data, file, ensure_ascii=False, indent=4)
 
-    remote_command.add_text_to_file('gpdemo-env.sh', "export PGPORT=%d" % (baseport + 2))
+    remote_command.add_text_to_file(hostname, 'gpdemo-env.sh', "export PGPORT=%d" % (baseport + 2))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
