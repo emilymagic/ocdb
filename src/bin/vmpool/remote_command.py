@@ -44,7 +44,8 @@ def add_text_to_file(hostname, filename, text):
     :param position: 添加位置 ('beginning' 或 'end')
     """
     try:
-        cmd = "echo '%s' >> filename" % text
+
+        cmd = "echo \"%s\" >> %s" % (text, filename)
         command_run(cmd, hostname)
 
     except FileNotFoundError:
