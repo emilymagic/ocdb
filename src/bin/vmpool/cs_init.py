@@ -14,9 +14,9 @@ def init_catalog_server(hostname, port, datadir):
     print("cmd: %s\n" % cmd)
     remote_command.command_run(cmd, hostname)
 
-    remote_command.add_text_to_file("%s/postgresql.conf" % datadir, "gp_contentid=-1")
-    remote_command.add_text_to_file("%s/internal.auto.conf" % datadir, "gp_dbid=1")
-    remote_command.add_text_to_file("%s/internal.auto.conf" % datadir, "catalog_server_id=1")
+    remote_command.add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "gp_contentid=-1")
+    remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "gp_dbid=1")
+    remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "catalog_server_id=1")
 
     cmd= "AWS_EC2_METADATA_DISABLED='true' PGOPTIONS='-c gp_role=utility -c default_table_access_method=heap' PGPORT=%d %s/bin/pg_ctl -D %s -l logfile start" % (port, gp_home, datadir)
     print("cmd: %s\n" % cmd)
@@ -26,8 +26,8 @@ def init_catalog_server(hostname, port, datadir):
     print("cmd: %s\n" % cmd)
     remote_command.command_run(cmd, hostname)
 
-    remote_command.add_text_to_file("catalog_env.sh", "export PGPORT=%d" % port)
-    remote_command.add_text_to_file("catalog_env.sh", "export PGOPTIONS='-c gp_role=utility -c default_table_access_method=heap'")
+    remote_command.add_text_to_file(hostname, "catalog_env.sh", "export PGPORT=%d" % port)
+    remote_command.add_text_to_file(hostname, "catalog_env.sh", "export PGOPTIONS='-c gp_role=utility -c default_table_access_method=heap'")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
