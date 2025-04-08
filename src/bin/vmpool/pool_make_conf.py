@@ -4,6 +4,8 @@ import argparse
 import json
 import pathlib
 import socket
+from pathlib import Path
+
 
 import remote_command
 
@@ -23,7 +25,9 @@ def make_pool_conf(baseport, number, maxload):
         # 写入格式化的 JSON（indent=4 增加可读性）
         json.dump(data, file, ensure_ascii=False, indent=4)
 
-    remote_command.add_text_to_file('gpdemo-env.sh', "export PGPORT=%d" % (baseport + 2))
+    current_working_dir = Path.cwd()
+    filename = "%s/gpdemo-env.sh" % current_working_dir
+    remote_command.add_text_to_file(hostname, filename, "export PGPORT=%d" % (baseport + 2))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
