@@ -46,11 +46,15 @@ sudo apt install -y python3-pip
 sudo apt install -y python3-psycopg2
 
 sudo apt install -y python3-psutil
+
+sudo apt install -y libbz2-dev
+
+sudo apt install -y libcjson-dev
 ```
 
 ### Install the dependency of python
 ```
-sudo apt install python3-venv
+sudo apt install -y python3-venv
 
 python3 -m venv venv
 
@@ -80,6 +84,7 @@ sudo make install
 mkdir minio
 cd minio
 wget https://dl.min.io/server/minio/release/linux-arm64/minio
+chmod 755 minio
 cd ~
 nohup ./minio/minio server ./minio/data &
 ```
