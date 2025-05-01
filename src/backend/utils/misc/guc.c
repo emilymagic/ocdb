@@ -82,6 +82,7 @@
 #include "storage/standby.h"
 #include "storage/fd.h"
 #include "storage/large_object.h"
+#include "storage/objectfilerw.h"
 #include "storage/pg_shmem.h"
 #include "storage/proc.h"
 #include "storage/predicate.h"
@@ -4321,6 +4322,17 @@ static struct config_string ConfigureNamesString[] =
 		},
 		&jit_provider,
 		"llvmjit",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"s3_url", PGC_POSTMASTER, PROCESS_TITLE,
+			gettext_noop("Sets the url of the s3 server."),
+			NULL,
+			GUC_IS_NAME
+		},
+		&s3_url,
+		"127.0.0.1:9000",
 		NULL, NULL, NULL
 	},
 

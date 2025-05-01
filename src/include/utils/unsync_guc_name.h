@@ -494,6 +494,7 @@
 		"shared_buffers",
 		"shared_memory_type",
 		"shared_preload_libraries",
+		"s3_url",
 		"sql_inheritance",
 		"ssl",
 		"ssl_ca_file",
