@@ -31,6 +31,7 @@ extern int CatalogServerId;
 
 char default_bucket_name[NAMEDATALEN];
 int	bucket_id = 0;
+char *s3_url = "127.0.0.1:9000";
 
 static void  SetCofig(ClientConfiguration *conf);
 
@@ -267,5 +268,5 @@ SetCofig(ClientConfiguration *conf)
 	conf->region = "us-east-1";
 	conf->scheme = Aws::Http::Scheme::HTTP;
 	conf->verifySSL = false;
-	conf->endpointOverride = "127.0.0.1:9000";
+	conf->endpointOverride = s3_url;
 }
