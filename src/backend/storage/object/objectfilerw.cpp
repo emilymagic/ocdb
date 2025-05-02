@@ -32,6 +32,7 @@ extern int CatalogServerId;
 char default_bucket_name[NAMEDATALEN];
 int	bucket_id = 0;
 char *s3_url = "127.0.0.1:9000";
+char s3_url_data[NAMEDATALEN];
 
 static void  SetCofig(ClientConfiguration *conf);
 

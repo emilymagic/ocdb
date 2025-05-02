@@ -34,6 +34,7 @@ typedef struct S3Conf
 
 extern char default_bucket_name[NAMEDATALEN];
 extern char *s3_url;
+extern char s3_url_data[];
 
 extern void *S3InitAccess();
 extern void S3DestroyAccess(void *s3Client);

@@ -19,6 +19,7 @@ NUM_PRIMARY_MIRROR_PAIRS ?= 7
 MAX_LOAD ?= 10
 HOSTNAME := $(shell hostname | tr -d '\n')
 CURRENT_DIR := $(shell pwd)
+S3_URL := 'http://127.0.0.1:9000'
 
 export DEMO_PORT_BASE=$(PORT_BASE)
 export CATALOG_PORT=5432
@@ -48,7 +49,7 @@ cleanpool:
 	rm -f gpdemo-env.sh
 
 catalog:
-	cs_init ${HOSTNAME} ${PORT_CATALOG} ${CURRENT_DIR}/datadirs/catalog
+	cs_init ${HOSTNAME} ${PORT_CATALOG} ${CURRENT_DIR}/datadirs/catalog ${S3_URL}
 	@echo ""
 
 cleancatalog:

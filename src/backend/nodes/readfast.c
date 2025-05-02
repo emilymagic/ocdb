@@ -1699,6 +1699,7 @@ _readCdbCatalogNode(void)
 	READ_OID_FIELD(namespace_2);
 	READ_INT_FIELD(CatalogServerId);
 	READ_NODE_FIELD(tableList);
+	READ_STRING_FIELD(s3Url);
 
 	READ_DONE();
 }
