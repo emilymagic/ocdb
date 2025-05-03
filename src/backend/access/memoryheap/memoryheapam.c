@@ -172,6 +172,12 @@ MemoryHeapDataSetInternal(CdbCatalogNode *catalogNode, AuxNode *auxNode)
 						  catalogNode->namespace_2);
 		S3SetBucketId(catalogNode->CatalogServerId);
 
+		if (catalogNode->s3Url)
+		{
+			strcpy(s3_url_data, catalogNode->s3Url);
+			s3_url = s3_url_data;
+		}
+
 		/* Fill data to memory table */
 		foreach(lc, catalogNode->tableList)
 			MemoryHeapSetTableData(lfirst(lc));

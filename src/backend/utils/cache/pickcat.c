@@ -530,6 +530,8 @@ PickBaseCatalog(void)
 		}
 	}
 
+	catalogNode->s3Url = s3_url;
+
 	MemoryContextSwitchTo(oldCtx);
 
 	initCatalog = catalogNode;
