@@ -724,9 +724,6 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 	PG_END_ENSURE_ERROR_CLEANUP(createdb_failure_callback,
 								PointerGetDatum(&fparms));
 
-	if (!S3BucketExist(s3Client, default_bucket_name))
-		S3CreateBucket(s3Client, default_bucket_name);
-
 	return dboid;
 }
 

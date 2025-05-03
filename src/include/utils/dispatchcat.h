@@ -88,6 +88,7 @@ typedef struct CdbCatalogNode
 	Oid 	namespace_2;
 	int 	CatalogServerId;
 	List   *tableList;
+	char   *s3Url;
 } CdbCatalogNode;
 
 typedef struct CdbCatalogAuxNode

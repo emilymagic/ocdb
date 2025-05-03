@@ -5,6 +5,8 @@ import os
 import sys
 import requests
 import paramiko
+import boto3
+from botocore.exceptions import ClientError
 
 def command_run(command, hostname):
     # 创建SSH客户端
@@ -135,3 +137,22 @@ def remove_one_instance(hostname, datadir):
     except Exception as e:
         print(f"发生未知错误：{str(e)}")
 
+def create_minio_bucket(bucket_name):
+    # 连接到 MinIO 服务器
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url="http://192.168.103.130:9000",  # MinIO 服务器地址和端口
+        region_name="us-east-1",  # 可任意指定（MinIO 不强制要求）
+        aws_access_key_id = "minioadmin",  # MINIO_ROOT_USER
+        aws_secret_access_key = "minioadmin"  # MINIO_ROOT_PASSWORD
+    )
+
+    try:
+        # 创建 Bucket
+        s3_client.create_bucket(Bucket=bucket_name)
+        print(f"Bucket '{bucket_name}' 创建成功！")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "BucketAlreadyExists":
+            print(f"Bucket '{bucket_name}' 已存在。")
+        else:
+            print(f"错误: {e}")

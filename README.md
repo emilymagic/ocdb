@@ -65,6 +65,8 @@ pip install Flask
 pip install paramiko
 
 pip install requests
+
+pip install boto3
 ```
 
 ### Build install s3
