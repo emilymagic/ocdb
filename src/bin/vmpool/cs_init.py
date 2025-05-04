@@ -11,7 +11,7 @@ def init_catalog_server(hostname, port, datadir, s3_url):
         print("PGHOME not set")
         sys.exit(1)
 
-    remote_command.create_minio_bucket("dbdata1")
+    remote_command.create_minio_bucket("dbdata1", s3_url)
     cmd = "%s/bin/initdb -D %s" %(gp_home, datadir)
     print("cmd: %s\n" % cmd)
     remote_command.command_run(cmd, hostname)

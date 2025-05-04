@@ -148,11 +148,11 @@ def remove_one_instance(hostname, datadir):
     except Exception as e:
         print(f"发生未知错误：{str(e)}")
 
-def create_minio_bucket(bucket_name):
+def create_minio_bucket(bucket_name, s3_url):
     # 连接到 MinIO 服务器
     s3_client = boto3.client(
         "s3",
-        endpoint_url="http://192.168.103.130:9000",  # MinIO 服务器地址和端口
+        endpoint_url=s3_url,  # MinIO 服务器地址和端口
         region_name="us-east-1",  # 可任意指定（MinIO 不强制要求）
         aws_access_key_id = "minioadmin",  # MINIO_ROOT_USER
         aws_secret_access_key = "minioadmin"  # MINIO_ROOT_PASSWORD
