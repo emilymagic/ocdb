@@ -62,6 +62,7 @@ if __name__ == '__main__':
         help='the url of s3'
     )
 
+
     args = parser.parse_args()
 
     init_catalog_server(args.hostname, args.port, args.datadir, args.s3_url)

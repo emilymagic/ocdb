@@ -8,7 +8,7 @@ import requests
 import remote_command
 
 def destroy_pool():
-    url = "http://127.0.0.1:5000/items"
+    url = "http://%s:%s/items" % (remote_command.vmpool_hostname, remote_command.vmpool_port)
     try:
         gp_home = os.getenv("GPHOME")
         if gp_home is None:

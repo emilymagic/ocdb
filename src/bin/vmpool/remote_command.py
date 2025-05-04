@@ -7,6 +7,12 @@ import requests
 import paramiko
 import boto3
 from botocore.exceptions import ClientError
+import socket
+
+vmpool_hostname = os.getenv('VMPOOLHOST')
+if vmpool_hostname is None:
+    vmpool_hostname = socket.gethostname()
+vmpool_port = 5000
 
 def command_run(command, hostname):
     # 创建SSH客户端
@@ -58,12 +64,15 @@ def add_text_to_file(hostname, filename, text):
         print(f"发生未知错误: {str(e)}")
 
 def init_one_instance(hostname, port, datadir, maxload):
-    url = "http://127.0.0.1:5000/items"
+    url = "http://%s:%s/items" % (vmpool_hostname, vmpool_port)
     try:
         gp_home = os.getenv("GPHOME")
         if gp_home is None:
             print("PGHOME not set")
             sys.exit(1)
+
+        print("url: %s\n" % url)
+
 
         # init instance
         cmd = "%s/bin/initdb -J segment -E UTF-8 -D %s" % (gp_home, datadir)
@@ -102,6 +111,8 @@ def init_one_instance(hostname, port, datadir, maxload):
         add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "port=%d" % port)
         add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "gp_dbid=%d" % ret['id'])
         add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "cluster_id=1")
+        add_text_to_file(hostname, "%s/internal.auto.conf" % datadir,
+                         "vmpool_url=http://%s:%d" % (vmpool_hostname, vmpool_port))
 
     except requests.exceptions.RequestException as e:
         # 处理请求异常
@@ -113,7 +124,7 @@ def remove_one_instance(hostname, datadir):
     command_run(cmd, hostname)
 
     try:
-        url = "http://127.0.0.1:5000/itemsdelete"
+        url = "http://%s:%s/itemsdelete" % (vmpool_hostname, vmpool_port)
 
         new_item = {"hostname": hostname,
                     "datadir": datadir}

@@ -547,6 +547,7 @@
 		"update_process_title",
 		"vacuum_cost_limit",
 		"vacuum_defer_cleanup_age",
+		"vmpool_url",
 		"wait_for_replication_threshold",
 		"wal_block_size",
 		"wal_buffers",
