@@ -25,6 +25,8 @@ struct SegmentDatabaseDescriptor;
 
 extern MemoryContext CdbComponentsContext;
 extern bool			 assignedInstance;
+extern char	   *vmpool_url;
+extern char		vmpool_url_data[NAMEDATALEN];
 
 typedef struct CdbComponentDatabaseInfo CdbComponentDatabaseInfo;
 typedef struct CdbComponentDatabases CdbComponentDatabases;
