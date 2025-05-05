@@ -4,6 +4,9 @@ from flask import Flask, jsonify, request
 import os
 import pool_keeper_util
 import heapq
+import argparse
+import socket
+
 
 app = Flask(__name__)
 
@@ -108,6 +111,10 @@ def test():
     min_items = heapq.nsmallest(2, test_data.items(), key=lambda x: x[1]['load'])
     return jsonify(min_items), 200
 
-
 if __name__ == '__main__':
-    app.run(debug=True)
+    parser = argparse.ArgumentParser(
+        description='init the catalog server',
+        epilog='example: cs_init hostname port datadir'
+    )
+
+    app.run(host=socket.gethostname(), port=5000, debug=True)

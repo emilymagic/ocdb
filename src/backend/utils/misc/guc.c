@@ -4336,6 +4336,17 @@ static struct config_string ConfigureNamesString[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"vmpool_url", PGC_POSTMASTER, PROCESS_TITLE,
+			gettext_noop("Sets the url of the vmpool."),
+			NULL,
+			GUC_IS_NAME
+		},
+		&vmpool_url,
+		"http://127.0.0.1:5000",
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL, NULL
