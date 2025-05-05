@@ -80,6 +80,9 @@ MemoryContext CdbComponentsContext = NULL;
 bool		  assignedInstance = false;
 static CdbComponentDatabases *cdb_component_dbs = NULL;
 
+char   *vmpool_url = NULL;
+char	vmpool_url_data[NAMEDATALEN];
+
 /*
  * Helper Functions
  */
@@ -385,10 +388,12 @@ readGpSegConfigFromVmPool(int *total_dbs, bool load)
 		else
 			cJSON_AddFalseToObject(root, "load");
 
+		char url[MAXFNAMELEN];
 		char *json_data = cJSON_Print(root); // 将JSON对象转换为字符串
 
 		// Set the URL to request
-		curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/cluster");
+		sprintf(url, "%s/cluster", vmpool_url);
+		curl_easy_setopt(curl, CURLOPT_URL, url);
 		curl_easy_setopt(curl, CURLOPT_POST, 1L); // 设置为POST请求
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data); // 设置POST数据
 
@@ -468,10 +473,13 @@ releaseSegmentConfigs(void)
 
 		cJSON_AddItemToObject(root, "executors", executorList);
 
+		char url[MAXFNAMELEN];
 		char *json_data = cJSON_Print(root); // 将JSON对象转换为字符串
 
+
 		// Set the URL to request
-		curl_easy_setopt(curl, CURLOPT_URL, "http://127.0.0.1:5000/release");
+		sprintf(url, "%s/release", vmpool_url);
+		curl_easy_setopt(curl, CURLOPT_URL, url);
 		curl_easy_setopt(curl, CURLOPT_POST, 1L); // 设置为POST请求
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data); // 设置POST数据
 
