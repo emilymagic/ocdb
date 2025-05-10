@@ -3575,13 +3575,24 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-			{"catalog_server_port", PGC_BACKEND, GP_WORKER_IDENTITY,
-			gettext_noop("Sets the shell command that will be called to archive a WAL file."),
+		{"catalog_server_port", PGC_BACKEND, GP_WORKER_IDENTITY,
+			gettext_noop("The port of catalog server."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
 		},
 		&cs_port,
 		"5432",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"catalog_server_host", PGC_BACKEND, GP_WORKER_IDENTITY,
+			gettext_noop("The host of catalog server."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&cs_host_name,
+		"localhost",
 		NULL, NULL, NULL
 	},
 

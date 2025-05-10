@@ -56,6 +56,7 @@ extern bool accessTile;
 extern PGconn	*csConn;
 extern bool errorFromCatalogServer;
 extern char *cs_port;
+extern char *cs_host_name;
 
 typedef struct CdbCatalogAuxNode CdbCatalogAuxNode;
 
