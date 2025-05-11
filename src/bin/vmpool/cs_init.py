@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import time
 import remote_command
 import uuid
 
@@ -14,6 +15,7 @@ def init_catalog_server(hostname, port, datadir, s3_url):
 
     catalog_server_id = uuid.uuid4()
     remote_command.create_minio_bucket("dbdata-%s" % str(catalog_server_id), s3_url)
+    time.sleep(10)
     cmd = "%s/bin/initdb -D %s" %(gp_home, datadir)
     print("cmd: %s\n" % cmd)
     remote_command.command_run(cmd, hostname)
