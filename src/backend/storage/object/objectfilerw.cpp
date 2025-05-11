@@ -27,20 +27,19 @@ typedef struct S3Access
 } S3Access;
 
 extern int myClusterId;
-extern int CatalogServerId;
+extern char *CatalogServerId;
 
 char default_bucket_name[NAMEDATALEN];
-int	bucket_id = 0;
+char *bucket_id = NULL;
 char *s3_url = "127.0.0.1:9000";
 char s3_url_data[NAMEDATALEN];
 
 static void  SetCofig(ClientConfiguration *conf);
 
 void
-S3SetBucketId(int id)
+S3SetBucketId(char *id)
 {
-	bucket_id = id;
-	sprintf(default_bucket_name, "dbdata%d", bucket_id);
+	sprintf(default_bucket_name, "dbdata-%s", id);
 }
 
 void *
@@ -60,7 +59,6 @@ S3InitAccess()
 	if (myClusterId == 0)
 	{
 		S3SetBucketId(CatalogServerId);
-		sprintf(default_bucket_name, "dbdata%d", bucket_id);
 	}
 
 	return static_cast<void*>(s3client);
