@@ -365,7 +365,7 @@ bool		gp_cost_hashjoin_chainwalk = false;
  */
 GpId		GpIdentity = {UNINITIALIZED_GP_IDENTITY_VALUE, UNINITIALIZED_GP_IDENTITY_VALUE};
 int			myClusterId = 0;
-int			CatalogServerId = 0;
+char	   *CatalogServerId = NULL;
 int			sessionClusterId = 0;
 int			cluster_size = 3;
 

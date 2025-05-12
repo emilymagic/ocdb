@@ -25,6 +25,7 @@
 		"block_size",
 		"bonjour",
 		"bonjour_name",
+		"catalog_server_host",
 		"catalog_server_id",
 		"catalog_server_port",
 		"check_function_bodies",

@@ -37,7 +37,7 @@ typedef struct CatConnectOptions
 	bool		quiet;
 
 	char	   *dbname;
-	char	   *hostname;
+	char	   *host;
 	char	   *port;
 	char	   *username;
 } CatConnectOptions;
@@ -57,6 +57,7 @@ bool accessTile = false;
 PGconn	*csConn = NULL;
 bool errorFromCatalogServer = false;
 char *cs_port;
+char *cs_host_name;
 
 static bytea *cstring_to_bytea(char *inputText);
 static CcPrintUp *cc_printup_create_DR(PGresAttDesc *attDescs, int nattr,
@@ -70,7 +71,7 @@ static void
 SetConnOptions(CatConnectOptions *options)
 {
 	options->dbname = NULL;
-	options->hostname = NULL;
+	options->host = cs_host_name;
 	options->port = cs_port;
 
 	options->username = NULL;
@@ -162,35 +163,13 @@ cc_conn(char *dbname)
 	 */
 	do
 	{
-#define PARAMS_ARRAY_SIZE	7
-
-		const char *keywords[PARAMS_ARRAY_SIZE];
-		const char *values[PARAMS_ARRAY_SIZE];
-
-		keywords[0] = "host";
-		values[0] = my_opts.hostname;
-		keywords[1] = "port";
-		values[1] = my_opts.port;
-		keywords[2] = "user";
-		values[2] = my_opts.username;
-		keywords[3] = "password";
-		values[3] = have_password ? password : NULL;
-		keywords[4] = "dbname";
-		if (dbname)
-			values[4] = dbname;
-		else
-			values[4] = "postgres";
-		keywords[5] = "fallback_application_name";
-		values[5] = "postgres";
-		keywords[6] = "client_encoding";
-		values[6] = ((!isatty(fileno(stdin)) || !isatty(fileno(stdout))) || getenv("PGCLIENTENCODING")) ? NULL : "auto";
-		keywords[7] = NULL;
-		values[7] = NULL;
+		char conninfo[1024];
 
 		putenv("PGOPTIONS=-c gp_role=utility");
 
-		new_pass = false;
-		conn = PQconnectdbParams(keywords, values, true);
+		snprintf(conninfo, 1024, "host=%s port=%s dbname=%s",
+				 my_opts.host, my_opts.port, dbname);
+		conn = PQconnectdb(conninfo);
 
 		if (!conn)
 		{
