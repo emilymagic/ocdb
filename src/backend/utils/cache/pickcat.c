@@ -438,6 +438,10 @@ PickGpSegInfo(void)
 {
 	int			total_dbs = 0;
 	GpSegConfigEntry *entrys = NULL;
+
+	if (strcmp(vmpool_url, "") == 0)
+		return;
+
 	entrys = readGpSegConfigFromCatalog(&total_dbs);
 }
 
@@ -497,12 +501,15 @@ PickBaseCatalog(void)
 	MemoryContext oldCtx;
 	CdbCatalogNode *catalogNode;
 
-	initCatalogContext = AllocSetContextCreate(TopMemoryContext,
-											   "initCatalogContext",
-											   ALLOCSET_DEFAULT_SIZES);
+	if (IsBootstrapProcessingMode())
+		return;
 
 	if (!DataDispatcherActive())
 		return;
+
+	initCatalogContext = AllocSetContextCreate(TopMemoryContext,
+											   "initCatalogContext",
+											   ALLOCSET_DEFAULT_SIZES);
 
 	PickGpSegInfo();
 	PickCurrentRole();

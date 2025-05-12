@@ -4354,7 +4354,7 @@ static struct config_string ConfigureNamesString[] =
 			GUC_IS_NAME
 		},
 		&vmpool_url,
-		"http://127.0.0.1:5000",
+		"",
 		NULL, NULL, NULL
 	},
 
