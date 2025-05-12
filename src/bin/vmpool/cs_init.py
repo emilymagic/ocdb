@@ -14,7 +14,7 @@ def init_catalog_server(hostname, port, datadir, s3_url):
         sys.exit(1)
 
     catalog_server_id = uuid.uuid4()
-    remote_command.create_minio_bucket("dbdata-%s" % str(catalog_server_id), s3_url)
+    remote_command.create_minio_bucket("dbdata-%s" % catalog_server_id.hex, s3_url)
     time.sleep(10)
     cmd = "%s/bin/initdb -D %s" %(gp_home, datadir)
     print("cmd: %s\n" % cmd)
@@ -24,8 +24,10 @@ def init_catalog_server(hostname, port, datadir, s3_url):
     remote_command.add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "gp_contentid=-1")
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "gp_dbid=1")
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir,
-                                    "catalog_server_id=%s" % str(catalog_server_id))
+                                    "catalog_server_id='%s'" % catalog_server_id.hex)
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "s3_url=%s" % s3_url)
+    remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir,
+                     "vmpool_url=http://%s:%d" % (remote_command.vmpool_hostname, remote_command.vmpool_port))
 
     cmd= ("AWS_EC2_METADATA_DISABLED='true' PGOPTIONS='-c gp_role=utility -c default_table_access_method=heap'"
           " PGPORT=%d %s/bin/pg_ctl -D %s -l logfile start") % (port, gp_home, datadir)
