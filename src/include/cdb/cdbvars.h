@@ -734,7 +734,7 @@ typedef struct GpId
  */
 extern GpId GpIdentity;
 extern int myClusterId;
-extern int CatalogServerId;
+extern char *CatalogServerId;
 extern int sessionClusterId;
 extern int cluster_size;
 
