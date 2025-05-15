@@ -20,7 +20,7 @@ def init_catalog_server(hostname, port, datadir, s3_url):
     print("cmd: %s\n" % cmd)
     remote_command.command_run(cmd, hostname)
 
-
+    remote_command.add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "listen_addresses=\'*\'")
     remote_command.add_text_to_file(hostname, "%s/postgresql.conf" % datadir, "gp_contentid=-1")
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "gp_dbid=1")
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir,
@@ -28,6 +28,10 @@ def init_catalog_server(hostname, port, datadir, s3_url):
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir, "s3_url=%s" % s3_url)
     remote_command.add_text_to_file(hostname, "%s/internal.auto.conf" % datadir,
                      "vmpool_url=http://%s:%d" % (remote_command.vmpool_hostname, remote_command.vmpool_port))
+    remote_command.add_text_to_file(hostname, "%s/pg_hba.conf" % datadir,
+                                    "host    all       all    0.0.0.0/0       trust")
+    remote_command.add_text_to_file(hostname, "%s/pg_hba.conf" % datadir,
+                                    "host    all       all    ::/0            trust")
 
     cmd= ("AWS_EC2_METADATA_DISABLED='true' PGOPTIONS='-c gp_role=utility -c default_table_access_method=heap'"
           " PGPORT=%d %s/bin/pg_ctl -D %s -l logfile start") % (port, gp_home, datadir)
