@@ -19,7 +19,7 @@ NUM_PRIMARY_MIRROR_PAIRS ?= 7
 MAX_LOAD ?= 10
 HOSTNAME := $(shell hostname | tr -d '\n')
 CURRENT_DIR := $(shell pwd)
-S3_URL := 'http://127.0.0.1:9000'
+S3_URL := 'http://gpadmin:9000'
 
 export DEMO_PORT_BASE=$(PORT_BASE)
 export CATALOG_PORT=5432
