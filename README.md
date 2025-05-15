@@ -126,3 +126,44 @@ source gpdemo-env.sh
 cd src/test/regress_tile
 make installcheck-parallel
 ```
+
+## Make a real distributed cluster
+
+### Configuring the installation environment
+1. init 2 hosts with Ubuntu
+2. make and install the codes in each host
+3. Configure password-free ssh access between two machines
+4. Update the host file
+```
+192.168.103.129 gpadmin
+192.168.103.130 gpadmin2
+```
+
+### deploy the vmpool in 2 hosts gpadmin and gpadmin2
+```
+source ~/gpdb/greenplum_path.sh
+. ~/venv/bin/activate
+nohup pool &
+pool_init_instance gpadmin 7002 /home/gpadmin/ocdb/gpAux/gpdemo/datadirs/vmpool/dbfast1 10
+pool_init_instance gpadmin 7003 /home/gpadmin/ocdb/gpAux/gpdemo/datadirs/vmpool/dbfast2 10
+pool_init_instance gpadmin2 7004 /home/gpadmin/ocdb/gpAux/gpdemo/datadirs/vmpool/dbfast1 10
+```
+
+### deploy the 2 catalog server
+```
+cs_init gpadmin 5432 /home/gpadmin/ocdb/gpAux/gpdemo/datadirs/catalog http://gpadmin:9000
+cs_init gpadmin 5433 /home/gpadmin/ocdb/gpAux/gpdemo/datadirs/catalog2 http://gpadmin:9000
+```
+
+### access the first catalog server
+```
+export PGPORT=7002
+PGOPTIONS='-c catalog_server_host=gpadmin -c catalog_server_port=5432' psql -l
+```
+
+### access the second catalog server
+```
+export PGPORT=7003
+PGOPTIONS='-c catalog_server_host=gpadmin -c catalog_server_port=5433' psql -l
+```
+
